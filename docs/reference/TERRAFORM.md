@@ -2,7 +2,7 @@
 
 # Terraform module
 
-[`terraform/devcontainer-build`](https://github.com/alexanderilyin/devcontainer-builder/tree/main/terraform/devcontainer-build)
+[`terraform/devcontainer-build`](https://github.com/DeepSpaceCartel/devcontainer-builder/tree/main/terraform/devcontainer-build)
 calls an already-running devcontainer-builder instance's
 [`POST /build`](API.md#post-build) and exposes the pushed image
 reference as an output — the module deploys nothing itself. It's a
