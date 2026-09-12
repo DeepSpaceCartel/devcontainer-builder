@@ -1,3 +1,0 @@
-/terraform-provider-devcontainerbuilder
-examples/local/.terraform*
-examples/local/terraform.tfstate*
