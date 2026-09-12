@@ -5,7 +5,7 @@
 ## Prerequisites
 
 Opening this repo in the provided
-[`.devcontainer/`](https://github.com/alexanderilyin/devcontainer-builder/tree/main/.devcontainer)
+[`.devcontainer/`](https://github.com/DeepSpaceCartel/devcontainer-builder/tree/main/.devcontainer)
 (VS Code Dev Containers, or any Dev Container-compatible tool) gets you
 everything below for free — its `postCreateCommand.sh` installs Helm,
 Terraform, the GitHub CLI, `kubectl`, the Docker CLI + `buildx` plugin,

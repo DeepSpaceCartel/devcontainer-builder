@@ -11,7 +11,7 @@ rejected or superseded decision — a reference to "ADR-0003" always
 points at the same file.
 
 This is a different kind of document from
-[`docs/claude/plans/`](https://github.com/alexanderilyin/devcontainer-builder/tree/main/docs/claude/plans):
+[`docs/claude/plans/`](https://github.com/DeepSpaceCartel/devcontainer-builder/tree/main/docs/claude/plans):
 a plan is written *before* a change lands, to think through how to make
 it; an ADR is a durable record of a decision *already made*, kept
 accurate after the fact (superseded by a new ADR when circumstances

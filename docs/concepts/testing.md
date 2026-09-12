@@ -24,9 +24,9 @@ scenario in this suite is written so a failure means the *real*
 behavior changed, not that a mock's assumptions did. Concretely: SSH
 credential scenarios run against a real, disposable `git-daemon`/`git
 http-backend`/`sshd` fixture
-([`charts/test-git-server`](https://github.com/alexanderilyin/devcontainer-builder/tree/main/charts/test-git-server)),
+([`charts/test-git-server`](https://github.com/DeepSpaceCartel/devcontainer-builder/tree/main/charts/test-git-server)),
 registry scenarios push to a real, disposable registry
-([`charts/test-registry`](https://github.com/alexanderilyin/devcontainer-builder/tree/main/charts/test-registry)),
+([`charts/test-registry`](https://github.com/DeepSpaceCartel/devcontainer-builder/tree/main/charts/test-registry)),
 and every build scenario runs a real `docker buildx build --push`
 against a real BuildKit daemon.
 

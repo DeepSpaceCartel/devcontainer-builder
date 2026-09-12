@@ -44,7 +44,7 @@ Feature: The chart-rendered settings file
       | endpoint | tcp://buildkit-buildkit-service.buildkit.svc.cluster.local:1234 |
     When I create Docker Buildx Builder known as "<Builder>"
     Then the command exited with 0
-    When I build and push "ghcr.io/alexanderilyin/devcontainer-builder-test:test" from "." using Docker Buildx Builder known as "<Builder>" with:
+    When I build and push "ghcr.io/deepspacecartel/devcontainer-builder-test:test" from "." using Docker Buildx Builder known as "<Builder>" with:
       | OPTION | VALUE |
     Then the command exited with 0
 
@@ -61,7 +61,7 @@ Feature: The chart-rendered settings file
     When I upgrade Helm Release known as "<Release>" with:
       | OPTION             | VALUE                                                              |
       | --install          | True                                                               |
-      | --set              | image.repository=ghcr.io/alexanderilyin/devcontainer-builder-test |
+      | --set              | image.repository=ghcr.io/deepspacecartel/devcontainer-builder-test |
       | --set              | image.tag=test                                                     |
       | --set              | image.pullPolicy=Always                                            |
       | --set              | buildkit.endpoint=tcp://buildkit.example:1234                      |
@@ -106,7 +106,7 @@ Feature: The chart-rendered settings file
     When I upgrade Helm Release known as "<Release>" with:
       | OPTION     | VALUE                                                                                                                       |
       | --install  | True                                                                                                                        |
-      | --set      | image.repository=ghcr.io/alexanderilyin/devcontainer-builder-test                                                          |
+      | --set      | image.repository=ghcr.io/deepspacecartel/devcontainer-builder-test                                                          |
       | --set      | image.tag=test                                                                                                              |
       | --set      | image.pullPolicy=Always                                                                                                    |
       | --set-json | extraVolumes=[{"name":"bad-settings","configMap":{"name":"bad-settings-json-w<WorkerId>"}}]                                |
@@ -146,7 +146,7 @@ Feature: The chart-rendered settings file
     When I upgrade Helm Release known as "<Release>" with:
       | OPTION     | VALUE                                                                                                                     |
       | --install  | True                                                                                                                      |
-      | --set      | image.repository=ghcr.io/alexanderilyin/devcontainer-builder-test                                                        |
+      | --set      | image.repository=ghcr.io/deepspacecartel/devcontainer-builder-test                                                        |
       | --set      | image.tag=test                                                                                                            |
       | --set      | image.pullPolicy=Always                                                                                                  |
       | --set-json | extraVolumes=[{"name":"bad-settings","configMap":{"name":"bad-settings-yaml-w<WorkerId>"}}]                              |
@@ -186,7 +186,7 @@ Feature: The chart-rendered settings file
     When I upgrade Helm Release known as "<Release>" with:
       | OPTION     | VALUE                                                                                                                       |
       | --install  | True                                                                                                                        |
-      | --set      | image.repository=ghcr.io/alexanderilyin/devcontainer-builder-test                                                          |
+      | --set      | image.repository=ghcr.io/deepspacecartel/devcontainer-builder-test                                                          |
       | --set      | image.tag=test                                                                                                              |
       | --set      | image.pullPolicy=Always                                                                                                    |
       | --set-json | extraVolumes=[{"name":"bad-settings","configMap":{"name":"bad-settings-not-object-w<WorkerId>"}}]                          |
@@ -226,7 +226,7 @@ Feature: The chart-rendered settings file
     When I upgrade Helm Release known as "<Release>" with:
       | OPTION     | VALUE                                                                                                                       |
       | --install  | True                                                                                                                        |
-      | --set      | image.repository=ghcr.io/alexanderilyin/devcontainer-builder-test                                                          |
+      | --set      | image.repository=ghcr.io/deepspacecartel/devcontainer-builder-test                                                          |
       | --set      | image.tag=test                                                                                                              |
       | --set      | image.pullPolicy=Always                                                                                                    |
       | --set-json | extraVolumes=[{"name":"bad-settings","configMap":{"name":"bad-settings-wrong-type-w<WorkerId>"}}]                          |
@@ -283,7 +283,7 @@ Feature: The chart-rendered settings file
     When I upgrade Helm Release known as "<Release>" with:
       | OPTION     | VALUE                                                                                                                       |
       | --install  | True                                                                                                                        |
-      | --set      | image.repository=ghcr.io/alexanderilyin/devcontainer-builder-test                                                          |
+      | --set      | image.repository=ghcr.io/deepspacecartel/devcontainer-builder-test                                                          |
       | --set      | image.tag=test                                                                                                              |
       | --set      | image.pullPolicy=Always                                                                                                    |
       | --set      | gitCredentials.enabled=false                                                                                                |

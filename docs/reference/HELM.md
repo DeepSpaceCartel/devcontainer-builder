@@ -2,11 +2,11 @@
 
 # Helm chart
 
-[`charts/devcontainer-builder`](https://github.com/alexanderilyin/devcontainer-builder/tree/main/charts/devcontainer-builder)
+[`charts/devcontainer-builder`](https://github.com/DeepSpaceCartel/devcontainer-builder/tree/main/charts/devcontainer-builder)
 deploys a single-replica `Deployment` + `ClusterIP` `Service` — no
 autoscaling or `Ingress` by design; this is an in-cluster-only caller
 service, not a public one. Every value below is the chart's own real
-[`values.yaml`](https://github.com/alexanderilyin/devcontainer-builder/blob/main/charts/devcontainer-builder/values.yaml).
+[`values.yaml`](https://github.com/DeepSpaceCartel/devcontainer-builder/blob/main/charts/devcontainer-builder/values.yaml).
 
 ```bash
 helm lint charts/devcontainer-builder

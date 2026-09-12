@@ -2,7 +2,7 @@
 
 # CI
 
-[`.github/workflows/ci.yaml`](https://github.com/alexanderilyin/devcontainer-builder/blob/main/.github/workflows/ci.yaml)
+[`.github/workflows/ci.yaml`](https://github.com/DeepSpaceCartel/devcontainer-builder/blob/main/.github/workflows/ci.yaml)
 runs three independent jobs on every push to `main` and every pull
 request — none of them run the real BDD suite (it needs a real cluster;
 see [Running the tests](testing.md)'s prerequisites), so it isn't a CI
@@ -18,6 +18,6 @@ job today.
 
 - The real BDD suite, since it needs a live cluster.
 - A `mkdocs build --strict` check for this documentation site — see the
-  [`mkdocs` skill](https://github.com/alexanderilyin/devcontainer-builder/tree/main/.agents/skills/mkdocs)'s
+  [`mkdocs` skill](https://github.com/DeepSpaceCartel/devcontainer-builder/tree/main/.agents/skills/mkdocs)'s
   own guidance on wiring that in as a job scoped to `docs/**`/`mkdocs.yml`
   changes, paired with a separate deploy-on-merge job.

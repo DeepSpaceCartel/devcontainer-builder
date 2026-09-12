@@ -85,7 +85,7 @@ flowchart TD
 ## Startup and shutdown
 
 `index.ts` is the real entrypoint (see the
-[Dockerfile](https://github.com/alexanderilyin/devcontainer-builder/blob/main/service/Dockerfile)'s
+[Dockerfile](https://github.com/DeepSpaceCartel/devcontainer-builder/blob/main/service/Dockerfile)'s
 `ENTRYPOINT`). It registers `uncaughtException`/`unhandledRejection`
 handlers *before* dynamically importing `server.ts` — startup
 misconfiguration (a bad settings file, an unrecognized CLI flag, an

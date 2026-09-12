@@ -55,10 +55,10 @@ block — tests are currently limited to variable-validation failures
 HTTP round trip.
 
 This exact limitation is the motivation for a companion **Terraform
-provider** — [`provider/`](https://github.com/alexanderilyin/devcontainer-builder/tree/main/provider),
+provider** — [`terraform-provider-devcontainer-builder`](https://github.com/DeepSpaceCartel/terraform-provider-devcontainer-builder),
 a `devcontainerbuilder_build` *resource* instead of a `data` source, so the
-build only runs on `apply`, and only when there's an actual diff. See
-[`provider/README.md`](https://github.com/alexanderilyin/devcontainer-builder/tree/main/provider/README.md).
+build only runs on `apply`, and only when there's an actual diff. See that
+repo's [`README.md`](https://github.com/DeepSpaceCartel/terraform-provider-devcontainer-builder/blob/main/README.md).
 Both are meant to coexist for now — this module isn't being replaced.
 
 ## The one real precondition

@@ -7,7 +7,8 @@ Date: 2026-09-12
 
 ## Context
 
-A Terraform **provider** (`provider/`) was built alongside the existing
+A Terraform **provider** ([`terraform-provider-devcontainer-builder`](https://github.com/DeepSpaceCartel/terraform-provider-devcontainer-builder),
+its own repo) was built alongside the existing
 `terraform/devcontainer-build` module, wrapping `POST /build` as a
 `devcontainerbuilder_build` resource instead of a `data "http"` source — so
 a build only runs on `apply`, not on every `plan` (see

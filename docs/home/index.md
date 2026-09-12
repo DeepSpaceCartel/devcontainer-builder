@@ -102,11 +102,11 @@ same way it already calls out to Kubernetes to provision a
 
 ## Layout
 
-- [`service/`](https://github.com/alexanderilyin/devcontainer-builder/tree/main/service) —
+- [`service/`](https://github.com/DeepSpaceCartel/devcontainer-builder/tree/main/service) —
   the HTTP service documented on this site.
-- [`charts/devcontainer-builder/`](https://github.com/alexanderilyin/devcontainer-builder/tree/main/charts/devcontainer-builder) —
+- [`charts/devcontainer-builder/`](https://github.com/DeepSpaceCartel/devcontainer-builder/tree/main/charts/devcontainer-builder) —
   the Helm chart that deploys it (see the [reference](../reference/HELM.md)).
-- [`terraform/devcontainer-build/`](https://github.com/alexanderilyin/devcontainer-builder/tree/main/terraform/devcontainer-build) —
+- [`terraform/devcontainer-build/`](https://github.com/DeepSpaceCartel/devcontainer-builder/tree/main/terraform/devcontainer-build) —
   the Terraform module a Workspace Template calls (see the
   [reference](../reference/TERRAFORM.md)).
 

@@ -24,11 +24,11 @@ cd terraform/devcontainer-build && terraform fmt -check -diff
 cd terraform/devcontainer-build && terraform validate
 cd terraform/devcontainer-build && terraform test    # Offline; see note in build.tftest.hcl
 
-# provider/ (Terraform provider, Go)
-cd provider && go build ./...
-cd provider && go vet ./...
-cd provider && go build -o "$(go env GOPATH)/bin/terraform-provider-devcontainerbuilder" .   # then use via ~/.terraformrc dev_overrides, see provider/README.md
 ```
+
+The Terraform provider (`devcontainerbuilder_build` resource) lives in its
+own repo, [DeepSpaceCartel/terraform-provider-devcontainer-builder](https://github.com/DeepSpaceCartel/terraform-provider-devcontainer-builder) —
+not in this one. See that repo's `README.md` for its build/dev commands.
 
 Node/npm are not guaranteed to be present in every environment this repo is
 worked in — if `npm`/`node` aren't on PATH, say so rather than assuming the
@@ -49,11 +49,13 @@ TypeScript compiles; ask the user to verify or run it themselves.
   Template consumes. Calls the already-running service over HTTP
   (`data "http"`, POST + JSON body) and outputs the built `image`. Does not
   deploy anything itself.
-- `provider/` — a Go Terraform provider wrapping the same service as a
-  `devcontainerbuilder_build` *resource* instead of a `data` source, so a
-  build only runs on `apply`. Coexists with the module (see `provider/README.md`
-  and [ADR-0008](docs/decisions/0008-image-existence-and-deletion-endpoints.md)).
-  Unpublished — local-only via `dev_overrides`.
+- The Terraform **provider** (`devcontainerbuilder_build` resource, wrapping
+  the same service instead of `data "http"` so a build only runs on
+  `apply`) is **not** part of this repo — it's split out into
+  [DeepSpaceCartel/terraform-provider-devcontainer-builder](https://github.com/DeepSpaceCartel/terraform-provider-devcontainer-builder).
+  Coexists with the module. See [ADR-0008](docs/decisions/0008-image-existence-and-deletion-endpoints.md)
+  for the `GET`/`DELETE /image` endpoints it depends on. Unpublished —
+  local-only via `dev_overrides`.
 
 ## Conventions
 

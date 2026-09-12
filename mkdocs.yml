@@ -1,8 +1,8 @@
 site_name: devcontainer-builder
 site_description: Builds a container image from a git repo's .devcontainer.json via a remote BuildKit builder, for Coder Workspace Templates on Kubernetes.
 site_url: https://alexander.ilyin.eu/devcontainer-builder/
-repo_url: https://github.com/alexanderilyin/devcontainer-builder
-repo_name: alexanderilyin/devcontainer-builder
+repo_url: https://github.com/DeepSpaceCartel/devcontainer-builder
+repo_name: DeepSpaceCartel/devcontainer-builder
 edit_uri: edit/main/docs/
 
 nav:

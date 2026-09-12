@@ -127,7 +127,7 @@ Feature: Registry push authentication
       | endpoint | tcp://buildkit-buildkit-service.buildkit.svc.cluster.local:1234 |
     When I create Docker Buildx Builder known as "<Builder>"
     Then the command exited with 0
-    When I build and push "ghcr.io/alexanderilyin/devcontainer-builder-test:test" from "." using Docker Buildx Builder known as "<Builder>" with:
+    When I build and push "ghcr.io/deepspacecartel/devcontainer-builder-test:test" from "." using Docker Buildx Builder known as "<Builder>" with:
       | OPTION | VALUE |
     Then the command exited with 0
 
@@ -144,7 +144,7 @@ Feature: Registry push authentication
     When I upgrade Helm Release known as "<Release>" with:
       | OPTION             | VALUE                                                              |
       | --install          | True                                                               |
-      | --set              | image.repository=ghcr.io/alexanderilyin/devcontainer-builder-test |
+      | --set              | image.repository=ghcr.io/deepspacecartel/devcontainer-builder-test |
       | --set              | image.tag=test                                                     |
       | --set              | image.pullPolicy=Always                                            |
       | --set              | buildkit.endpoint=<BuildkitEndpoint>                               |
@@ -188,7 +188,7 @@ Feature: Registry push authentication
     When I upgrade Helm Release known as "<Release>" with:
       | OPTION             | VALUE                                                              |
       | --install          | True                                                               |
-      | --set              | image.repository=ghcr.io/alexanderilyin/devcontainer-builder-test |
+      | --set              | image.repository=ghcr.io/deepspacecartel/devcontainer-builder-test |
       | --set              | image.tag=test                                                     |
       | --set              | image.pullPolicy=Always                                            |
       | --set              | buildkit.endpoint=<BuildkitEndpoint>                               |
@@ -235,7 +235,7 @@ Feature: Registry push authentication
     When I upgrade Helm Release known as "<Release>" with:
       | OPTION             | VALUE                                                              |
       | --install          | True                                                               |
-      | --set              | image.repository=ghcr.io/alexanderilyin/devcontainer-builder-test |
+      | --set              | image.repository=ghcr.io/deepspacecartel/devcontainer-builder-test |
       | --set              | image.tag=test                                                     |
       | --set              | image.pullPolicy=Always                                            |
       | --set              | buildkit.endpoint=<BuildkitEndpoint>                               |
@@ -285,7 +285,7 @@ Feature: Registry push authentication
     When I upgrade Helm Release known as "<Release>" with:
       | OPTION             | VALUE                                                              |
       | --install          | True                                                               |
-      | --set              | image.repository=ghcr.io/alexanderilyin/devcontainer-builder-test |
+      | --set              | image.repository=ghcr.io/deepspacecartel/devcontainer-builder-test |
       | --set              | image.tag=test                                                     |
       | --set              | image.pullPolicy=Always                                            |
       | --set              | buildkit.endpoint=<BuildkitEndpoint>                               |
@@ -329,7 +329,7 @@ Feature: Registry push authentication
     When I upgrade Helm Release known as "<Release>" with:
       | OPTION             | VALUE                                                              |
       | --install          | True                                                               |
-      | --set              | image.repository=ghcr.io/alexanderilyin/devcontainer-builder-test |
+      | --set              | image.repository=ghcr.io/deepspacecartel/devcontainer-builder-test |
       | --set              | image.tag=test                                                     |
       | --set              | image.pullPolicy=Always                                            |
       | --set              | buildkit.endpoint=<BuildkitEndpoint>                               |
@@ -379,7 +379,7 @@ Feature: Registry push authentication
     When I upgrade Helm Release known as "<Release>" with:
       | OPTION             | VALUE                                                              |
       | --install          | True                                                               |
-      | --set              | image.repository=ghcr.io/alexanderilyin/devcontainer-builder-test |
+      | --set              | image.repository=ghcr.io/deepspacecartel/devcontainer-builder-test |
       | --set              | image.tag=test                                                     |
       | --set              | image.pullPolicy=Always                                            |
       | --set              | buildkit.endpoint=<BuildkitEndpoint>                               |
@@ -433,7 +433,7 @@ Feature: Registry push authentication
     When I upgrade Helm Release known as "<Release>" with:
       | OPTION             | VALUE                                                              |
       | --install          | True                                                               |
-      | --set              | image.repository=ghcr.io/alexanderilyin/devcontainer-builder-test |
+      | --set              | image.repository=ghcr.io/deepspacecartel/devcontainer-builder-test |
       | --set              | image.tag=test                                                     |
       | --set              | image.pullPolicy=Always                                            |
       | --set              | buildkit.endpoint=<BuildkitEndpoint>                               |
