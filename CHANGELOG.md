@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- `templates/coder-kubernetes/` — a real, runnable Coder Workspace Template
+  (adapted from the official `coder/kubernetes` registry template) where a
+  workspace-level git-repository parameter drives a real
+  `devcontainerbuilder_build` before the workspace's pod ever starts, instead
+  of a fixed image. See the new
+  [Coder Workspace Template guide](docs/guides/coder-workspace-template.md).
 - CLI/npm package: `service/` is now published to npm as
   `@deepspacecartel/devcontainer-builder`, runnable directly via
   `npx @deepspacecartel/devcontainer-builder`.
