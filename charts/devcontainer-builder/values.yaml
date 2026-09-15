@@ -14,7 +14,7 @@ podSecurityContext:
   fsGroup: 2000
 
 image:
-  repository: ghcr.io/example/devcontainer-builder
+  repository: ghcr.io/deepspacecartel/devcontainer-builder
   tag: "0.1.0"
   pullPolicy: IfNotPresent
 

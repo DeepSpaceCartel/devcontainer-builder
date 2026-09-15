@@ -74,4 +74,4 @@ BuildKit endpoint).
 
 ## License
 
-MIT (see [LICENSE](LICENSE)) - placeholder, change if you want something else.
+MIT (see [LICENSE](LICENSE)).

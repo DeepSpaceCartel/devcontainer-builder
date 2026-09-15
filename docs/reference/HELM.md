@@ -17,7 +17,7 @@ helm template charts/devcontainer-builder -f my-values.yaml
 
 | Key | Default | Notes |
 |---|---|---|
-| `image.repository` | `ghcr.io/example/devcontainer-builder` | Placeholder — set to a real, pushed image. |
+| `image.repository` | `ghcr.io/deepspacecartel/devcontainer-builder` | The real, published image — see `.github/workflows/release.yaml`. |
 | `image.tag` | `"0.1.0"` | |
 | `image.pullPolicy` | `IfNotPresent` | |
 

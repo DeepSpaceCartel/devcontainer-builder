@@ -21,6 +21,17 @@ No git credentials are needed for this walkthrough — a public
 repository clones anonymously; see
 [Credential handling](../concepts/credential-handling.md#no-credential-configured-clone-verbatim).
 
+!!! danger "Never expose this Service outside the cluster"
+    The API has no authentication of its own — see the
+    [HTTP API reference](../reference/API.md). It's designed to sit behind
+    ordinary cluster-internal networking only (the chart's `Service` is
+    `ClusterIP`, no `Ingress` — see [Helm chart](../reference/HELM.md)).
+    Anyone who can reach `POST /build` can make this service clone
+    arbitrary repositories and push arbitrary images using whatever
+    credentials it's configured with — don't put an `Ingress`/`LoadBalancer`
+    in front of it, and restrict which pods can reach it with a
+    `NetworkPolicy` if your cluster is multi-tenant.
+
 ## 1. Write a values file
 
 ```bash
@@ -34,7 +45,7 @@ base64-encoding or hand-built JSON here:
 
 ```yaml title="quickstart-values.yaml"
 image:
-  repository: ghcr.io/example/devcontainer-builder # the service's own image
+  repository: ghcr.io/deepspacecartel/devcontainer-builder # the service's own image
   tag: "0.1.0"
 
 buildkit:
