@@ -1,0 +1,332 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "test-git-server.fullname" . }}
+  labels:
+    {{- include "test-git-server.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "test-git-server.labels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "test-git-server.labels" . | nindent 8 }}
+      annotations:
+        # Kubernetes does NOT restart pods when only a referenced
+        # ConfigMap's data changes - the pod template itself is unchanged,
+        # so `helm upgrade` (even with --wait) silently no-ops on the
+        # running pod, leaving its emptyDir seeded from whatever the
+        # ConfigMap held at the pod's *original* creation time. This
+        # annotation's value changes whenever the seed ConfigMap's rendered
+        # content changes, which does change the pod template and forces a
+        # real rollout - the standard Helm idiom for this. `sshAuthorizedKey`/
+        # `tlsCert`/`tlsKey` don't need the same treatment - they're inlined
+        # directly into this pod template below (like `extraBranches`), so a
+        # value change already changes the pod template hash on its own.
+        checksum/seed-config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+    spec:
+      initContainers:
+        - name: seed-repos
+          image: "{{ .Values.images.git }}"
+          command: ["sh", "-c"]
+          args:
+            - |
+              set -e
+              {{- range .Values.seedRepos }}
+              {{- $repo := . }}
+              {{- /*
+              devcontainer.json's own spec (containers.dev) recognizes it in
+              three locations, in precedence order: .devcontainer/
+              devcontainer.json, .devcontainer.json, and .devcontainer/
+              <folder>/devcontainer.json (one sub-folder deep, <folder>
+              unspecified by the spec). configPath lets a seed repo place it
+              at any of these - defaulting to the plain root-level location
+              for repos that don't care - so a fixture repo can prove the
+              service under test (via the devcontainer CLI's own discovery)
+              actually finds the config regardless of where it lives.
+              */}}
+              {{- $configPath := .configPath | default ".devcontainer.json" }}
+              {{- if .noConfig }}
+              {{- /* Deliberately no devcontainer.json anywhere in this repo - proves the CLI's "no config found" path, not the location-discovery one. */}}
+              mkdir -p "/work/{{ .name }}"
+              echo "no devcontainer.json in this repo, deliberately" > "/work/{{ .name }}/README.md"
+              {{- else }}
+              mkdir -p "/work/{{ .name }}/$(dirname "{{ $configPath }}")"
+              cp "/seed/{{ .name }}.json" "/work/{{ .name }}/{{ $configPath }}"
+              {{- if .dockerfile }}
+              {{- /* A real Dockerfile alongside devcontainer.json, for repos whose config uses "build": {"dockerfile": ...} instead of a plain "image" reference - the CLI resolves a relative dockerfile path against the config's own directory. */}}
+              cp "/seed/{{ .name }}.Dockerfile" "/work/{{ .name }}/$(dirname "{{ $configPath }}")/Dockerfile"
+              {{- end }}
+              {{- end }}
+              git -C "/work/{{ .name }}" init -q
+              git -C "/work/{{ .name }}" -c user.email=test@test -c user.name=test add -A
+              git -C "/work/{{ .name }}" -c user.email=test@test -c user.name=test commit -q -m seed
+              mkdir -p "/repos/$(dirname "{{ .path }}")"
+              git init -q --bare --initial-branch=main "/repos/{{ .path }}"
+              # Allow push over smart HTTP too (off by default) - git-daemon
+              # gets the equivalent via --enable=receive-pack on the daemon
+              # command itself; SSH access has no such per-repo gate.
+              git -C "/repos/{{ .path }}" config http.receivepack true
+              git -C "/work/{{ .name }}" push -q "/repos/{{ .path }}" HEAD:main
+              {{- range .extraBranches }}
+              git -C "/work/{{ $repo.name }}" -c user.email=test@test -c user.name=test commit -q --allow-empty -m "extra branch {{ . }}"
+              git -C "/work/{{ $repo.name }}" push -q "/repos/{{ $repo.path }}" HEAD:{{ . }}
+              {{- end }}
+              {{- end }}
+          volumeMounts:
+            - name: repos
+              mountPath: /repos
+            - name: seed
+              mountPath: /seed
+      containers:
+        - name: git-daemon
+          # Plain alpine, not alpine/git: Alpine's base `git` apk package
+          # does not include the git-daemon binary (`git daemon` dispatches
+          # to it) - it ships in a separate `git-daemon` package, so it's
+          # installed explicitly at startup here, same pattern as git-http
+          # installing git via apt at startup.
+          #
+          # TRADEOFF: installing at startup (here and in git-http below)
+          # means every fresh pod spends real time - `apk add`/`apt-get
+          # install` over the network - before its readiness probe can pass,
+          # which shows up as transient "Unhealthy: connection refused"
+          # events (harmless, `helm --wait` correctly waits through it, but
+          # can take 10-30s+ for git-http's apt install). If startup latency
+          # or probe noise becomes a real problem, the fix is a small
+          # pre-built image (with git/git-daemon already installed) pushed
+          # to a registry, instead of installing on every pod start - this
+          # repo's own test-registry/test-buildkit fixtures could build it.
+          image: "{{ .Values.images.alpine }}"
+          command: ["sh", "-c"]
+          args:
+            - |
+              set -e
+              apk add --no-cache git git-daemon
+              # See git-ssh's wrapper script comment for why this is needed:
+              # a repo created by a different container's git (seed-repos,
+              # a different image) triggers git's "dubious ownership" check.
+              export GIT_CONFIG_COUNT=1
+              export GIT_CONFIG_KEY_0=safe.directory
+              export GIT_CONFIG_VALUE_0=*
+              exec git daemon --reuseaddr --export-all --enable=receive-pack --base-path=/repos --port={{ .Values.service.gitPort }} /repos
+          ports:
+            - name: git
+              containerPort: {{ .Values.service.gitPort }}
+          volumeMounts:
+            - name: repos
+              mountPath: /repos
+          readinessProbe:
+            tcpSocket:
+              port: git
+            initialDelaySeconds: 2
+            periodSeconds: 3
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+        - name: git-http
+          image: "{{ .Values.images.python }}"
+          command: ["sh", "-c"]
+          args:
+            - |
+              set -e
+              apt-get update && apt-get install -y --no-install-recommends git
+              mkdir -p /certs
+              cat > /certs/tls.crt <<'CERT'
+              {{- .Values.tlsCert | nindent 14 }}
+              CERT
+              cat > /certs/tls.key <<'KEY'
+              {{- .Values.tlsKey | nindent 14 }}
+              KEY
+              # A small custom handler instead of the stdlib
+              # CGIHTTPRequestHandler, for two reasons: (1) that handler only
+              # dispatches to a script under a fixed prefix directory (e.g.
+              # /cgi-bin/git-http-backend/<path>), which stutters and breaks
+              # the clean "just append /<path>" convention git:// and ssh://
+              # already have here - this dispatches *any* path directly to
+              # `git http-backend` with PATH_INFO set to the exact request
+              # path, matching that convention. (2) that handler dup2()s the
+              # CGI subprocess's stdout onto the raw connection file
+              # descriptor to stream output, which bypasses an SSL-wrapped
+              # socket entirely (confirmed: client gets "bad record type" -
+              # unencrypted bytes on what it thinks is a TLS connection).
+              # subprocess.run() + self.wfile.write() here goes through the
+              # SSL wrapper correctly, so the exact same handler serves both
+              # plain HTTP and real TLS with no separate proxy needed.
+              cat > /git_http_server.py <<'PYEOF'
+              import http.server, os, ssl, subprocess, sys
+
+              class Handler(http.server.BaseHTTPRequestHandler):
+                  def _run_cgi(self):
+                      env = os.environ.copy()
+                      env["GIT_PROJECT_ROOT"] = "/repos"
+                      env["GIT_HTTP_EXPORT_ALL"] = "1"
+                      env["GIT_CONFIG_COUNT"] = "1"
+                      env["GIT_CONFIG_KEY_0"] = "safe.directory"
+                      env["GIT_CONFIG_VALUE_0"] = "*"
+                      env["REQUEST_METHOD"] = self.command
+                      path, _, query = self.path.partition("?")
+                      env["PATH_INFO"] = path
+                      env["QUERY_STRING"] = query
+                      env["CONTENT_TYPE"] = self.headers.get("Content-Type", "")
+                      env["CONTENT_LENGTH"] = self.headers.get("Content-Length", "0")
+                      length = int(env["CONTENT_LENGTH"] or 0)
+                      body = self.rfile.read(length) if length else b""
+                      proc = subprocess.run(["git", "http-backend"], input=body, capture_output=True, env=env)
+                      headers_part, _, body_part = proc.stdout.partition(b"\r\n\r\n")
+                      status_code = 200
+                      header_lines = []
+                      for line in headers_part.split(b"\r\n"):
+                          if not line:
+                              continue
+                          if line.lower().startswith(b"status:"):
+                              status_code = int(line.split(b":", 1)[1].strip().split(b" ")[0])
+                          else:
+                              header_lines.append(line)
+                      self.send_response(status_code)
+                      for line in header_lines:
+                          k, _, v = line.partition(b":")
+                          self.send_header(k.decode(), v.decode().strip())
+                      self.end_headers()
+                      self.wfile.write(body_part)
+                      if proc.stderr:
+                          sys.stderr.write(proc.stderr.decode(errors="replace"))
+
+                  def do_GET(self):
+                      self._run_cgi()
+
+                  def do_POST(self):
+                      self._run_cgi()
+
+              class Server(http.server.HTTPServer):
+                  # HTTPServer's default shutdown_request() closes the raw
+                  # socket directly, which for an SSL-wrapped socket skips
+                  # the TLS close_notify alert entirely - curl merely warns
+                  # ("unexpected eof") but still returns the (fully
+                  # delivered) body, while git's smart-http client treats
+                  # the missing close_notify as a hard "non-properly
+                  # terminated" error and aborts, even though every byte
+                  # already arrived. unwrap() performs the real TLS-level
+                  # shutdown handshake first.
+                  def shutdown_request(self, request):
+                      if isinstance(request, ssl.SSLSocket):
+                          try:
+                              request = request.unwrap()
+                          except OSError:
+                              pass
+                      super().shutdown_request(request)
+
+              port = int(sys.argv[1])
+              server = Server(("", port), Handler)
+              if len(sys.argv) > 2 and sys.argv[2] == "tls":
+                  ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+                  ctx.load_cert_chain(certfile="/certs/tls.crt", keyfile="/certs/tls.key")
+                  server.socket = ctx.wrap_socket(server.socket, server_side=True)
+              server.serve_forever()
+              PYEOF
+              python3 /git_http_server.py 443 tls &
+              exec python3 /git_http_server.py {{ .Values.service.httpPort }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.service.httpPort }}
+            - name: https
+              containerPort: 443
+          volumeMounts:
+            - name: repos
+              mountPath: /repos
+          readinessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 3
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+        - name: git-ssh
+          image: "{{ .Values.images.alpine }}"
+          command: ["sh", "-c"]
+          args:
+            - |
+              set -e
+              apk add --no-cache openssh git
+              # A real "git" user, matching the convention every real git
+              # host (GitHub, GitLab, ...) uses for exactly this - client
+              # URLs are "git@host:...", so sshd needs an actual "git"
+              # account to log into, not just root's authorized_keys.
+              adduser -D -h /home/git -s /bin/sh git
+              # `adduser -D` locks the account (shadow password field "!")
+              # by default - sshd refuses ALL logins for a locked account,
+              # pubkey included ("account is locked"), not just password
+              # auth. Unlock it; PasswordAuthentication stays off in
+              # sshd_config's defaults regardless, so this doesn't enable
+              # password login.
+              passwd -u git
+              chown -R git:git /repos
+              ssh-keygen -A
+              cat > /usr/local/bin/git-ssh-wrapper.sh <<'SCRIPT'
+              #!/bin/sh
+              # Normalizes whatever path the client sent - absolute
+              # ("ssh://host/path", client strips nothing, path arrives with
+              # a leading /) or relative/SCP-style ("git@host:path", no
+              # leading /) - to the real on-disk location under /repos, the
+              # same technique real git hosts (GitHub, GitLab) use for their
+              # own SSH access. Keeps SSH consistent with git-daemon/
+              # git-http's existing path conventions with zero special-casing
+              # needed in test scenarios.
+              cmd=$(printf '%s' "$SSH_ORIGINAL_COMMAND" | awk '{print $1}')
+              path=$(printf '%s' "$SSH_ORIGINAL_COMMAND" | sed -E "s/^[a-z-]+ '(.*)'\$/\1/")
+              path="${path#/}"
+              export GIT_CONFIG_COUNT=1
+              export GIT_CONFIG_KEY_0=safe.directory
+              export GIT_CONFIG_VALUE_0=*
+              case "$cmd" in
+                git-upload-pack|git-receive-pack|git-upload-archive) exec "$cmd" "/repos/$path" ;;
+                *) exit 1 ;;
+              esac
+              SCRIPT
+              chmod +x /usr/local/bin/git-ssh-wrapper.sh
+              mkdir -p /home/git/.ssh
+              echo 'command="/usr/local/bin/git-ssh-wrapper.sh",no-port-forwarding,no-X11-forwarding,no-agent-forwarding,no-pty {{ .Values.sshAuthorizedKey }}' > /home/git/.ssh/authorized_keys
+              chown -R git:git /home/git/.ssh
+              chmod 700 /home/git/.ssh
+              chmod 600 /home/git/.ssh/authorized_keys
+              # MaxStartups' low default throttles/drops a share of new
+              # unauthenticated connections once too many land close
+              # together - fine for a real host's normal traffic, but a BDD
+              # run can legitimately open a dozen+ real SSH connections
+              # against this one fixture in quick succession (one real
+              # `git clone` per SSH scenario). Raised well past anything
+              # this suite does concurrently so a fast test run doesn't
+              # trip a limit that exists for unrelated abuse-prevention
+              # reasons.
+              #
+              # PerSourcePenalties (default "yes" as of OpenSSH 9.8+, which
+              # this image's `apk add openssh` pulls) temporarily bans a
+              # source IP after a failed-auth/crashed connection from it -
+              # exactly what several of this suite's *deliberately* negative
+              # SSH scenarios (wrong key, bad pin, malformed key) produce,
+              # every time, from this one client's single source IP. Left
+              # on, the fixture starts silently dropping later scenarios'
+              # perfectly legitimate connections as collateral punishment
+              # for earlier scenarios' intentional failures. Off entirely:
+              # this is an isolated, ephemeral test fixture with one known
+              # client, not a host exposed to real abuse.
+              exec /usr/sbin/sshd -D -e -o MaxStartups=100 -o PerSourcePenalties=no
+          ports:
+            - name: ssh
+              containerPort: 22
+          volumeMounts:
+            - name: repos
+              mountPath: /repos
+          readinessProbe:
+            tcpSocket:
+              port: ssh
+            initialDelaySeconds: 2
+            periodSeconds: 3
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+      volumes:
+        - name: repos
+          emptyDir: {}
+        - name: seed
+          configMap:
+            name: {{ include "test-git-server.fullname" . }}-seed

@@ -41,28 +41,33 @@ variable "git_token" {
 }
 
 variable "image_registry" {
-  description = "Destination registry/namespace to push the built image to, e.g. ghcr.io/org."
+  description = "Destination registry/namespace to push the built image to, e.g. ghcr.io/org. Leave empty to have the service resolve a registry from its repo-to-registry mapping config; the request fails if no mapping matches."
   type        = string
-  validation {
-    condition     = length(var.image_registry) > 0
-    error_message = "image_registry must not be empty."
-  }
+  default     = ""
 }
 
 variable "image_name" {
-  description = "Name of the image to push, e.g. myrepo-devcontainer."
+  description = "Name of the image to push, e.g. myrepo-devcontainer. Leave empty to have the service derive it from the repository path."
   type        = string
-  validation {
-    condition     = length(var.image_name) > 0
-    error_message = "image_name must not be empty."
-  }
+  default     = ""
 }
 
 variable "image_tag" {
-  description = "Tag to apply to the built image, e.g. a short git SHA."
+  description = "Tag to apply to the built image, e.g. a short git SHA. Leave empty to have the service derive it from the built commit's SHA."
   type        = string
-  validation {
-    condition     = length(var.image_tag) > 0
-    error_message = "image_tag must not be empty."
-  }
+  default     = ""
+}
+
+variable "registry_username" {
+  description = "Username for registry push authentication. Leave empty to use the service's ambient/server-configured registry credentials. Requires image_registry to be set."
+  type        = string
+  default     = ""
+  sensitive   = true
+}
+
+variable "registry_password" {
+  description = "Password or token for registry push authentication. Leave empty to use the service's ambient/server-configured registry credentials. Requires image_registry to be set."
+  type        = string
+  default     = ""
+  sensitive   = true
 }

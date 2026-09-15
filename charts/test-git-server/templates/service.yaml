@@ -1,0 +1,23 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "test-git-server.fullname" . }}
+  labels:
+    {{- include "test-git-server.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "test-git-server.labels" . | nindent 4 }}
+  ports:
+    - name: git
+      port: {{ .Values.service.gitPort }}
+      targetPort: git
+    - name: http
+      port: {{ .Values.service.httpPort }}
+      targetPort: http
+    - name: https
+      port: 443
+      targetPort: https
+    - name: ssh
+      port: 22
+      targetPort: ssh

@@ -1,0 +1,11 @@
+apiVersion: v2
+name: test-registry
+description: >-
+  Minimal, unauthenticated, plain-HTTP OCI registry test fixture (CNCF
+  Distribution). No persistence, no auth, no TLS - for BDD scenarios that
+  need a real registry to push a build to. Not a production chart; a
+  BuildKit instance must explicitly trust it as an insecure/HTTP registry
+  (see charts/test-git-server and the disposable-k8s-test-fixtures skill).
+type: application
+version: 0.1.0
+appVersion: "3"

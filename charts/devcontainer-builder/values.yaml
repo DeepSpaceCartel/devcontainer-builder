@@ -1,5 +1,18 @@
 replicaCount: 1
 
+# Empty means k8s's own default (RollingUpdate). Test scenarios that roll
+# to a config deliberately expected to never pass readiness need
+# `{type: Recreate}` here - otherwise the previous, still-Ready pod keeps
+# serving indefinitely instead of being replaced.
+updateStrategy: {}
+
+podSecurityContext:
+  # Must match the container image's builder user's gid (see service/Dockerfile's
+  # `useradd --uid 2000 builder`, which gets a matching gid by default) so
+  # group-readable Secret/ConfigMap volume files (e.g. git-credentials.json,
+  # mode 0440) are actually readable by the non-root container process.
+  fsGroup: 2000
+
 image:
   repository: ghcr.io/example/devcontainer-builder
   tag: "0.1.0"
@@ -18,6 +31,75 @@ registryAuth:
   # docker config JSON string below.
   existingSecret: ""
   dockerConfigJson: ""
+
+gitCredentials:
+  # Set to false to omit GIT_CREDENTIALS_CONFIG_PATH and its volume entirely
+  # (rather than pointing it at a file with an empty entries list).
+  enabled: true
+  # Server-side default git credentials, looked up by host when a request
+  # doesn't supply its own gitCredentials. Provide either an existing Secret
+  # (must contain a `git-credentials.json` key, same array shape as `entries`
+  # below) or inline entries, which get rendered into a chart-managed Secret.
+  existingSecret: ""
+  entries: []
+  # entries:
+  #   - host: github.com
+  #     kind: https
+  #     username: svc-bot
+  #     token: ghp_...
+  #   - host: gitlab.internal.example.com
+  #     kind: ssh
+  #     privateKey: |
+  #       -----BEGIN OPENSSH PRIVATE KEY-----
+  #       ...
+  #     pinnedHostKey: "gitlab.internal.example.com ssh-ed25519 AAAA..."
+
+# tofu = trust-on-first-use via ssh-keyscan at clone time; pinned = require
+# entries.[].pinnedHostKey for every SSH git credential (fails closed if
+# missing for a host using SSH creds under this policy).
+sshHostKeyPolicy: tofu
+
+registryMapping:
+  # Set to false to omit REGISTRY_MAPPING_CONFIG_PATH and its volume
+  # entirely (rather than pointing it at a file with an empty rules list).
+  enabled: true
+  # Provide either an existing ConfigMap (must contain a
+  # `registry-mapping.json` key) or inline rules below, which get rendered
+  # into a chart-managed ConfigMap.
+  existingConfigMap: ""
+  # Non-sensitive repo -> registry routing rules, used to resolve
+  # image.registry when a request omits it. First matching rule wins, rules
+  # are checked in the order given.
+  rules: []
+  # rules:
+  #   - hostMatch: github.com
+  #     pathPrefix: "org-a/"
+  #     registry: ghcr.io/org-a
+
+# Extra CLI arguments appended to the container's entrypoint (`node
+# dist/server.js <extraArgs...>`) - e.g. ["--ssh-host-key-policy", "pinned"].
+extraArgs: []
+
+# Extra container env vars, e.g. [{name: FOO, value: bar}] - appended after
+# the chart's own env entries, so this can add a var the chart doesn't
+# otherwise expose (it's the caller's job to avoid conflicting names).
+extraEnv: []
+
+# Extra pod volumes/mounts, e.g. to mount a caller-provided ConfigMap/Secret
+# at an arbitrary path (paired with extraEnv above to point an env var like
+# GIT_SSL_CAINFO at it). Appended after the chart's own volumes/mounts.
+extraVolumes: []
+extraVolumeMounts: []
+
+settingsFile:
+  # Inline content for a settings file (JSON or YAML, matching whatever
+  # SERVICE_CONFIG_PATH accepts) rendered into a chart-managed ConfigMap and
+  # mounted with SERVICE_CONFIG_PATH pointing at it. Empty string omits the
+  # env var/volume entirely.
+  content: ""
+  # config.ts picks its parser by extension (.json, .yaml, or .yml) - set
+  # this to match the format of `content` above.
+  filename: settings.json
 
 resources:
   requests:

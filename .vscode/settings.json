@@ -1,0 +1,12 @@
+{
+  "cucumber.features": [
+    "service/features/**/*.feature",
+    "sandbox2/features/**/*.feature"
+  ],
+  "cucumber.glue": [
+    "service/features/step_definitions/**/*.js",
+    "service/features/support/**/*.js",
+    "sandbox2/features/step_definitions/**/*.ts",
+    "sandbox2/features/support/**/*.ts"
+  ]
+}

@@ -1,0 +1,75 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "test-registry.fullname" . }}
+  labels:
+    {{- include "test-registry.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "test-registry.labels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "test-registry.labels" . | nindent 8 }}
+    spec:
+      {{- if .Values.auth.enabled }}
+      initContainers:
+        # registry:3 has no htpasswd binary of its own - generate the file
+        # with an image that does (httpd's) into a shared emptyDir.
+        - name: htpasswd
+          image: "{{ .Values.auth.htpasswdImage }}"
+          command: ["htpasswd", "-Bbc", "/auth/htpasswd", "{{ .Values.auth.username }}", "{{ .Values.auth.password }}"]
+          volumeMounts:
+            - name: auth
+              mountPath: /auth
+      {{- end }}
+      containers:
+        - name: registry
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 5000
+          {{- if .Values.auth.enabled }}
+          env:
+            - name: REGISTRY_AUTH
+              value: htpasswd
+            - name: REGISTRY_AUTH_HTPASSWD_REALM
+              value: "Registry Realm"
+            - name: REGISTRY_AUTH_HTPASSWD_PATH
+              value: /auth/htpasswd
+          {{- end }}
+          volumeMounts:
+            - name: storage
+              mountPath: /var/lib/registry
+            {{- if .Values.auth.enabled }}
+            - name: auth
+              mountPath: /auth
+              readOnly: true
+            {{- end }}
+          # tcpSocket rather than httpGet on /v2/: with auth enabled, an
+          # unauthenticated GET to /v2/ correctly returns 401, which a
+          # httpGet probe (2xx/3xx-only) would treat as failure.
+          readinessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 2
+            periodSeconds: 3
+          livenessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 15
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+      volumes:
+        # emptyDir on purpose: disposable test fixture, nothing pushed here
+        # needs to survive a restart.
+        - name: storage
+          emptyDir: {}
+        {{- if .Values.auth.enabled }}
+        - name: auth
+          emptyDir: {}
+        {{- end }}

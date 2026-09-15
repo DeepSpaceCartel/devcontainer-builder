@@ -1,0 +1,10 @@
+{{- if .Values.settingsFile.content }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "devcontainer-builder.fullname" . }}-settings
+  labels:
+    {{- include "devcontainer-builder.labels" . | nindent 4 }}
+data:
+  {{ .Values.settingsFile.filename }}: {{ .Values.settingsFile.content | quote }}
+{{- end }}

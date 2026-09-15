@@ -3,17 +3,24 @@ export interface GitCredentials {
   token: string;
 }
 
-export interface ImageTarget {
+export interface RegistryCredentials {
   registry: string;
-  name: string;
-  tag: string;
+  username: string;
+  password: string;
+}
+
+export interface ImageTarget {
+  registry?: string;
+  name?: string;
+  tag?: string;
 }
 
 export interface BuildRequest {
   repository: string;
-  branch: string;
+  branch?: string;
   gitCredentials?: GitCredentials;
-  image: ImageTarget;
+  image?: ImageTarget;
+  registryCredentials?: RegistryCredentials;
 }
 
 export interface BuildResponse {
