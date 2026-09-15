@@ -9,6 +9,8 @@ nav:
   - Home:
     - Welcome: home/index.md
     - Quickstart: home/quickstart.md
+  - Guides:
+      - Coder Workspace Template: guides/coder-workspace-template.md
   - Concepts:
       - Architecture: concepts/architecture.md
       - Credential handling: concepts/credential-handling.md

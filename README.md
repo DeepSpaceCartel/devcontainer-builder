@@ -25,6 +25,10 @@ out to Kubernetes to provision a PersistentVolumeClaim before the pod.
 - [`terraform/devcontainer-build/`](terraform/devcontainer-build) - a
   Terraform module that calls an already-running instance of the service and
   exposes the built image as an output, for use from a Workspace Template.
+- [`templates/coder-kubernetes/`](templates/coder-kubernetes) - a real Coder
+  Workspace Template that builds from a git URL a user types in when
+  creating a workspace. See the
+  [Coder Workspace Template guide](https://github.com/DeepSpaceCartel/devcontainer-builder/blob/main/docs/guides/coder-workspace-template.md).
 
 ## Documentation
 

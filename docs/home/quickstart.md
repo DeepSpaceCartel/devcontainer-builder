@@ -131,6 +131,13 @@ See [ADR-0003](../decisions/0003-registry-resolution-via-mapping-rules.md)
 for why this resolves server-side instead of being required on every
 request.
 
+## Using this from an actual Coder Workspace Template
+
+Everything above talks to devcontainer-builder directly, over its raw HTTP
+API. For the real end-to-end shape — a Coder user types in a git repo URL
+when creating a workspace, and a template turns that into a running pod —
+see the [Coder Workspace Template guide](../guides/coder-workspace-template.md).
+
 ## If something goes wrong
 
 A `500` response only ever contains the failing command and its exit

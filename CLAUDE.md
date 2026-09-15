@@ -59,6 +59,14 @@ TypeScript compiles; ask the user to verify or run it themselves.
   Template consumes. Calls the already-running service over HTTP
   (`data "http"`, POST + JSON body) and outputs the built `image`. Does not
   deploy anything itself.
+- `templates/coder-kubernetes/` — a real Coder Workspace Template (adapted
+  from the official `coder/kubernetes` registry template), wiring a
+  workspace-level git-repository parameter through the Terraform
+  **provider**'s `devcontainerbuilder_build` resource into
+  `kubernetes_deployment_v1.main`'s container image. Deploys neither
+  devcontainer-builder nor BuildKit itself — both are cluster-level
+  platform infrastructure this template only calls. See
+  [docs/guides/coder-workspace-template.md](docs/guides/coder-workspace-template.md).
 - The Terraform **provider** (`devcontainerbuilder_build` resource, wrapping
   the same service instead of `data "http"` so a build only runs on
   `apply`) is **not** part of this repo — it's split out into
