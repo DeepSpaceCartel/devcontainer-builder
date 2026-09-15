@@ -1,8 +1,14 @@
 node_modules/
 dist/
+.cache/
+site/
+.venv-docs/
 
 .terraform/
 .terraform.lock.hcl
 *.tfstate
 *.tfstate.*
 crash.log
+
+.agents/skills
+.claude/skills

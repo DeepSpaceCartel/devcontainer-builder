@@ -1,0 +1,19 @@
+apiVersion: v2
+name: test-namespace
+description: >-
+  Creates (or adopts) the real target namespace named in
+  `.Values.targetNamespace`, optionally labeled
+  pod-security.kubernetes.io/enforce=privileged for fixtures that need it
+  (e.g. the buildkit-service chart installed as "test-buildkit"). This
+  release itself always lives in `default` - Helm refuses to let a chart
+  own the Namespace object matching its own release's namespace
+  (confirmed live: `helm upgrade --install --create-namespace` bare-creates
+  the namespace, then fails applying the chart's own Namespace manifest
+  for that same name with "already exists", even with --take-ownership),
+  so target and home are deliberately different. Every `.feature` file
+  installs this first and uninstalls it last - real, complete
+  per-scenario namespace cleanup. Not a production chart - real
+  devcontainer-builder deployments never install this.
+type: application
+version: 0.1.0
+appVersion: "1"

@@ -1,5 +1,6 @@
 import { createServer, IncomingMessage, ServerResponse } from "node:http";
 import { buildDevcontainer, isReady, serviceConfig, BuildRequestError } from "./build.js";
+import { manifestExists, deleteManifest, RegistryUpstreamError, type RegistryAuthOverride } from "./registry-client.js";
 import type { BuildRequest } from "./types.js";
 
 function readBody(req: IncomingMessage): Promise<string> {
@@ -53,7 +54,49 @@ function isValidBuildRequest(value: unknown): value is BuildRequest {
     if (typeof creds.password !== "string" || creds.password.length === 0) return false;
   }
 
+  if (v.platforms !== undefined) {
+    if (!Array.isArray(v.platforms)) return false;
+    if (!v.platforms.every((p) => typeof p === "string" && p.length > 0)) return false;
+  }
+
+  if (v.buildOptions !== undefined) {
+    if (typeof v.buildOptions !== "object" || v.buildOptions === null) return false;
+    const opts = v.buildOptions as Record<string, unknown>;
+    if (opts.noCache !== undefined && typeof opts.noCache !== "boolean") return false;
+    if (!isNonEmptyStringIfPresent(opts.cacheFrom)) return false;
+    if (!isNonEmptyStringIfPresent(opts.cacheTo)) return false;
+    if (opts.mode !== undefined && opts.mode !== "auto" && opts.mode !== "never") return false;
+  }
+
   return true;
+}
+
+interface ImageQuery {
+  registry: string;
+  name: string;
+  tag: string;
+}
+
+function parseImageQuery(url: URL): ImageQuery | undefined {
+  const registry = url.searchParams.get("registry");
+  const name = url.searchParams.get("name");
+  const tag = url.searchParams.get("tag");
+  if (!registry || !name || !tag) return undefined;
+  return { registry, name, tag };
+}
+
+// Explicit per-call registry credentials for /image, mirroring
+// registryCredentials on /build - deliberately headers, not query params,
+// so they never land in access logs (same ADR-0002 rationale as the
+// scratch-file pattern used elsewhere for credentials). Falls back to the
+// service's ambient DOCKER_CONFIG auth (see registry-client.ts) when absent.
+function readRegistryAuthHeaders(req: IncomingMessage): RegistryAuthOverride | undefined {
+  const username = req.headers["x-registry-username"];
+  const password = req.headers["x-registry-password"];
+  if (typeof username === "string" && typeof password === "string" && username.length > 0 && password.length > 0) {
+    return { username, password };
+  }
+  return undefined;
 }
 
 const server = createServer(async (req, res) => {
@@ -73,38 +116,68 @@ const server = createServer(async (req, res) => {
     return;
   }
 
-  if (req.method !== "POST" || req.url !== "/build") {
-    sendJson(res, 404, { error: "not found" });
-    return;
-  }
+  const url = new URL(req.url ?? "/", "http://internal");
 
-  let payload: unknown;
-  try {
-    payload = JSON.parse(await readBody(req));
-  } catch {
-    sendJson(res, 400, { error: "invalid JSON body" });
-    return;
-  }
-
-  if (!isValidBuildRequest(payload)) {
-    sendJson(res, 400, {
-      error:
-        "missing or invalid fields: repository (required); branch, image.{registry,name,tag}, " +
-        "gitCredentials.{username,token}, registryCredentials.{registry,username,password} (all optional)",
-    });
-    return;
-  }
-
-  try {
-    const image = await buildDevcontainer(payload);
-    sendJson(res, 200, { image });
-  } catch (err) {
-    if (err instanceof BuildRequestError) {
-      sendJson(res, 400, { error: err.message });
-    } else {
-      sendJson(res, 500, { error: err instanceof Error ? err.message : "build failed" });
+  if (req.method === "POST" && url.pathname === "/build") {
+    let payload: unknown;
+    try {
+      payload = JSON.parse(await readBody(req));
+    } catch {
+      sendJson(res, 400, { error: "invalid JSON body" });
+      return;
     }
+
+    if (!isValidBuildRequest(payload)) {
+      sendJson(res, 400, {
+        error:
+          "missing or invalid fields: repository (required); branch, image.{registry,name,tag}, " +
+          "gitCredentials.{username,token}, registryCredentials.{registry,username,password}, " +
+          "platforms, buildOptions.{noCache,cacheFrom,cacheTo,mode} (all optional)",
+      });
+      return;
+    }
+
+    try {
+      const result = await buildDevcontainer(payload);
+      sendJson(res, 200, result);
+    } catch (err) {
+      if (err instanceof BuildRequestError) {
+        sendJson(res, 400, { error: err.message });
+      } else {
+        sendJson(res, 500, { error: err instanceof Error ? err.message : "build failed" });
+      }
+    }
+    return;
   }
+
+  if ((req.method === "GET" || req.method === "DELETE") && url.pathname === "/image") {
+    const query = parseImageQuery(url);
+    if (!query) {
+      sendJson(res, 400, { error: "missing or invalid query parameters: registry, name, tag (all required)" });
+      return;
+    }
+
+    const auth = readRegistryAuthHeaders(req);
+
+    try {
+      if (req.method === "GET") {
+        const { exists } = await manifestExists(query.registry, query.name, query.tag, auth);
+        sendJson(res, 200, { image: `${query.registry}/${query.name}:${query.tag}`, exists });
+      } else {
+        const result = await deleteManifest(query.registry, query.name, query.tag, auth);
+        sendJson(res, 200, { image: `${query.registry}/${query.name}:${query.tag}`, ...result });
+      }
+    } catch (err) {
+      if (err instanceof RegistryUpstreamError) {
+        sendJson(res, 502, { error: err.message });
+      } else {
+        sendJson(res, 502, { error: err instanceof Error ? err.message : "registry request failed" });
+      }
+    }
+    return;
+  }
+
+  sendJson(res, 404, { error: "not found" });
 });
 
 server.listen(serviceConfig.port, () => {

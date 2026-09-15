@@ -1,4 +1,3 @@
-{{- if .Values.settingsFile.content }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -6,5 +5,4 @@ metadata:
   labels:
     {{- include "devcontainer-builder.labels" . | nindent 4 }}
 data:
-  {{ .Values.settingsFile.filename }}: {{ .Values.settingsFile.content | quote }}
-{{- end }}
+  settings.json: {{ include "devcontainer-builder.settingsJson" . | quote }}

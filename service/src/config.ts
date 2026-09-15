@@ -119,6 +119,7 @@ function loadSshHostKeyPolicy(raw: string | undefined): SshHostKeyPolicy {
 // meaning here and are simply ignored if present.
 interface RawSettingsFile {
   buildkit?: { endpoint?: string };
+  build?: { platforms?: string[]; noCache?: boolean; cacheFrom?: string; cacheTo?: string; mode?: string };
   service?: { port?: number };
   sshHostKeyPolicy?: string;
   gitCredentials?: { entries?: unknown[] };
@@ -147,6 +148,42 @@ function loadSettingsFile(path: string | undefined): RawSettingsFile {
       }
       settings.buildkit = { endpoint: parsed.buildkit.endpoint };
     }
+  }
+
+  if (parsed.build !== undefined) {
+    if (!isPlainObject(parsed.build)) throw new Error(`settings file field "build" must be an object`);
+    const build: RawSettingsFile["build"] = {};
+    if (parsed.build.platforms !== undefined) {
+      if (!Array.isArray(parsed.build.platforms) || !parsed.build.platforms.every((p) => typeof p === "string")) {
+        throw new Error(`settings file field "build.platforms" must be an array of strings`);
+      }
+      build.platforms = parsed.build.platforms as string[];
+    }
+    if (parsed.build.noCache !== undefined) {
+      if (typeof parsed.build.noCache !== "boolean") {
+        throw new Error(`settings file field "build.noCache" must be a boolean`);
+      }
+      build.noCache = parsed.build.noCache;
+    }
+    if (parsed.build.cacheFrom !== undefined) {
+      if (typeof parsed.build.cacheFrom !== "string") {
+        throw new Error(`settings file field "build.cacheFrom" must be a string`);
+      }
+      build.cacheFrom = parsed.build.cacheFrom;
+    }
+    if (parsed.build.cacheTo !== undefined) {
+      if (typeof parsed.build.cacheTo !== "string") {
+        throw new Error(`settings file field "build.cacheTo" must be a string`);
+      }
+      build.cacheTo = parsed.build.cacheTo;
+    }
+    if (parsed.build.mode !== undefined) {
+      if (parsed.build.mode !== "auto" && parsed.build.mode !== "never") {
+        throw new Error(`settings file field "build.mode" must be "auto" or "never"`);
+      }
+      build.mode = parsed.build.mode;
+    }
+    settings.build = build;
   }
 
   if (parsed.service !== undefined) {
@@ -208,10 +245,22 @@ function loadCliOptions(argv: string[]) {
       "ssh-host-key-policy": { type: "string" },
       "git-credentials-config-path": { type: "string" },
       "registry-mapping-config-path": { type: "string" },
+      "build-platforms": { type: "string" },
+      "build-no-cache": { type: "boolean" },
+      "build-cache-from": { type: "string" },
+      "build-cache-to": { type: "string" },
+      "buildkit-mode": { type: "string" },
     },
     strict: true,
   });
   return values;
+}
+
+export interface DefaultBuildOptions {
+  noCache: boolean;
+  cacheFrom?: string;
+  cacheTo?: string;
+  mode: "auto" | "never";
 }
 
 export interface ServiceConfig {
@@ -221,6 +270,29 @@ export interface ServiceConfig {
   gitCredentials: GitCredentialEntry[];
   registryMappingRules: RegistryMappingRule[];
   sshHostKeyPolicy: SshHostKeyPolicy;
+  defaultPlatforms: string[];
+  defaultBuildOptions: DefaultBuildOptions;
+}
+
+function parsePlatformsList(raw: string | undefined): string[] | undefined {
+  if (raw === undefined) return undefined;
+  return raw
+    .split(",")
+    .map((p) => p.trim())
+    .filter((p) => p.length > 0);
+}
+
+function parseBooleanEnv(name: string, raw: string | undefined): boolean | undefined {
+  if (raw === undefined) return undefined;
+  if (raw === "true") return true;
+  if (raw === "false") return false;
+  throw new Error(`${name} must be "true" or "false", got ${JSON.stringify(raw)}`);
+}
+
+function loadBuildkitMode(raw: string | undefined): "auto" | "never" {
+  if (raw === undefined) return "auto";
+  if (raw === "auto" || raw === "never") return raw;
+  throw new Error(`buildkit mode must be "auto" or "never", got ${JSON.stringify(raw)}`);
 }
 
 // Precedence at every field: CLI flag > env var > settings file > default.
@@ -237,6 +309,15 @@ export function loadServiceConfig(argv: string[] = process.argv.slice(2)): Servi
     buildkitEndpoint: cli["buildkit-endpoint"] ?? process.env.BUILDKIT_ENDPOINT ?? settings.buildkit?.endpoint,
     port: Number(cli.port ?? process.env.PORT ?? settings.service?.port ?? 8080),
     buildxBuilderName: cli["buildx-builder-name"] ?? process.env.BUILDX_BUILDER_NAME ?? "devcontainer-builder-remote",
+    defaultPlatforms:
+      parsePlatformsList(cli["build-platforms"]) ?? parsePlatformsList(process.env.BUILD_PLATFORMS) ?? settings.build?.platforms ?? [],
+    defaultBuildOptions: {
+      noCache:
+        cli["build-no-cache"] ?? parseBooleanEnv("BUILD_NO_CACHE", process.env.BUILD_NO_CACHE) ?? settings.build?.noCache ?? false,
+      cacheFrom: cli["build-cache-from"] ?? process.env.BUILD_CACHE_FROM ?? settings.build?.cacheFrom,
+      cacheTo: cli["build-cache-to"] ?? process.env.BUILD_CACHE_TO ?? settings.build?.cacheTo,
+      mode: loadBuildkitMode(cli["buildkit-mode"] ?? process.env.BUILDKIT_MODE ?? settings.build?.mode),
+    },
     gitCredentials: gitCredentialsPath
       ? loadArrayConfigFile(gitCredentialsPath, isGitCredentialEntry, "git credentials")
       : validateEntries(settings.gitCredentials?.entries ?? [], isGitCredentialEntry, "git credentials"),

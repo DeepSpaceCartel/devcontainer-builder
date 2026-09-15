@@ -25,12 +25,41 @@ buildkit:
   # e.g. tcp://buildkit-buildkit-service.buildkit.svc.cluster.local:1234
   endpoint: ""
 
+build:
+  # Default target platform(s) applied when a /build request doesn't
+  # specify its own `platforms` (e.g. ["linux/amd64", "linux/arm64"]).
+  # Empty means today's behavior: no --platform flag passed, so the build
+  # runs on whatever platform the remote BuildKit worker defaults to.
+  platforms: []
+  # Default BuildKit build options applied when a request doesn't specify
+  # its own buildOptions. cacheFrom/cacheTo point at a registry-backed
+  # BuildKit layer cache (e.g. "type=registry,ref=ghcr.io/example/app:buildcache",
+  # with mode=max on cacheTo to cache every intermediate layer, not just
+  # the ones in the final image) - unset by default, same "no ambient
+  # behavior" default as buildkit.endpoint.
+  noCache: false
+  cacheFrom: ""
+  cacheTo: ""
+  mode: auto # auto | never - passed to `devcontainer build --buildkit`
+
 registryAuth:
-  # Provide either an existing Secret (must contain a `.dockerconfigjson` key,
-  # same shape as a kubernetes.io/dockerconfigjson Secret) or an inline
-  # docker config JSON string below.
+  # Name of an existing kubernetes.io/dockerconfigjson-shaped Secret. If
+  # set, `registries` below is ignored (existingSecret always wins, same
+  # relationship gitCredentials.existingSecret/entries already has).
   existingSecret: ""
-  dockerConfigJson: ""
+  # Real registry push credentials - the chart builds the full
+  # dockerconfigjson (`{"auths": {"<registry>": {"auth": "<base64
+  # user:pass>"}}}`) from this list, so nobody hand-builds or pre-encodes
+  # JSON themselves. Empty list -> {"auths":{}}, same "no ambient auth"
+  # default as before this existed.
+  registries: []
+  # registries:
+  #   - registry: https://index.docker.io/v1/ # Docker Hub's real registry host
+  #     username: svc-bot
+  #     password: hunter2
+  #   - registry: ghcr.io
+  #     username: svc-bot
+  #     password: ghp_example
 
 gitCredentials:
   # Set to false to omit GIT_CREDENTIALS_CONFIG_PATH and its volume entirely
@@ -90,16 +119,6 @@ extraEnv: []
 # GIT_SSL_CAINFO at it). Appended after the chart's own volumes/mounts.
 extraVolumes: []
 extraVolumeMounts: []
-
-settingsFile:
-  # Inline content for a settings file (JSON or YAML, matching whatever
-  # SERVICE_CONFIG_PATH accepts) rendered into a chart-managed ConfigMap and
-  # mounted with SERVICE_CONFIG_PATH pointing at it. Empty string omits the
-  # env var/volume entirely.
-  content: ""
-  # config.ts picks its parser by extension (.json, .yaml, or .yml) - set
-  # this to match the format of `content` above.
-  filename: settings.json
 
 resources:
   requests:

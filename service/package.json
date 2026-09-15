@@ -6,17 +6,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "start": "node dist/index.js",
-    "test": "npm run build && cucumber-js --import 'features/support/*.js' --import 'features/support/optional/cluster_teardown_hooks.js' --import 'features/step_definitions/**/*.js' features/*.feature",
-    "test:health": "npm run build && cucumber-js --import 'features/support/*.js' --import 'features/support/optional/cluster_teardown_hooks.js' --import 'features/step_definitions/**/*.js' features/health.feature",
-    "test:request-validation": "npm run build && cucumber-js --import 'features/support/*.js' --import 'features/support/optional/cluster_teardown_hooks.js' --import 'features/step_definitions/**/*.js' features/request_validation.feature",
-    "test:service-startup-configuration": "npm run build && cucumber-js --import 'features/support/*.js' --import 'features/support/optional/cluster_teardown_hooks.js' --import 'features/step_definitions/**/*.js' features/service_startup_configuration.feature",
-    "test:service-settings-file": "npm run build && cucumber-js --import 'features/support/*.js' --import 'features/support/optional/cluster_teardown_hooks.js' --import 'features/step_definitions/**/*.js' features/service_settings_file.feature",
-    "test:registry-auth": "npm run build && cucumber-js --import 'features/support/*.js' --import 'features/support/optional/cluster_teardown_hooks.js' --import 'features/step_definitions/**/*.js' features/registry_auth.feature",
-    "test:image-resolution": "npm run build && cucumber-js --import 'features/support/*.js' --import 'features/support/optional/cluster_teardown_hooks.js' --import 'features/step_definitions/**/*.js' features/image_resolution.feature",
-    "test:git-source-resolution": "npm run build && cucumber-js --import 'features/support/*.js' --import 'features/support/optional/cluster_teardown_hooks.js' --import 'features/step_definitions/**/*.js' features/git_source_resolution.feature",
-    "test:devcontainer-config-discovery": "npm run build && cucumber-js --import 'features/support/*.js' --import 'features/support/optional/cluster_teardown_hooks.js' --import 'features/step_definitions/**/*.js' features/devcontainer_config_discovery.feature",
-    "test:devcontainer-config-content": "npm run build && cucumber-js --import 'features/support/*.js' --import 'features/support/optional/cluster_teardown_hooks.js' --import 'features/step_definitions/**/*.js' features/devcontainer_config_content.feature",
-    "test:end-to-end-build": "npm run build && cucumber-js --import 'features/support/*.js' --import 'features/support/optional/cluster_teardown_hooks.js' --import 'features/step_definitions/**/*.js' features/end_to_end_build.feature"
+    "test": "NODE_OPTIONS='--import tsx' cucumber-js"
   },
   "dependencies": {
     "yaml": "^2.9.0"
@@ -24,6 +14,8 @@
   "devDependencies": {
     "@cucumber/cucumber": "^12.2.0",
     "@types/node": "^20.14.0",
+    "thomas": "file:../../thomas",
+    "tsx": "^4.19.0",
     "typescript": "^5.6.0"
   }
 }

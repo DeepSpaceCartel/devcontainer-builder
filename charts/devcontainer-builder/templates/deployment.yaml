@@ -28,16 +28,13 @@ spec:
         # real rollout whenever any of them change. Skipped for
         # existingSecret/existingConfigMap - that content lives outside
         # this chart's values, so triggering on it is the caller's job.
-        checksum/registry-auth: {{ (.Values.registryAuth.dockerConfigJson | default "{\"auths\":{}}") | sha256sum }}
+        {{- if not .Values.registryAuth.existingSecret }}
+        checksum/registry-auth: {{ .Values.registryAuth.registries | toJson | sha256sum }}
+        {{- end }}
         {{- if and .Values.gitCredentials.enabled (not .Values.gitCredentials.existingSecret) }}
         checksum/git-credentials: {{ .Values.gitCredentials.entries | toJson | sha256sum }}
         {{- end }}
-        {{- if and .Values.registryMapping.enabled (not .Values.registryMapping.existingConfigMap) }}
-        checksum/registry-mapping: {{ .Values.registryMapping.rules | toJson | sha256sum }}
-        {{- end }}
-        {{- if .Values.settingsFile.content }}
-        checksum/settings: {{ .Values.settingsFile.content | sha256sum }}
-        {{- end }}
+        checksum/settings: {{ include "devcontainer-builder.settingsJson" . | sha256sum }}
     spec:
       serviceAccountName: {{ include "devcontainer-builder.fullname" . }}
       securityContext:
@@ -56,26 +53,18 @@ spec:
           env:
             - name: PORT
               value: "8080"
-            {{- if .Values.buildkit.endpoint }}
-            - name: BUILDKIT_ENDPOINT
-              value: {{ .Values.buildkit.endpoint | quote }}
-            {{- end }}
             - name: DOCKER_CONFIG
               value: /home/builder/.docker
             {{- if .Values.gitCredentials.enabled }}
             - name: GIT_CREDENTIALS_CONFIG_PATH
               value: /home/builder/.config/git-credentials.json
             {{- end }}
-            {{- if .Values.registryMapping.enabled }}
+            {{- if and .Values.registryMapping.enabled .Values.registryMapping.existingConfigMap }}
             - name: REGISTRY_MAPPING_CONFIG_PATH
               value: /home/builder/.config/registry-mapping.json
             {{- end }}
-            {{- if .Values.settingsFile.content }}
             - name: SERVICE_CONFIG_PATH
-              value: /home/builder/.config/{{ .Values.settingsFile.filename }}
-            {{- end }}
-            - name: SSH_HOST_KEY_POLICY
-              value: {{ .Values.sshHostKeyPolicy | quote }}
+              value: /home/builder/.config/settings.json
             {{- if .Values.extraEnv }}
             {{- toYaml .Values.extraEnv | nindent 12 }}
             {{- end }}
@@ -96,18 +85,16 @@ spec:
               subPath: git-credentials.json
               readOnly: true
             {{- end }}
-            {{- if .Values.registryMapping.enabled }}
+            {{- if and .Values.registryMapping.enabled .Values.registryMapping.existingConfigMap }}
             - name: registry-mapping
               mountPath: /home/builder/.config/registry-mapping.json
               subPath: registry-mapping.json
               readOnly: true
             {{- end }}
-            {{- if .Values.settingsFile.content }}
             - name: settings
-              mountPath: /home/builder/.config/{{ .Values.settingsFile.filename }}
-              subPath: {{ .Values.settingsFile.filename }}
+              mountPath: /home/builder/.config/settings.json
+              subPath: settings.json
               readOnly: true
-            {{- end }}
             - name: scratch
               mountPath: /tmp
             {{- if .Values.extraVolumeMounts }}
@@ -143,16 +130,14 @@ spec:
                 path: git-credentials.json
                 mode: 0440
         {{- end }}
-        {{- if .Values.registryMapping.enabled }}
+        {{- if and .Values.registryMapping.enabled .Values.registryMapping.existingConfigMap }}
         - name: registry-mapping
           configMap:
             name: {{ include "devcontainer-builder.registryMappingConfigMapName" . }}
         {{- end }}
-        {{- if .Values.settingsFile.content }}
         - name: settings
           configMap:
             name: {{ include "devcontainer-builder.fullname" . }}-settings
-        {{- end }}
         - name: scratch
           emptyDir:
             sizeLimit: {{ .Values.scratchVolume.sizeLimit }}

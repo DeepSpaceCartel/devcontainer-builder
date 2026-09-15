@@ -1,5 +1,0 @@
-{{ include "nginx.fullname" . }} deployed to namespace {{ .Release.Namespace }}.
-
-Access it:
-  kubectl port-forward -n {{ .Release.Namespace }} svc/{{ include "nginx.fullname" . }} 8080:{{ .Values.service.port }}
-  curl http://localhost:8080/

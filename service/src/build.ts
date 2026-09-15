@@ -2,7 +2,7 @@ import { spawn } from "node:child_process";
 import { mkdtemp, rm, writeFile, chmod, cp, readFile } from "node:fs/promises";
 import { tmpdir, homedir } from "node:os";
 import { join } from "node:path";
-import type { BuildRequest, RegistryCredentials } from "./types.js";
+import type { BuildRequest, BuildResponse, RegistryCredentials } from "./types.js";
 import { loadServiceConfig, type GitCredentialEntry, type RegistryMappingRule, type SshHostKeyPolicy } from "./config.js";
 
 export const serviceConfig = loadServiceConfig();
@@ -248,7 +248,7 @@ function deriveImageName(path: string): string {
   return segments[segments.length - 1] ?? path;
 }
 
-export async function buildDevcontainer(req: BuildRequest): Promise<string> {
+export async function buildDevcontainer(req: BuildRequest): Promise<BuildResponse> {
   const branch = req.branch ?? "main";
   const parsed = parseGitUrl(req.repository);
   const gitCredential = resolveGitCredential(parsed.host, req);
@@ -296,9 +296,21 @@ export async function buildDevcontainer(req: BuildRequest): Promise<string> {
     }
     const image = `${registry}/${name}:${tag}`;
 
+    const platforms = req.platforms ?? serviceConfig.defaultPlatforms;
+    const noCache = req.buildOptions?.noCache ?? serviceConfig.defaultBuildOptions.noCache;
+    const cacheFrom = req.buildOptions?.cacheFrom ?? serviceConfig.defaultBuildOptions.cacheFrom;
+    const cacheTo = req.buildOptions?.cacheTo ?? serviceConfig.defaultBuildOptions.cacheTo;
+    const mode = req.buildOptions?.mode ?? serviceConfig.defaultBuildOptions.mode;
+
     const runBuild = async (env: NodeJS.ProcessEnv) => {
       await ensureRemoteBuilder(env);
-      await run("devcontainer", ["build", "--workspace-folder", repoDir, "--image-name", image, "--push"], env);
+      const args = ["build", "--workspace-folder", repoDir, "--image-name", image, "--push"];
+      if (platforms.length > 0) args.push("--platform", platforms.join(","));
+      if (noCache) args.push("--no-cache");
+      if (cacheFrom) args.push("--cache-from", cacheFrom);
+      if (cacheTo) args.push("--cache-to", cacheTo);
+      if (mode) args.push("--buildkit", mode);
+      await run("devcontainer", args, env);
     };
 
     if (req.registryCredentials) {
@@ -307,7 +319,7 @@ export async function buildDevcontainer(req: BuildRequest): Promise<string> {
       await runBuild(process.env);
     }
 
-    return image;
+    return { image, registry, name, tag };
   } finally {
     await rm(workDir, { recursive: true, force: true });
   }
