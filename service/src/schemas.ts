@@ -66,9 +66,29 @@ export const BuildRequestSchema = Type.Object(
     platforms: Type.Optional(Type.Array(Type.String({ minLength: 1 }))),
     buildOptions: Type.Optional(BuildOptionsSchema),
   },
-  // Unknown top-level fields are tolerated, not rejected - see
-  // docs/reference/API.md's POST /build section.
-  { additionalProperties: true },
+  {
+    // Unknown top-level fields are tolerated, not rejected - see
+    // docs/reference/API.md's POST /build section.
+    additionalProperties: true,
+    // Real, working repo/registry references (not "example.com") - the
+    // second shows registryCredentials explicitly, since a request that
+    // omits it only pushes successfully when the server already has
+    // ambient registryAuth configured for the target registry (see the
+    // Helm chart reference) - most first-time callers hit exactly this.
+    examples: [
+      {
+        repository: "https://github.com/deepspacecartel/devcontainer-builder-examples.git",
+        branch: "node",
+        image: { registry: "ghcr.io/deepspacecartel" },
+      },
+      {
+        repository: "https://github.com/deepspacecartel/devcontainer-builder-examples.git",
+        branch: "python",
+        image: { registry: "docker.io/deepspacecartel" },
+        registryCredentials: { registry: "docker.io/deepspacecartel", username: "svc-bot", password: "hunter2" },
+      },
+    ],
+  },
 );
 export type BuildRequestBody = Static<typeof BuildRequestSchema>;
 
@@ -101,6 +121,10 @@ export const ErrorResponseSchema = Type.Object({
   error: Type.String(),
 });
 
+export const HealthStartupResponseSchema = Type.Object({
+  status: Type.Literal("started"),
+});
+
 export const HealthLiveResponseSchema = Type.Object({
   status: Type.Literal("ok"),
 });
@@ -108,4 +132,34 @@ export const HealthLiveResponseSchema = Type.Object({
 export const HealthReadyResponseSchema = Type.Object({
   status: Type.Union([Type.Literal("ready"), Type.Literal("not ready")]),
   reason: Type.Optional(Type.String()),
+});
+
+// Read-only, non-sensitive view of the service's own loaded ServiceConfig
+// (src/config.ts) - never the credential material itself. gitCredentials
+// entries are reduced to {host, kind}; registryMappingRules are already
+// non-sensitive in full (no credentials live there).
+export const ConfigGitCredentialSchema = Type.Object({
+  host: Type.String(),
+  kind: Type.Union([Type.Literal("https"), Type.Literal("ssh")]),
+});
+
+export const ConfigRegistryMappingRuleSchema = Type.Object({
+  hostMatch: Type.Optional(Type.String()),
+  pathPrefix: Type.Optional(Type.String()),
+  registry: Type.String(),
+});
+
+export const ConfigResponseSchema = Type.Object({
+  buildkitConfigured: Type.Boolean(),
+  buildxBuilderName: Type.String(),
+  sshHostKeyPolicy: Type.Union([Type.Literal("tofu"), Type.Literal("pinned")]),
+  defaultPlatforms: Type.Array(Type.String()),
+  defaultBuildOptions: Type.Object({
+    noCache: Type.Boolean(),
+    cacheFrom: Type.Optional(Type.String()),
+    cacheTo: Type.Optional(Type.String()),
+    mode: Type.Union([Type.Literal("auto"), Type.Literal("never")]),
+  }),
+  gitCredentials: Type.Array(ConfigGitCredentialSchema),
+  registryMappingRules: Type.Array(ConfigRegistryMappingRuleSchema),
 });

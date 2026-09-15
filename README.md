@@ -3,8 +3,11 @@
 Builds a container image from a git repository's `.devcontainer.json` using a
 remote [BuildKit](https://github.com/moby/buildkit) builder, and pushes it to
 a registry - so a [Coder](https://github.com/coder/coder) Workspace Template
-running on Kubernetes can boot a workspace straight from a repo URL, without
-a dedicated CI pipeline to pre-build the image.
+running on Kubernetes can boot a workspace straight from a repo URL. No
+rolling your own CI/CD pipeline to build and track every project's own image
+variant - point devcontainer-builder at the repo and it handles the rest.
+
+Full docs: <https://deepspacecartel.github.io/devcontainer-builder/>
 
 ## Why
 
@@ -67,14 +70,6 @@ out to Kubernetes to provision a PersistentVolumeClaim before the pod.
   this repo's Helm charts, BuildKit/buildx usage, git protocol test
   fixtures, and disposable-Kubernetes-test-fixture pattern - loaded
   automatically by tools that support the convention.
-
-## Status
-
-Early scaffold. Not yet wired into any real infrastructure or published as a
-Coder Registry module - see the sequencing notes in each subdirectory's
-README/comments for what's still open (git-credential handling on private
-repos, request/response contract stability, end-to-end tests against a live
-BuildKit endpoint).
 
 ## License
 

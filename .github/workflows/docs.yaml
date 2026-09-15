@@ -6,11 +6,13 @@ on:
     paths:
       - "docs/**"
       - "mkdocs.yml"
+      - "service/**"
       - ".github/workflows/docs.yaml"
   pull_request:
     paths:
       - "docs/**"
       - "mkdocs.yml"
+      - "service/**"
       - ".github/workflows/docs.yaml"
   workflow_dispatch: {}
 
@@ -26,13 +28,27 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: service
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - run: npm install
+      - run: npm run build
+      # Generates docs/openapi.json (repo root) for the Bundled API docs
+      # section (docs/reference/API.md) - the exact same document a
+      # running instance serves at GET /documentation/json, never
+      # hand-authored.
+      - run: OPENAPI_OUTPUT_PATH=../docs/openapi.json node scripts/export-openapi.mjs
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: pip install -r docs/requirements.txt
+      - run: pip install -r ../docs/requirements.txt
       - run: mkdocs build --strict
+        working-directory: .
       - uses: actions/upload-pages-artifact@v3
         with:
           path: site

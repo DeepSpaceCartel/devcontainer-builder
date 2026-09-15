@@ -22,6 +22,11 @@ process.on("unhandledRejection", (reason) => {
   process.exit(1);
 });
 
+// Must load (and, if OTEL_EXPORTER_OTLP_ENDPOINT is set, start
+// instrumenting) before server.js pulls in fastify/node:http - see
+// tracing.ts's own header comment for why.
+await import("./tracing.js");
+
 const { buildApp } = await import("./server.js");
 const { serviceConfig } = await import("./build.js");
 

@@ -149,6 +149,21 @@ duplicate of sensitive material in a less-guarded ConfigMap.
 | `extraEnv` | `[]` | Appended after the chart's own env entries — a plain `[{name: ..., value: ...}]` list. |
 | `extraVolumes` / `extraVolumeMounts` | `[]` | Appended after the chart's own volumes/mounts — e.g. mounting a caller-provided ConfigMap holding a CA cert, paired with `extraEnv` pointing `GIT_SSL_CAINFO` at it. |
 
+`extraEnv` is also how the service's optional observability integrations
+get configured — no dedicated chart values for these, since they're just
+environment variables the service already reads directly:
+
+```yaml
+extraEnv:
+  - name: SENTRY_DSN # GlitchTip (Sentry-protocol-compatible) works too
+    value: "https://<key>@errors.example.com/1"
+  - name: OTEL_EXPORTER_OTLP_ENDPOINT # e.g. a Tempo/OTel Collector endpoint
+    value: "http://otel-collector.observability.svc.cluster.local:4318"
+```
+
+See [Architecture](../concepts/architecture.md#observability) for what
+each actually does.
+
 ## `podSecurityContext`, `resources`, `scratchVolume`, `updateStrategy`, `replicaCount`
 
 | Key | Default | Notes |

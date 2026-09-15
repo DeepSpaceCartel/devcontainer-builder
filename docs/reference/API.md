@@ -2,10 +2,16 @@
 
 # HTTP API
 
-Five routes, no authentication of its own (the service is meant to sit
-behind cluster-internal networking — see the Helm chart's
-[`Service`](HELM.md#service)). Every response is `application/json`.
-Any other method/path returns `404 {"error":"not found"}`.
+No authentication of its own (the service is meant to sit behind
+cluster-internal networking — see the Helm chart's
+[`Service`](HELM.md#service)). Every response is `application/json` (except
+`GET /metrics`, `text/plain`). Any other method/path returns
+`404 {"error":"not found"}`.
+
+Grouped into four tags, matching the [OpenAPI document](#openapi) below:
+**Building devcontainers** (`POST /build`), **Images** (`GET`/`DELETE
+/image`), **Health (Kubernetes probes)** (`/health/*`), and **Configuration
+(read-only)** (`GET /config`).
 
 ## OpenAPI
 
@@ -13,8 +19,11 @@ The service is built on [Fastify](https://fastify.dev) with
 [TypeBox](https://github.com/sinclairzx81/typebox) route schemas
 ([`src/schemas.ts`](https://github.com/DeepSpaceCartel/devcontainer-builder/blob/main/service/src/schemas.ts)) —
 the same schemas that validate every request below also generate a real
-OpenAPI 3 document, never hand-authored, so it can't drift from what the
-service actually accepts:
+OpenAPI 3.1 document, never hand-authored, so it can't drift from what the
+service actually accepts, complete with realistic request examples (real
+repo URLs, and — since a build against a private registry needs
+credentials somewhere — one example showing `registryCredentials`
+explicitly and one relying on the server's own ambient `registryAuth`):
 
 - `GET /documentation/json` / `GET /documentation/yaml` — the generated
   OpenAPI document itself. Point [Restish](https://rest.sh) or any other
@@ -23,11 +32,26 @@ service actually accepts:
   http://<host>:8080/documentation/json`).
 - `GET /documentation` — an interactive Swagger UI.
 
+This same document is also bundled statically into this page (below) so you
+can browse it without running the service at all.
+
 Every documented `400` body below is a static string regardless of which
 sub-field actually failed — this predates the OpenAPI document and is kept
 that way deliberately (see `server.ts`) rather than switching to AJV's
 own per-field validation-error format, since the exact string is already a
 stable, tested part of this contract.
+
+## `GET /health/startup`
+
+Kubernetes `startupProbe`. Always `200 {"status":"started"}` once the
+process is listening — checks nothing beyond that. A distinct route from
+`GET /health/live` even though the check is identical today: this service
+has no separate async startup phase (config loading is synchronous, before
+the server ever starts listening), so there's nothing more to distinguish
+yet. Kept separate so a `startupProbe` (a generous total budget, to
+tolerate slow pod scheduling/image pulls) can be tuned independently of
+`livenessProbe` (tight, once actually started) — see the
+[Helm chart](HELM.md#podsecuritycontext-resources-scratchvolume-updatestrategy-replicacount).
 
 ## `GET /health/live`
 
@@ -42,6 +66,44 @@ Readiness probe.
 |---|---|---|
 | `200` | `{"status":"ready"}` | `BUILDKIT_ENDPOINT` is configured |
 | `503` | `{"status":"not ready","reason":"BUILDKIT_ENDPOINT not configured"}` | it isn't |
+
+## `GET /metrics`
+
+Prometheus text-format metrics (`Content-Type: text/plain`), for a
+`ServiceMonitor`/node-exporter-style scrape — not part of the OpenAPI
+document (hidden via `schema.hide`, since it isn't a JSON API route).
+Node.js process/runtime defaults (`prom-client`'s `collectDefaultMetrics`)
+plus:
+
+| Metric | Type | Labels | What it counts |
+|---|---|---|---|
+| `devcontainer_builder_builds_total` | counter | `status` (`success`\|`failure`\|`invalid_request`) | Every `POST /build` attempt. |
+| `devcontainer_builder_build_duration_seconds` | histogram | `status` | Real build wall-clock time — bucketed toward minutes, not the sub-second defaults, since a build is a clone + image build + push. |
+| `devcontainer_builder_image_checks_total` | counter | `result` (`exists`\|`absent`\|`error`) | Every `GET /image` call. |
+| `devcontainer_builder_image_deletes_total` | counter | `result` (`deleted`\|`unsupported`\|`error`) | Every `DELETE /image` call. |
+
+## `GET /config`
+
+Read-only, non-sensitive view of the service's own loaded configuration
+(`src/config.ts`'s `ServiceConfig`) — what devcontainer-builder was actually
+started with, useful for confirming a Helm upgrade or settings-file change
+actually took effect without shelling into the pod. **Never returns
+credential material** — `gitCredentials` entries are reduced to
+`{host, kind}` (no `token`/`privateKey`/`pinnedHostKey`);
+`registryMappingRules` are returned in full since they were never sensitive
+to begin with.
+
+```json
+{
+  "buildkitConfigured": true,
+  "buildxBuilderName": "devcontainer-builder-remote",
+  "sshHostKeyPolicy": "tofu",
+  "defaultPlatforms": [],
+  "defaultBuildOptions": { "noCache": false, "mode": "auto" },
+  "gitCredentials": [{ "host": "github.com", "kind": "https" }],
+  "registryMappingRules": [{ "registry": "ghcr.io/deepspacecartel" }]
+}
+```
 
 This is a presence check, not a live connectivity probe against
 BuildKit — see [Architecture](../concepts/architecture.md#health-endpoints).
@@ -178,3 +240,17 @@ Same query parameters and headers as `GET /image` above.
 | `200` | `{"image": "<registry>/<name>:<tag>", "deleted": false, "reason": "registry does not support manifest deletion"}` | The registry returned 405/400/501 to the delete attempt. |
 | `400` | `{"error": "missing or invalid query parameters: registry, name, tag (all required)"}` | Any of the three query params is missing or empty. |
 | `502` | `{"error": "..."}` | The registry was unreachable or an auth/other failure occurred. |
+
+## Bundled API docs
+
+The exact same generated OpenAPI document [`GET /documentation/json`](#openapi)
+serves from a running instance, rendered here statically
+(`service/scripts/export-openapi.mjs`, run before `mkdocs build` — see
+[Installing](../project/installing.md#this-documentation-site)) so it's
+browsable without running the service at all:
+
+<div id="redoc-container"></div>
+<script src="https://cdn.jsdelivr.net/npm/redoc@2/bundles/redoc.standalone.js"></script>
+<script>
+  Redoc.init('../../openapi.json', {}, document.getElementById('redoc-container'));
+</script>

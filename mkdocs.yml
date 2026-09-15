@@ -5,24 +5,34 @@ repo_url: https://github.com/DeepSpaceCartel/devcontainer-builder
 repo_name: DeepSpaceCartel/devcontainer-builder
 edit_uri: edit/main/docs/
 
+# docs/claude/{plans,notes} are internal planning/investigation records,
+# deliberately real content that isn't part of this published site - not an
+# oversight (see project/installing.md). not_in_nav (not just omitting them
+# from nav: above) is what actually silences mkdocs build's own "exists but
+# not in nav" INFO line for these paths.
+not_in_nav: |
+  claude/**
+
 nav:
   - Home:
     - Welcome: home/index.md
     - Quickstart: home/quickstart.md
   - Guides:
       - Coder Workspace Template: guides/coder-workspace-template.md
-  - Concepts:
+  - Application:
       - Architecture: concepts/architecture.md
       - Credential handling: concepts/credential-handling.md
-      - Testing philosophy: concepts/testing.md
-  - Reference:
       - HTTP API: reference/API.md
       - Configuration: reference/CONFIGURATION.md
-      - Helm chart: reference/HELM.md
-      - Terraform module: reference/TERRAFORM.md
+  - Helm Chart:
+      - Reference: reference/HELM.md
+  - Terraform:
+      - Module: reference/TERRAFORM.md
+      - Provider: reference/TERRAFORM-PROVIDER.md
   - Project:
       - Installing: project/installing.md
       - Running the tests: project/testing.md
+      - Testing philosophy: concepts/testing.md
       - CI: project/ci.md
   - Decisions:
       - Decision log: decisions/index.md

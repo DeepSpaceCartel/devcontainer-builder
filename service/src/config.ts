@@ -124,6 +124,7 @@ interface RawSettingsFile {
   sshHostKeyPolicy?: string;
   gitCredentials?: { entries?: unknown[] };
   registryMapping?: { rules?: unknown[] };
+  sentry?: { dsn?: string };
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
@@ -223,6 +224,16 @@ function loadSettingsFile(path: string | undefined): RawSettingsFile {
     }
   }
 
+  if (parsed.sentry !== undefined) {
+    if (!isPlainObject(parsed.sentry)) throw new Error(`settings file field "sentry" must be an object`);
+    if (parsed.sentry.dsn !== undefined) {
+      if (typeof parsed.sentry.dsn !== "string") {
+        throw new Error(`settings file field "sentry.dsn" must be a string`);
+      }
+      settings.sentry = { dsn: parsed.sentry.dsn };
+    }
+  }
+
   return settings;
 }
 
@@ -250,6 +261,7 @@ function loadCliOptions(argv: string[]) {
       "build-cache-from": { type: "string" },
       "build-cache-to": { type: "string" },
       "buildkit-mode": { type: "string" },
+      "sentry-dsn": { type: "string" },
     },
     strict: true,
   });
@@ -272,6 +284,12 @@ export interface ServiceConfig {
   sshHostKeyPolicy: SshHostKeyPolicy;
   defaultPlatforms: string[];
   defaultBuildOptions: DefaultBuildOptions;
+  // Sentry/GlitchTip DSN - error tracking is entirely opt-in, off unless
+  // set. OpenTelemetry tracing is deliberately not a field here - it's
+  // bootstrapped from the standard OTEL_EXPORTER_OTLP_ENDPOINT env var
+  // before this config even loads (see tracing.ts), the same way any
+  // OTel-instrumented app is configured, not through an app-specific flag.
+  sentryDsn?: string;
 }
 
 function parsePlatformsList(raw: string | undefined): string[] | undefined {
@@ -325,5 +343,6 @@ export function loadServiceConfig(argv: string[] = process.argv.slice(2)): Servi
       ? loadArrayConfigFile(registryMappingPath, isRegistryMappingRule, "registry mapping")
       : validateEntries(settings.registryMapping?.rules ?? [], isRegistryMappingRule, "registry mapping"),
     sshHostKeyPolicy: loadSshHostKeyPolicy(cli["ssh-host-key-policy"] ?? process.env.SSH_HOST_KEY_POLICY ?? settings.sshHostKeyPolicy),
+    sentryDsn: cli["sentry-dsn"] ?? process.env.SENTRY_DSN ?? settings.sentry?.dsn,
   };
 }

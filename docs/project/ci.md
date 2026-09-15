@@ -12,7 +12,7 @@ job today.
 |---|---|
 | `service` | `npm install` + `npm run build` (`service/`) — the TypeScript compiles. |
 | `chart` | `helm lint`, then `helm template` (`charts/devcontainer-builder`) — the chart's own real rendering succeeds. |
-| `terraform` | `terraform fmt -check -recursive`, `terraform init`, `terraform validate`, `terraform test` (`terraform/devcontainer-build/`) — see the [module reference](../reference/TERRAFORM.md#a-real-terraform-quirk-data-http-always-executes-during-plan) for why `terraform test` is currently limited to offline checks. |
+| `terraform` | `terraform fmt -check -recursive`, `terraform init`, `terraform validate`, `terraform test` (`terraform/devcontainer-build/`) — including a real, mocked contract test against `devcontainerbuilder_build`, see the [module reference](../reference/TERRAFORM.md#why-this-wraps-the-provider-instead-of-data-http). |
 
 ## Docs
 

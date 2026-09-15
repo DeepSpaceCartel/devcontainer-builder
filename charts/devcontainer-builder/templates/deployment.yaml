@@ -100,6 +100,16 @@ spec:
             {{- if .Values.extraVolumeMounts }}
             {{- toYaml .Values.extraVolumeMounts | nindent 12 }}
             {{- end }}
+          startupProbe:
+            httpGet:
+              path: /health/startup
+              port: http
+            # Generous total budget (30 * 5s = 150s) for pod
+            # scheduling/image pull - liveness/readiness only start once
+            # this passes, so this being slow is never itself a restart
+            # trigger the way a too-tight livenessProbe would be.
+            periodSeconds: 5
+            failureThreshold: 30
           readinessProbe:
             httpGet:
               path: /health/ready

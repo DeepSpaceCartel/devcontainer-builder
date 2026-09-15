@@ -28,7 +28,15 @@ concern documented in
 | Default cache-from | `--build-cache-from` | `BUILD_CACHE_FROM` | `build.cacheFrom` | *(unset)* |
 | Default cache-to | `--build-cache-to` | `BUILD_CACHE_TO` | `build.cacheTo` | *(unset)* |
 | Default BuildKit mode | `--buildkit-mode` | `BUILDKIT_MODE` | `build.mode` | `auto` |
+| Sentry/GlitchTip DSN | `--sentry-dsn` | `SENTRY_DSN` | `sentry.dsn` | *(unset — error tracking off)* |
 | Settings file path itself | `--settings` | `SERVICE_CONFIG_PATH` | — | *(unset)* |
+
+OpenTelemetry tracing is deliberately **not** in this table — it's
+bootstrapped from the standard `OTEL_EXPORTER_OTLP_ENDPOINT`/
+`OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` env vars before this config even
+loads (see [Architecture](../concepts/architecture.md#observability)), the
+same env vars any OTel SDK reads — not an app-specific flag with its own
+precedence chain.
 
 `gitCredentials`/`registryMapping` have no CLI flag or env var of their
 own for the *entries themselves* (only a *path* to a file, for both the

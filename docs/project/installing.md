@@ -78,7 +78,7 @@ cd terraform/devcontainer-build
 terraform init
 terraform fmt -check -diff
 terraform validate
-terraform test    # offline only - see the reference page's note on data "http"
+terraform test    # real contract tests, mocked - no live service needed
 ```
 
 See the [Terraform module reference](../reference/TERRAFORM.md).
@@ -90,6 +90,13 @@ See the [Terraform module reference](../reference/TERRAFORM.md).
 ## This documentation site
 
 ```bash
+# The Bundled API docs section (docs/reference/API.md) needs a real,
+# generated docs/openapi.json to exist first - gitignored, not source,
+# regenerated from the service's own schemas:
+cd service && npm install && npm run build
+OPENAPI_OUTPUT_PATH=../docs/openapi.json node scripts/export-openapi.mjs
+cd ..
+
 python3 -m venv .venv-docs && . .venv-docs/bin/activate
 pip install -r docs/requirements.txt
 mkdocs serve            # live preview at http://127.0.0.1:8000

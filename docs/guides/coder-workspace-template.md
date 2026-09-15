@@ -46,9 +46,9 @@ workspace-template apply.
 - Cluster-admin access to that same cluster, to deploy the platform-level
   pieces below **once**.
 - The [Terraform provider](https://github.com/DeepSpaceCartel/terraform-provider-devcontainer-builder)
-  installed wherever `coder templates push` runs from (or already available
-  from the public Terraform Registry, once published — see that repo's
-  README for current status).
+  (published on the Terraform Registry as `deepspacecartel/devcontainer-builder`)
+  available wherever `coder templates push` runs from — a plain
+  `required_providers` block resolves it normally, same as `coder`/`hashicorp/kubernetes`.
 
 ## 1. Deploy devcontainer-builder (and, optionally, BuildKit) as platform infrastructure
 

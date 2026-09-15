@@ -6,7 +6,9 @@ Builds a container image from a git repository's `.devcontainer.json`
 using a remote [BuildKit](https://github.com/moby/buildkit) builder, and
 pushes it to a registry — so a [Coder](https://github.com/coder/coder)
 Workspace Template running on Kubernetes can boot a workspace straight
-from a repo URL, without a dedicated CI pipeline to pre-build the image.
+from a repo URL. You don't roll your own CI/CD pipeline to build and keep
+track of every project's own image variant — point devcontainer-builder at
+the repo and it handles the rest.
 
 ## The whole idea, in one request
 
@@ -52,23 +54,32 @@ this request and its error responses are in the
 
 <div class="grid cards" markdown>
 
--   :material-sitemap:{ .lg .middle } **Concepts**
+-   :material-application-braces:{ .lg .middle } **Application**
 
     ---
 
-    How a request becomes a pushed image, how credentials are handled,
-    and why the test suite is built the way it is.
+    How a request becomes a pushed image, credential handling, the HTTP
+    API, and every configuration source.
 
-    [:octicons-arrow-right-24: Read the concepts](../concepts/architecture.md)
+    [:octicons-arrow-right-24: Read the docs](../concepts/architecture.md)
 
--   :material-book-open-variant:{ .lg .middle } **Reference**
+-   :simple-helm:{ .lg .middle } **Helm Chart**
 
     ---
 
-    The HTTP API, every configuration source and its precedence, and
-    the Helm chart's and Terraform module's real inputs.
+    Deploy the service into a Kubernetes cluster — every value, including
+    the optional bundled BuildKit dependency.
 
-    [:octicons-arrow-right-24: Look things up](../reference/API.md)
+    [:octicons-arrow-right-24: Chart reference](../reference/HELM.md)
+
+-   :simple-terraform:{ .lg .middle } **Terraform**
+
+    ---
+
+    The module a Workspace Template calls, and the provider giving it
+    plan-time safety.
+
+    [:octicons-arrow-right-24: Terraform reference](../reference/TERRAFORM.md)
 
 -   :material-hammer-wrench:{ .lg .middle } **Project**
 
@@ -100,19 +111,3 @@ happen in a separate, long-running service, called from the template the
 same way it already calls out to Kubernetes to provision a
 `PersistentVolumeClaim` before the pod.
 
-## Layout
-
-- [`service/`](https://github.com/DeepSpaceCartel/devcontainer-builder/tree/main/service) —
-  the HTTP service documented on this site.
-- [`charts/devcontainer-builder/`](https://github.com/DeepSpaceCartel/devcontainer-builder/tree/main/charts/devcontainer-builder) —
-  the Helm chart that deploys it (see the [reference](../reference/HELM.md)).
-- [`terraform/devcontainer-build/`](https://github.com/DeepSpaceCartel/devcontainer-builder/tree/main/terraform/devcontainer-build) —
-  the Terraform module a Workspace Template calls (see the
-  [reference](../reference/TERRAFORM.md)).
-
-!!! note "Status: early scaffold"
-    Not yet wired into any real infrastructure or published as a Coder
-    Registry module. The request/response contract, configuration
-    sources, and Helm values documented here are all real and current —
-    what's still open is end-to-end deployment (a live BuildKit endpoint,
-    the chart consumed from real infrastructure, the module published).
