@@ -4,3 +4,16 @@ description: Deploys the devcontainer-builder service, which builds a container 
 type: application
 version: 0.1.0
 appVersion: "0.1.0"
+dependencies:
+  # Optional, off by default (buildkit.deploy.enabled, see values.yaml) -
+  # the same chart rts-terraform already runs in production
+  # (https://github.com/andrcuns/charts/tree/main/charts/buildkit-service,
+  # itself wrapping moby/buildkit's own example Kubernetes deployment), so
+  # a fresh cluster with no BuildKit of its own can get one from a single
+  # `helm install --set buildkit.deploy.enabled=true` instead of sourcing
+  # and configuring a second chart by hand.
+  - name: buildkit-service
+    alias: buildkitBundled
+    version: "1.8.0"
+    repository: "https://andrcuns.github.io/charts"
+    condition: buildkit.deploy.enabled

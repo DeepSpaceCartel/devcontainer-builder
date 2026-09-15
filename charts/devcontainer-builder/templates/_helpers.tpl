@@ -52,6 +52,21 @@ Secret with a silently-missing credential.
 {{- end -}}
 
 {{- /*
+Resolves to the bundled BuildKit dependency's own Service DNS name when
+buildkit.deploy.enabled, else passes .Values.buildkit.endpoint through
+unchanged. buildkitBundled.fullnameOverride (values.yaml) pins the
+dependency's Service name so this doesn't need to reimplement its
+_helpers.tpl's own release-name-dependent fullname logic.
+*/ -}}
+{{- define "devcontainer-builder.buildkitEndpoint" -}}
+{{- if .Values.buildkit.deploy.enabled -}}
+{{- printf "tcp://%s.%s.svc.cluster.local:%d" .Values.buildkitBundled.fullnameOverride .Release.Namespace (.Values.buildkitBundled.service.port | int) -}}
+{{- else -}}
+{{- .Values.buildkit.endpoint -}}
+{{- end -}}
+{{- end -}}
+
+{{- /*
 Builds the unified settings file content, mirroring config.ts's own
 RawSettingsFile shape/nesting. gitCredentials is deliberately never
 included here - GIT_CREDENTIALS_CONFIG_PATH always wins over any settings-
@@ -63,8 +78,9 @@ reason - REGISTRY_MAPPING_CONFIG_PATH wins entirely whenever it's set.
 */ -}}
 {{- define "devcontainer-builder.settingsJson" -}}
 {{- $settings := dict -}}
-{{- if .Values.buildkit.endpoint -}}
-{{- $settings = set $settings "buildkit" (dict "endpoint" .Values.buildkit.endpoint) -}}
+{{- $buildkitEndpoint := include "devcontainer-builder.buildkitEndpoint" . -}}
+{{- if $buildkitEndpoint -}}
+{{- $settings = set $settings "buildkit" (dict "endpoint" $buildkitEndpoint) -}}
 {{- end -}}
 {{- $build := dict -}}
 {{- if .Values.build.platforms -}}

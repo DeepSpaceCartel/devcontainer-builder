@@ -31,7 +31,28 @@ helm template charts/devcontainer-builder -f my-values.yaml
 
 | Key | Default | Notes |
 |---|---|---|
-| `buildkit.endpoint` | `""` | e.g. `tcp://buildkit-buildkit-service.buildkit.svc.cluster.local:1234`. Unset means readiness never passes — see [`/health/ready`](API.md#get-healthready). |
+| `buildkit.endpoint` | `""` | e.g. `tcp://buildkit-buildkit-service.buildkit.svc.cluster.local:1234`. Unset means readiness never passes — see [`/health/ready`](API.md#get-healthready). Ignored when `buildkit.deploy.enabled` is `true`. |
+| `buildkit.deploy.enabled` | `false` | Deploys a bundled BuildKit instance ([`andrcuns/buildkit-service`](https://github.com/andrcuns/charts/tree/main/charts/buildkit-service), the `buildkitBundled` dependency in `Chart.yaml`) alongside devcontainer-builder itself, and computes `buildkit.endpoint` automatically from it — zero pre-existing BuildKit infra needed for a first install. |
+
+```yaml
+buildkit:
+  deploy:
+    enabled: true
+```
+
+!!! warning "Don't pass `--create-namespace` when enabling this"
+    BuildKit's default mode is genuinely privileged (inherent to how it
+    does OCI builds) — enabling this makes the chart label its own release
+    namespace `pod-security.kubernetes.io/enforce: privileged` (owning the
+    `Namespace` resource itself, the same pattern
+    [`charts/test-namespace`](https://github.com/DeepSpaceCartel/devcontainer-builder/tree/main/charts/test-namespace)
+    uses per [ADR-0006](../decisions/0006-privileged-test-namespace-via-chart.md)),
+    which conflicts with Helm's own unlabeled `--create-namespace` if both
+    try to create the same namespace. `helm install ... -n <namespace>`
+    alone (no `--create-namespace`) lets the chart create *and* label it on
+    first install. "Privileged" is the most permissive PodSecurity tier —
+    it only widens what the namespace *allows*, so devcontainer-builder's
+    own ordinary (non-privileged) pod in the same namespace is unaffected.
 
 ## `build`
 

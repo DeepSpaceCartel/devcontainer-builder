@@ -4,6 +4,10 @@ dist/
 site/
 .venv-docs/
 
+# Fetched Helm dependency archives (helm dependency update/build) - Chart.lock
+# is what's committed, these are regenerated from it, not source.
+charts/*/charts/
+
 .terraform/
 .terraform.lock.hcl
 *.tfstate

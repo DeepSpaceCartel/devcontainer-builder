@@ -1,0 +1,15 @@
+{{- /*
+Only rendered when the bundled BuildKit dependency is enabled - labels this
+chart's own release namespace as a privileged-PodSecurity exemption (see
+buildkit.deploy's comment in values.yaml for why). Owning this Namespace
+resource, rather than relying on Helm's own unlabeled --create-namespace,
+mirrors charts/test-namespace's own pattern (ADR-0006).
+*/ -}}
+{{- if .Values.buildkit.deploy.enabled }}
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ .Release.Namespace }}
+  labels:
+    pod-security.kubernetes.io/enforce: privileged
+{{- end }}
