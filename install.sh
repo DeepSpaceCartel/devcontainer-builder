@@ -6,9 +6,12 @@
 # other side effects.
 set -euo pipefail
 
-GO_VERSION="1.22.7"
+GO_VERSION="1.27.1"
 MIN_MAJOR=1
-MIN_MINOR=22
+# terraform-plugin-framework (terraform-provider-devcontainer-builder's own
+# dependency) requires >= 1.25 as of v1.19.0 - bump this if that dependency
+# ever requires more.
+MIN_MINOR=25
 
 log() { echo "[install.sh] $*" >&2; }
 
