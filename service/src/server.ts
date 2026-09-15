@@ -1,192 +1,193 @@
-import { createServer, IncomingMessage, ServerResponse } from "node:http";
-import { buildDevcontainer, isReady, serviceConfig, BuildRequestError } from "./build.js";
-import { manifestExists, deleteManifest, RegistryUpstreamError, type RegistryAuthOverride } from "./registry-client.js";
-import type { BuildRequest } from "./types.js";
-
-function readBody(req: IncomingMessage): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const chunks: Buffer[] = [];
-    req.on("data", (chunk) => chunks.push(chunk));
-    req.on("end", () => resolve(Buffer.concat(chunks).toString("utf8")));
-    req.on("error", reject);
-  });
-}
-
-function sendJson(res: ServerResponse, status: number, body: unknown): void {
-  const payload = JSON.stringify(body);
-  res.writeHead(status, {
-    "Content-Type": "application/json",
-    "Content-Length": Buffer.byteLength(payload),
-  });
-  res.end(payload);
-}
-
-function isNonEmptyStringIfPresent(value: unknown): boolean {
-  return value === undefined || value === null || (typeof value === "string" && value.length > 0);
-}
-
-function isValidBuildRequest(value: unknown): value is BuildRequest {
-  if (typeof value !== "object" || value === null) return false;
-  const v = value as Record<string, unknown>;
-
-  if (typeof v.repository !== "string" || v.repository.length === 0) return false;
-  if (!isNonEmptyStringIfPresent(v.branch)) return false;
-
-  if (v.image !== undefined && v.image !== null) {
-    if (typeof v.image !== "object") return false;
-    const image = v.image as Record<string, unknown>;
-    if (!isNonEmptyStringIfPresent(image.registry)) return false;
-    if (!isNonEmptyStringIfPresent(image.name)) return false;
-    if (!isNonEmptyStringIfPresent(image.tag)) return false;
-  }
-
-  if (v.gitCredentials !== undefined) {
-    if (typeof v.gitCredentials !== "object" || v.gitCredentials === null) return false;
-    const creds = v.gitCredentials as Record<string, unknown>;
-    if (typeof creds.username !== "string" || typeof creds.token !== "string") return false;
-  }
-
-  if (v.registryCredentials !== undefined) {
-    if (typeof v.registryCredentials !== "object" || v.registryCredentials === null) return false;
-    const creds = v.registryCredentials as Record<string, unknown>;
-    if (typeof creds.registry !== "string" || creds.registry.length === 0) return false;
-    if (typeof creds.username !== "string" || creds.username.length === 0) return false;
-    if (typeof creds.password !== "string" || creds.password.length === 0) return false;
-  }
-
-  if (v.platforms !== undefined) {
-    if (!Array.isArray(v.platforms)) return false;
-    if (!v.platforms.every((p) => typeof p === "string" && p.length > 0)) return false;
-  }
-
-  if (v.buildOptions !== undefined) {
-    if (typeof v.buildOptions !== "object" || v.buildOptions === null) return false;
-    const opts = v.buildOptions as Record<string, unknown>;
-    if (opts.noCache !== undefined && typeof opts.noCache !== "boolean") return false;
-    if (!isNonEmptyStringIfPresent(opts.cacheFrom)) return false;
-    if (!isNonEmptyStringIfPresent(opts.cacheTo)) return false;
-    if (opts.mode !== undefined && opts.mode !== "auto" && opts.mode !== "never") return false;
-  }
-
-  return true;
-}
-
-interface ImageQuery {
-  registry: string;
-  name: string;
-  tag: string;
-}
-
-function parseImageQuery(url: URL): ImageQuery | undefined {
-  const registry = url.searchParams.get("registry");
-  const name = url.searchParams.get("name");
-  const tag = url.searchParams.get("tag");
-  if (!registry || !name || !tag) return undefined;
-  return { registry, name, tag };
-}
+import { createRequire } from "node:module";
+import Fastify, { type FastifyError, type FastifyInstance } from "fastify";
+import fastifySwagger from "@fastify/swagger";
+import fastifySwaggerUi from "@fastify/swagger-ui";
+import { TypeBoxTypeProvider } from "@fastify/type-provider-typebox";
+import { buildDevcontainer, isReady, BuildRequestError } from "./build.js";
+import { manifestExists, deleteManifest, type RegistryAuthOverride } from "./registry-client.js";
+import {
+  BuildRequestSchema,
+  BuildResponseSchema,
+  ErrorResponseSchema,
+  HealthLiveResponseSchema,
+  HealthReadyResponseSchema,
+  ImageDeleteResponseSchema,
+  ImageExistsResponseSchema,
+  ImageQuerySchema,
+  type BuildRequestBody,
+  type ImageQuery,
+} from "./schemas.js";
 
 // Explicit per-call registry credentials for /image, mirroring
 // registryCredentials on /build - deliberately headers, not query params,
 // so they never land in access logs (same ADR-0002 rationale as the
 // scratch-file pattern used elsewhere for credentials). Falls back to the
 // service's ambient DOCKER_CONFIG auth (see registry-client.ts) when absent.
-function readRegistryAuthHeaders(req: IncomingMessage): RegistryAuthOverride | undefined {
-  const username = req.headers["x-registry-username"];
-  const password = req.headers["x-registry-password"];
+function readRegistryAuthHeaders(headers: Record<string, unknown>): RegistryAuthOverride | undefined {
+  const username = headers["x-registry-username"];
+  const password = headers["x-registry-password"];
   if (typeof username === "string" && typeof password === "string" && username.length > 0 && password.length > 0) {
     return { username, password };
   }
   return undefined;
 }
 
-const server = createServer(async (req, res) => {
-  if (req.method === "GET" && req.url === "/health/live") {
-    sendJson(res, 200, { status: "ok" });
-    return;
-  }
+const BUILD_REQUEST_SHAPE_ERROR =
+  "missing or invalid fields: repository (required); branch, image.{registry,name,tag}, " +
+  "gitCredentials.{username,token}, registryCredentials.{registry,username,password}, " +
+  "platforms, buildOptions.{noCache,cacheFrom,cacheTo,mode} (all optional)";
 
-  if (req.method === "GET" && req.url === "/health/ready") {
-    const readiness = isReady();
-    if (readiness.ready) {
-      sendJson(res, 200, { status: "ready" });
-    } else {
-      console.error(`readiness check failed: ${readiness.reason}`);
-      sendJson(res, 503, { status: "not ready", reason: readiness.reason });
-    }
-    return;
-  }
+const IMAGE_QUERY_SHAPE_ERROR = "missing or invalid query parameters: registry, name, tag (all required)";
 
-  const url = new URL(req.url ?? "/", "http://internal");
+const require = createRequire(import.meta.url);
+const packageVersion: string = require("../package.json").version;
 
-  if (req.method === "POST" && url.pathname === "/build") {
-    let payload: unknown;
-    try {
-      payload = JSON.parse(await readBody(req));
-    } catch {
-      sendJson(res, 400, { error: "invalid JSON body" });
+// Builds and fully configures the app (routes, schemas, swagger) without
+// binding a port - kept separate from actually listening so this is
+// injectable/testable (fastify.inject()) and so index.ts, the real
+// entrypoint, controls exactly when the process starts accepting traffic.
+export async function buildApp(): Promise<FastifyInstance> {
+  // coerceTypes is Fastify's own AJV default (on, for query-string-style
+  // stringly-typed inputs) - off here because it silently coerces an empty
+  // string into `null` for any property whose schema allows a null branch
+  // (a documented AJV quirk, not specific to this schema), which would
+  // undermine the null-means-absent/""-is-rejected distinction
+  // OptionalNonEmptyString exists to enforce. The original hand-written
+  // validator never coerced types either, so this keeps that behavior.
+  const app = Fastify({ logger: true, ajv: { customOptions: { coerceTypes: false } } }).withTypeProvider<TypeBoxTypeProvider>();
+
+  await app.register(fastifySwagger, {
+    openapi: {
+      info: {
+        title: "devcontainer-builder",
+        description:
+          "Builds a container image from a git repository's .devcontainer.json using a remote BuildKit builder, and pushes it to a registry.",
+        version: packageVersion,
+      },
+    },
+  });
+  await app.register(fastifySwaggerUi, { routePrefix: "/documentation" });
+
+  // Every documented 400 body in docs/reference/API.md is a single static
+  // string regardless of which sub-field actually failed - matches
+  // isValidBuildRequest's historical behavior and the request_validation.feature
+  // BDD suite's exact-string assertions. attachValidation: true keeps
+  // TypeBox/AJV as the real, generated-OpenAPI-backing validator without
+  // handing back AJV's own per-field error format on failure.
+  app.setErrorHandler((error: FastifyError, request, reply) => {
+    if (error.code === "FST_ERR_CTP_INVALID_JSON_BODY" || error.code === "FST_ERR_CTP_EMPTY_JSON_BODY") {
+      reply.code(400).send({ error: "invalid JSON body" });
       return;
     }
+    request.log.error(error);
+    reply.code(500).send({ error: error.message });
+  });
 
-    if (!isValidBuildRequest(payload)) {
-      sendJson(res, 400, {
-        error:
-          "missing or invalid fields: repository (required); branch, image.{registry,name,tag}, " +
-          "gitCredentials.{username,token}, registryCredentials.{registry,username,password}, " +
-          "platforms, buildOptions.{noCache,cacheFrom,cacheTo,mode} (all optional)",
-      });
-      return;
-    }
+  app.get("/health/live", { schema: { response: { 200: HealthLiveResponseSchema } } }, async () => {
+    return { status: "ok" as const };
+  });
 
-    try {
-      const result = await buildDevcontainer(payload);
-      sendJson(res, 200, result);
-    } catch (err) {
-      if (err instanceof BuildRequestError) {
-        sendJson(res, 400, { error: err.message });
-      } else {
-        sendJson(res, 500, { error: err instanceof Error ? err.message : "build failed" });
+  app.get(
+    "/health/ready",
+    { schema: { response: { 200: HealthReadyResponseSchema, 503: HealthReadyResponseSchema } } },
+    async (request, reply) => {
+      const readiness = isReady();
+      if (readiness.ready) {
+        return { status: "ready" as const };
       }
-    }
-    return;
-  }
+      request.log.error(`readiness check failed: ${readiness.reason}`);
+      reply.code(503);
+      return { status: "not ready" as const, reason: readiness.reason };
+    },
+  );
 
-  if ((req.method === "GET" || req.method === "DELETE") && url.pathname === "/image") {
-    const query = parseImageQuery(url);
-    if (!query) {
-      sendJson(res, 400, { error: "missing or invalid query parameters: registry, name, tag (all required)" });
-      return;
-    }
-
-    const auth = readRegistryAuthHeaders(req);
-
-    try {
-      if (req.method === "GET") {
-        const { exists } = await manifestExists(query.registry, query.name, query.tag, auth);
-        sendJson(res, 200, { image: `${query.registry}/${query.name}:${query.tag}`, exists });
-      } else {
-        const result = await deleteManifest(query.registry, query.name, query.tag, auth);
-        sendJson(res, 200, { image: `${query.registry}/${query.name}:${query.tag}`, ...result });
+  app.post<{ Body: BuildRequestBody }>(
+    "/build",
+    {
+      schema: {
+        body: BuildRequestSchema,
+        response: { 200: BuildResponseSchema, 400: ErrorResponseSchema, 500: ErrorResponseSchema },
+      },
+      attachValidation: true,
+    },
+    async (request, reply) => {
+      if (request.validationError) {
+        reply.code(400);
+        return { error: BUILD_REQUEST_SHAPE_ERROR };
       }
-    } catch (err) {
-      if (err instanceof RegistryUpstreamError) {
-        sendJson(res, 502, { error: err.message });
-      } else {
-        sendJson(res, 502, { error: err instanceof Error ? err.message : "registry request failed" });
+
+      try {
+        return await buildDevcontainer(request.body);
+      } catch (err) {
+        if (err instanceof BuildRequestError) {
+          reply.code(400);
+          return { error: err.message };
+        }
+        reply.code(500);
+        return { error: err instanceof Error ? err.message : "build failed" };
       }
-    }
-    return;
-  }
+    },
+  );
 
-  sendJson(res, 404, { error: "not found" });
-});
+  app.get<{ Querystring: ImageQuery }>(
+    "/image",
+    {
+      schema: {
+        querystring: ImageQuerySchema,
+        response: { 200: ImageExistsResponseSchema, 400: ErrorResponseSchema, 502: ErrorResponseSchema },
+      },
+      attachValidation: true,
+    },
+    async (request, reply) => {
+      if (request.validationError) {
+        reply.code(400);
+        return { error: IMAGE_QUERY_SHAPE_ERROR };
+      }
 
-server.listen(serviceConfig.port, () => {
-  console.log(`devcontainer-builder listening on :${serviceConfig.port}`);
-});
+      const { registry, name, tag } = request.query;
+      const auth = readRegistryAuthHeaders(request.headers);
 
-// Running as PID 1 in the container (no init process) means the kernel's
-// default disposition for signals doesn't apply - an unhandled SIGTERM is
-// silently ignored rather than terminating the process, so a pod would
-// otherwise sit through its full terminationGracePeriodSeconds (30s
-// default) on every rollout/scale-down before kubelet resorts to SIGKILL.
-process.on("SIGTERM", () => process.exit(0));
+      try {
+        const { exists } = await manifestExists(registry, name, tag, auth);
+        return { image: `${registry}/${name}:${tag}`, exists };
+      } catch (err) {
+        reply.code(502);
+        return { error: err instanceof Error ? err.message : "registry request failed" };
+      }
+    },
+  );
+
+  app.delete<{ Querystring: ImageQuery }>(
+    "/image",
+    {
+      schema: {
+        querystring: ImageQuerySchema,
+        response: { 200: ImageDeleteResponseSchema, 400: ErrorResponseSchema, 502: ErrorResponseSchema },
+      },
+      attachValidation: true,
+    },
+    async (request, reply) => {
+      if (request.validationError) {
+        reply.code(400);
+        return { error: IMAGE_QUERY_SHAPE_ERROR };
+      }
+
+      const { registry, name, tag } = request.query;
+      const auth = readRegistryAuthHeaders(request.headers);
+
+      try {
+        const result = await deleteManifest(registry, name, tag, auth);
+        return { image: `${registry}/${name}:${tag}`, ...result };
+      } catch (err) {
+        reply.code(502);
+        return { error: err instanceof Error ? err.message : "registry request failed" };
+      }
+    },
+  );
+
+  app.setNotFoundHandler((_request, reply) => {
+    reply.code(404).send({ error: "not found" });
+  });
+
+  return app;
+}

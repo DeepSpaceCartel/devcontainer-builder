@@ -34,6 +34,21 @@ npm run start       # node dist/index.js - needs BUILDKIT_ENDPOINT
 `/build` can do anything. See [Configuration](../reference/CONFIGURATION.md)
 for every other source it reads at startup.
 
+### As a standalone CLI
+
+The same server is published to npm and runnable directly, without cloning
+this repo:
+
+```bash
+npx @deepspacecartel/devcontainer-builder --buildkit-endpoint tcp://buildkit.example:1234
+```
+
+Still needs `docker` (with the `buildx` plugin), `@devcontainers/cli`, and
+`git` on `PATH` locally — the CLI doesn't bundle or replace any of them,
+same prerequisites the Docker image bakes in below. Every flag/env
+var/settings-file field is identical either way — see
+[Configuration](../reference/CONFIGURATION.md).
+
 ### The container image
 
 ```bash

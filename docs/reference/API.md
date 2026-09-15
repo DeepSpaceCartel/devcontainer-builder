@@ -7,6 +7,28 @@ behind cluster-internal networking — see the Helm chart's
 [`Service`](HELM.md#service)). Every response is `application/json`.
 Any other method/path returns `404 {"error":"not found"}`.
 
+## OpenAPI
+
+The service is built on [Fastify](https://fastify.dev) with
+[TypeBox](https://github.com/sinclairzx81/typebox) route schemas
+([`src/schemas.ts`](https://github.com/DeepSpaceCartel/devcontainer-builder/blob/main/service/src/schemas.ts)) —
+the same schemas that validate every request below also generate a real
+OpenAPI 3 document, never hand-authored, so it can't drift from what the
+service actually accepts:
+
+- `GET /documentation/json` / `GET /documentation/yaml` — the generated
+  OpenAPI document itself. Point [Restish](https://rest.sh) or any other
+  OpenAPI-aware client at this URL to auto-configure against a running
+  instance (`restish api configure devcontainer-builder
+  http://<host>:8080/documentation/json`).
+- `GET /documentation` — an interactive Swagger UI.
+
+Every documented `400` body below is a static string regardless of which
+sub-field actually failed — this predates the OpenAPI document and is kept
+that way deliberately (see `server.ts`) rather than switching to AJV's
+own per-field validation-error format, since the exact string is already a
+stable, tested part of this contract.
+
 ## `GET /health/live`
 
 Liveness probe. Always `200 {"status":"ok"}` once the process is

@@ -36,9 +36,19 @@ TypeScript compiles; ask the user to verify or run it themselves.
 
 ## Structure
 
-- `service/` — the HTTP service. `src/server.ts` (HTTP listener + request
-  validation), `src/build.ts` (clone → configure remote buildx builder →
+- `service/` — the HTTP service, built on [Fastify](https://fastify.dev).
+  `src/server.ts` (`buildApp()` — routes + [TypeBox](https://github.com/sinclairzx81/typebox)
+  schemas from `src/schemas.ts`, which double as real request validation
+  and the generated OpenAPI document at `GET /documentation/json` — never
+  hand-authored, see [API reference](docs/reference/API.md#openapi)),
+  `src/index.ts` (the real entrypoint — crash handlers, then `buildApp().listen()`),
+  `src/build.ts` (clone → configure remote buildx builder →
   `devcontainer build --push`), `src/types.ts` (request/response shapes).
+  `bin/devcontainer-builder.js` is the published npm package's CLI entry
+  (`npx @deepspacecartel/devcontainer-builder`) — same compiled
+  `dist/index.js` the Docker image runs, no separate CLI parsing of its
+  own (every setting is already a CLI flag/env var/settings-file field via
+  `src/config.ts`, see [Configuration](docs/reference/CONFIGURATION.md)).
   `Dockerfile` builds the deployable image (Node + `docker-ce-cli` +
   `docker-buildx-plugin` + `@devcontainers/cli`, non-root).
 - `charts/devcontainer-builder/` — Helm chart deploying the service

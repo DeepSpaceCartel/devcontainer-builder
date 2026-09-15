@@ -22,4 +22,17 @@ process.on("unhandledRejection", (reason) => {
   process.exit(1);
 });
 
-await import("./server.js");
+const { buildApp } = await import("./server.js");
+const { serviceConfig } = await import("./build.js");
+
+const app = await buildApp();
+await app.listen({ port: serviceConfig.port, host: "0.0.0.0" });
+
+// Running as PID 1 in the container (no init process) means the kernel's
+// default disposition for signals doesn't apply - an unhandled SIGTERM is
+// silently ignored rather than terminating the process, so a pod would
+// otherwise sit through its full terminationGracePeriodSeconds (30s
+// default) on every rollout/scale-down before kubelet resorts to SIGKILL.
+process.on("SIGTERM", () => {
+  void app.close().finally(() => process.exit(0));
+});
