@@ -26,9 +26,30 @@ for the step vocabulary itself.
 
 ```bash
 cd service
-npm install    # pulls in thomas via file:../../thomas
+npm install    # pulls in thomas via a pinned github:DeepSpaceCartel/thomas commit
 npm test
 ```
+
+### Developing against a local, unreleased Thomas checkout
+
+`service/package.json`'s `thomas` devDependency is pinned to a real commit
+on Thomas's `github:DeepSpaceCartel/thomas` remote (npm resolves this via a
+real `git clone`, so a plain `npm install` works from a fresh checkout with
+no sibling directory needed — this is deliberate, see
+[0005](../decisions/0005-bdd-suite-on-thomas.md)). Thomas itself is still
+actively developed alongside this repo, though, so day-to-day work usually
+means testing against a local checkout's uncommitted changes, not the pinned
+commit. Do that with `npm link` instead of editing `package.json`:
+
+```bash
+cd ../../thomas && npm install && npm link
+cd -  # back to service/
+npm link thomas
+```
+
+This symlinks `node_modules/thomas` to the local checkout without touching
+the pinned reference everyone else (and CI) installs. `npm install` in
+`service/` again (or `npm unlink thomas`) reverts to the pinned commit.
 
 `cucumber.mjs` (this project's own Cucumber config, not `package.json`)
 is the one place this suite's Cucumber setup lives — it wires in

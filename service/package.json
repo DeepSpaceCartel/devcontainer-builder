@@ -14,7 +14,7 @@
   "devDependencies": {
     "@cucumber/cucumber": "^12.2.0",
     "@types/node": "^20.14.0",
-    "thomas": "file:../../thomas",
+    "thomas": "github:DeepSpaceCartel/thomas#bc54f0cd85be7bf6f54bddd102bd6a784c0a7bc1",
     "tsx": "^4.19.0",
     "typescript": "^5.6.0"
   }
