@@ -74,6 +74,24 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+      # npm's registry has a real, observed propagation delay after
+      # `npm publish` returns - a build starting immediately after `npm`
+      # succeeds can hit "No matching version found" on a version that
+      # published only seconds earlier. Poll for it instead of assuming
+      # it's already visible.
+      - name: Wait for npm to propagate the published version
+        run: |
+          version="${{ needs.version.outputs.version }}"
+          for i in $(seq 1 30); do
+            if npm view "@deepspacecartel/devcontainer-builder@${version}" version >/dev/null 2>&1; then
+              echo "@deepspacecartel/devcontainer-builder@${version} is live on npm"
+              exit 0
+            fi
+            echo "Not yet visible on npm, retrying in 10s... (${i}/30)"
+            sleep 10
+          done
+          echo "::error::Timed out waiting for @deepspacecartel/devcontainer-builder@${version} to propagate on npm"
+          exit 1
       - uses: docker/build-push-action@v6
         with:
           context: service
