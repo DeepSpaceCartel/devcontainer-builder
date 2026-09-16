@@ -76,6 +76,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   (`git`/`docker`), capped by the new `commandLogRetention` config field
   (default 10). See
   [ADR-0010](docs/decisions/0010-command-output-capture.md).
+- `service/Dockerfile` now has two build targets instead of one: `dev`
+  builds from this checkout's source (unchanged default behavior, no
+  `--target` needed), `release` installs a specific version of the
+  published npm package instead, so the shipped image and the published
+  package are provably the same artifact.
+  `.github/workflows/release.yaml`'s `npm` job now runs before (not
+  parallel with) `image`, which builds the `release` target — and the npm
+  Trusted Publisher grant moved from `stage` to full `publish`, since
+  `image` needs that version live with no manual approval step in
+  between.
 
 ### Changed
 

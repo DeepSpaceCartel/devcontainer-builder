@@ -51,16 +51,25 @@ var/settings-file field is identical either way — see
 
 ### The container image
 
-```bash
-docker build -t devcontainer-builder service/
-```
+`service/Dockerfile` has two build targets, sharing one runtime base (`git`,
+the Docker CLI + `buildx` plugin — no `dockerd`, see
+[0001](../decisions/0001-remote-buildkit-builder.md) — `@devcontainers/cli`,
+a non-root `builder` user):
 
-Builds the exact multi-stage image the Helm chart deploys — `tsc`
-compiles `service/src/` into `dist/` in a build stage, then a slim
-runtime stage installs `git`, the Docker CLI + `buildx` plugin (no
-`dockerd` — see
-[0001](../decisions/0001-remote-buildkit-builder.md)), and
-`@devcontainers/cli`, and runs as a non-root `builder` user.
+```bash
+# dev: builds from this checkout's source (tsc -> dist/), no network
+# dependency beyond npm's own lockfile install. This is also what a bare
+# `docker build service/` produces, with no --target at all - use it for
+# local iteration and testing against a local cluster.
+docker build --target dev -t devcontainer-builder service/
+
+# release: installs a specific version of the published npm package
+# instead of building from source, so the image is provably the same
+# artifact as what's live on npm. Needs that version to already be
+# published - this is what .github/workflows/release.yaml builds.
+docker build --target release --build-arg PACKAGE_VERSION=0.1.0 \
+  -t devcontainer-builder service/
+```
 
 ## The Helm chart
 

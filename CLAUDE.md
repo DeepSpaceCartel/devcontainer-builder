@@ -52,12 +52,18 @@ TypeScript compiles; ask the user to verify or run it themselves.
   `src/tracing.ts` (opt-in OpenTelemetry bootstrap), `src/metrics.ts`
   (Prometheus metrics for `GET /metrics`), `src/types.ts` (request/response
   shapes). `bin/devcontainer-builder.js` is the published npm package's CLI
-  entry (`npx @deepspacecartel/devcontainer-builder`) — same compiled
-  `dist/index.js` the Docker image runs, no separate CLI parsing of its
-  own (every setting is already a CLI flag/env var/settings-file field via
-  `src/config.ts`, see [Configuration](docs/reference/CONFIGURATION.md)).
-  `Dockerfile` builds the deployable image (Node + `docker-ce-cli` +
-  `docker-buildx-plugin` + `@devcontainers/cli`, non-root).
+  entry (`npx @deepspacecartel/devcontainer-builder`) — no separate CLI
+  parsing of its own (every setting is already a CLI flag/env var/settings-file
+  field via `src/config.ts`, see [Configuration](docs/reference/CONFIGURATION.md)).
+  `Dockerfile` has two targets sharing one runtime base (Node +
+  `docker-ce-cli` + `docker-buildx-plugin` + `@devcontainers/cli`,
+  non-root): `dev` builds `dist/` from this checkout's source (the default
+  with no `--target`, for local iteration); `release` installs a specific
+  version of the published npm package instead, so the shipped image and
+  the published package are the same artifact — see
+  [Installing](docs/project/installing.md#the-container-image). `npm
+  publish` runs before the `release` image build in
+  `.github/workflows/release.yaml`, not in parallel with it.
 - `charts/devcontainer-builder/` — Helm chart deploying the service
   (Deployment, ClusterIP Service, ServiceAccount, Secret for registry push
   creds with `existingSecret` support). No autoscaling/Ingress by design —
