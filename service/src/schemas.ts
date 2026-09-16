@@ -259,6 +259,10 @@ export const ConfigRegistryMappingRuleSchema = Type.Object({
   registry: Type.String(),
 });
 
+export const ConfigRegistryAuthEntrySchema = Type.Object({
+  registry: Type.String(),
+});
+
 export const ConfigResponseSchema = Type.Object(
   {
     buildkitConfigured: Type.Boolean({
@@ -277,6 +281,10 @@ export const ConfigResponseSchema = Type.Object(
       description: "Never the credential material itself - just enough to answer \"which hosts does this instance already know about\".",
     }),
     registryMappingRules: Type.Array(ConfigRegistryMappingRuleSchema),
+    registryAuth: Type.Array(ConfigRegistryAuthEntrySchema, {
+      description:
+        "Registries this instance has ambient push credentials for (from the mounted Docker config, e.g. the chart's registryAuth.registries) - hostnames only, never the credential material. Empty when relying entirely on per-request registryCredentials instead.",
+    }),
   },
   {
     description:
@@ -290,6 +298,7 @@ export const ConfigResponseSchema = Type.Object(
         defaultBuildOptions: { noCache: false, mode: "auto" },
         gitCredentials: [{ host: "github.com", kind: "https" }],
         registryMappingRules: [{ registry: "ghcr.io/deepspacecartel" }],
+        registryAuth: [{ registry: "ghcr.io" }],
       },
     ],
   },
