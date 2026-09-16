@@ -12,7 +12,7 @@ spec:
   {{- end }}
   selector:
     matchLabels:
-      {{- include "devcontainer-builder.labels" . | nindent 6 }}
+      {{- include "devcontainer-builder.selectorLabels" . | nindent 6 }}
   template:
     metadata:
       labels:
