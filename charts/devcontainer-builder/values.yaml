@@ -21,6 +21,16 @@ image:
 service:
   port: 8080
 
+# Deployment environment name (e.g. "dev"/"staging"/"production") for the
+# service's own structured logs/traces (DEPLOYMENT_ENVIRONMENT env var - see
+# service/docs/reference/CONFIGURATION.md). Empty means unset - the service
+# falls back to its own "development" default, same "unconfigured is a
+# supported state" pattern as buildkit.endpoint below. There's no equivalent
+# field for the service's own name - that's always .Chart.Name, wired
+# unconditionally in deployment.yaml so it can never drift from the
+# app.kubernetes.io/name label every other part of this chart already uses.
+environment: ""
+
 buildkit:
   # e.g. tcp://buildkit-buildkit-service.buildkit.svc.cluster.local:1234
   # Ignored when deploy.enabled below is true - the endpoint is computed

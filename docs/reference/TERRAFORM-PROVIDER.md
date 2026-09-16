@@ -3,7 +3,7 @@
 # Terraform provider
 
 [`terraform-provider-devcontainer-builder`](https://github.com/DeepSpaceCartel/terraform-provider-devcontainer-builder)
-wraps the same [`POST /build`](API.md#post-build)/[`GET`/`DELETE /image`](API.md#get-image)
+wraps the same [`POST /build`/`GET`/`DELETE /image`](../api-reference.html){:target="_blank" rel="noopener"}
 endpoints as the [module](TERRAFORM.md) — as a real `devcontainerbuilder_build`
 **resource** instead of a `data "http"` source, so a build only runs on
 `terraform apply`, and only when there's an actual diff to reconcile

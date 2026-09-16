@@ -41,6 +41,8 @@ export interface BuildResponse {
   registry: string;
   name: string;
   tag: string;
+  gitCloneLogId?: string;
+  imageBuildLogId?: string;
 }
 
 export interface ImageExistsResponse {
@@ -56,4 +58,5 @@ export interface ImageDeleteResponse {
 
 export interface ErrorResponse {
   error: string;
+  logId?: string;
 }

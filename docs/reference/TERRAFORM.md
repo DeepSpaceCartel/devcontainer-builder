@@ -8,7 +8,7 @@ pushed image reference as an output — the module deploys nothing itself.
 Internally it wraps the [Terraform provider](TERRAFORM-PROVIDER.md)'s
 `devcontainerbuilder_build` resource (owning its own `provider
 "devcontainerbuilder"` configuration, sourced from `service_url`) rather
-than calling [`POST /build`](API.md#post-build) directly via `data "http"`
+than calling [`POST /build`](../api-reference.html){:target="_blank" rel="noopener"} directly via `data "http"`
 — the same variable/output interface either way, but a real build now only
 runs on `terraform apply`, and only for an actual diff, not on every single
 `terraform plan` (see [the provider reference](TERRAFORM-PROVIDER.md) for

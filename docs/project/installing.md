@@ -90,11 +90,13 @@ See the [Terraform module reference](../reference/TERRAFORM.md).
 ## This documentation site
 
 ```bash
-# The Bundled API docs section (docs/reference/API.md) needs a real,
-# generated docs/openapi.json to exist first - gitignored, not source,
-# regenerated from the service's own schemas:
+# The two HTTP API nav entries (mkdocs.yml) need three real, generated
+# paths to exist first - all gitignored, not source, all regenerated from
+# the service's own schemas:
 cd service && npm install && npm run build
 OPENAPI_OUTPUT_PATH=../docs/openapi.json node scripts/export-openapi.mjs
+npx redocly build-docs ../docs/openapi.json -o ../docs/api-reference.html
+SWAGGER_UI_OUTPUT_DIR=../docs/api-swagger-ui node scripts/export-swagger-ui.mjs
 cd ..
 
 python3 -m venv .venv-docs && . .venv-docs/bin/activate
@@ -102,6 +104,17 @@ pip install -r docs/requirements.txt
 mkdocs serve            # live preview at http://127.0.0.1:8000
 mkdocs build --strict   # what CI should run on every docs/** change
 ```
+
+`docs/api-reference.html` (Redoc) and `docs/api-swagger-ui/` (the exact
+static bundle `GET /documentation` serves live, pointed at the sibling
+`openapi.json` instead of a live route) are both real standalone pages,
+each its own top-level nav entry ("HTTP API (Redoc)"/"HTTP API (Swagger
+UI)", `mkdocs.yml`) — not a hand-written Markdown page wrapping a widget
+embedded inline in an mkdocs-material page. An earlier version tried the
+latter (Redoc only, as a section on a hand-written `docs/reference/API.md`)
+and it silently broke under `navigation.instant` (this theme's SPA-style
+client-side page transitions don't re-run a `<script>` tag injected via a
+normal client-side DOM patch, only a real full page load does).
 
 `--strict` is what actually catches a broken internal link or a heading
 renamed without updating what links into it — run it after any edit

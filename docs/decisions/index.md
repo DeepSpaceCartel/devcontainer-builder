@@ -27,3 +27,5 @@ change, never rewritten in place).
 | [0006](0006-privileged-test-namespace-via-chart.md) | A reusable chart owns every test namespace, not `--create-namespace` | accepted |
 | [0007](0007-structured-registry-auth-and-auto-rendered-settings.md) | Structured registry auth, and an auto-rendered settings file | accepted |
 | [0008](0008-image-existence-and-deletion-endpoints.md) | `GET`/`DELETE /image` for existence checks and best-effort deletion | accepted |
+| [0009](0009-event-oriented-structured-logging.md) | Event-oriented structured logging, and log/trace correlation via OpenTelemetry | accepted |
+| [0010](0010-command-output-capture.md) | Capture git/docker subprocess output to files instead of stdout | accepted |

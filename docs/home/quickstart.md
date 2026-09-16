@@ -24,7 +24,7 @@ repository clones anonymously; see
 
 !!! danger "Never expose this Service outside the cluster"
     The API has no authentication of its own — see the
-    [HTTP API reference](../reference/API.md). It's designed to sit behind
+    [HTTP API reference](../api-reference.html){:target="_blank" rel="noopener"}. It's designed to sit behind
     ordinary cluster-internal networking only (the chart's `Service` is
     `ClusterIP`, no `Ingress` — see [Helm chart](../reference/HELM.md)).
     Anyone who can reach `POST /build` can make this service clone
@@ -63,7 +63,7 @@ registryAuth:
 
 With `registryAuth` configured this way, every `/build` request pushes
 using these ambient credentials unless it supplies its own
-[`registryCredentials`](../reference/API.md#post-build).
+[`registryCredentials`](../api-reference.html){:target="_blank" rel="noopener"}.
 
 ## 2. Install the chart
 
@@ -80,7 +80,7 @@ helm install devcontainer-builder oci://ghcr.io/deepspacecartel/charts/devcontai
 
 Confirm it's actually ready — not just that the Pod is `Running`, but
 that BuildKit was picked up (see
-[`/health/ready`](../reference/API.md#get-healthready)):
+[`/health/ready`](../api-reference.html){:target="_blank" rel="noopener"}):
 
 ```bash
 kubectl port-forward svc/devcontainer-builder 8080:8080 &
@@ -116,7 +116,7 @@ curl -s -X POST http://localhost:8080/build \
 `image.name` defaulted to the repo's own last path segment
 (`devcontainer-builder-examples`), and `image.tag` defaulted to
 `sha-<short HEAD sha>` — see the
-[`POST /build` reference](../reference/API.md#post-build) for every
+[`POST /build` reference](../api-reference.html){:target="_blank" rel="noopener"} for every
 field and its default. Pull it back to confirm the push really
 happened:
 
@@ -156,6 +156,6 @@ own image variant — see the
 A `500` response only ever contains the failing command and its exit
 code, never the real underlying error text (that's in the pod's own
 logs) — see the
-[warning in the API reference](../reference/API.md#post-build) before
+[warning in the API reference](../api-reference.html){:target="_blank" rel="noopener"} before
 assuming a `500` is a devcontainer-builder bug rather than, say, a
 typo'd `registryAuth.registries` entry in step 1.

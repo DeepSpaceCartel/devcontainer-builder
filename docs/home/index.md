@@ -50,7 +50,7 @@ in between — a shallow clone, `docker buildx` pointed at a remote
 BuildKit daemon (no local `dockerd`), `devcontainer build --push` — is
 covered in [Architecture](../concepts/architecture.md); the exact shape of
 this request and its error responses are in the
-[HTTP API reference](../reference/API.md).
+[HTTP API reference](../api-reference.html){:target="_blank" rel="noopener"}.
 
 <div class="grid cards" markdown>
 

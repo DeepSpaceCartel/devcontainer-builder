@@ -22,8 +22,9 @@ nav:
   - Application:
       - Architecture: concepts/architecture.md
       - Credential handling: concepts/credential-handling.md
-      - HTTP API: reference/API.md
       - Configuration: reference/CONFIGURATION.md
+      - HTTP API (Redoc): api-reference.html
+      - HTTP API (Swagger UI): api-swagger-ui/index.html
   - Helm Chart:
       - Reference: reference/HELM.md
   - Terraform:
@@ -44,6 +45,8 @@ nav:
       - 0006. A reusable chart owns every test namespace, not --create-namespace: decisions/0006-privileged-test-namespace-via-chart.md
       - 0007. Structured registry auth, and an auto-rendered settings file: decisions/0007-structured-registry-auth-and-auto-rendered-settings.md
       - 0008. GET/DELETE /image for existence checks and best-effort deletion: decisions/0008-image-existence-and-deletion-endpoints.md
+      - 0009. Event-oriented structured logging, and log/trace correlation via OpenTelemetry: decisions/0009-event-oriented-structured-logging.md
+      - 0010. Capture git/docker subprocess output to files instead of stdout: decisions/0010-command-output-capture.md
 
 theme:
   name: material

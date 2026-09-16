@@ -40,12 +40,19 @@ TypeScript compiles; ask the user to verify or run it themselves.
   `src/server.ts` (`buildApp()` — routes + [TypeBox](https://github.com/sinclairzx81/typebox)
   schemas from `src/schemas.ts`, which double as real request validation
   and the generated OpenAPI document at `GET /documentation/json` — never
-  hand-authored, see [API reference](docs/reference/API.md#openapi)),
-  `src/index.ts` (the real entrypoint — crash handlers, then `buildApp().listen()`),
-  `src/build.ts` (clone → configure remote buildx builder →
-  `devcontainer build --push`), `src/types.ts` (request/response shapes).
-  `bin/devcontainer-builder.js` is the published npm package's CLI entry
-  (`npx @deepspacecartel/devcontainer-builder`) — same compiled
+  hand-authored, bundled statically into the docs site (see
+  [Installing](docs/project/installing.md#this-documentation-site))),
+  `src/index.ts` (the real entrypoint — `tracing.ts` first, then crash
+  handlers, then `buildApp().listen()`), `src/build.ts` (clone → configure
+  remote buildx builder → `devcontainer build --push`, both wrapped in an
+  OpenTelemetry span with output captured via `src/command-log.ts` instead
+  of inherited stdio, see [ADR-0010](docs/decisions/0010-command-output-capture.md)),
+  `src/logger.ts` (the shared structured-logging Pino instance, see
+  [ADR-0009](docs/decisions/0009-event-oriented-structured-logging.md)),
+  `src/tracing.ts` (opt-in OpenTelemetry bootstrap), `src/metrics.ts`
+  (Prometheus metrics for `GET /metrics`), `src/types.ts` (request/response
+  shapes). `bin/devcontainer-builder.js` is the published npm package's CLI
+  entry (`npx @deepspacecartel/devcontainer-builder`) — same compiled
   `dist/index.js` the Docker image runs, no separate CLI parsing of its
   own (every setting is already a CLI flag/env var/settings-file field via
   `src/config.ts`, see [Configuration](docs/reference/CONFIGURATION.md)).

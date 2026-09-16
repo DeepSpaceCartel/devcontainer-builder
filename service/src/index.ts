@@ -28,7 +28,7 @@ process.on("unhandledRejection", (reason) => {
 await import("./tracing.js");
 
 const { buildApp } = await import("./server.js");
-const { serviceConfig } = await import("./build.js");
+const { serviceConfig } = await import("./config.js");
 
 const app = await buildApp();
 await app.listen({ port: serviceConfig.port, host: "0.0.0.0" });

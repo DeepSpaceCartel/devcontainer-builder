@@ -29,14 +29,40 @@ concern documented in
 | Default cache-to | `--build-cache-to` | `BUILD_CACHE_TO` | `build.cacheTo` | *(unset)* |
 | Default BuildKit mode | `--buildkit-mode` | `BUILDKIT_MODE` | `build.mode` | `auto` |
 | Sentry/GlitchTip DSN | `--sentry-dsn` | `SENTRY_DSN` | `sentry.dsn` | *(unset — error tracking off)* |
+| Service name | `--service-name` | `SERVICE_NAME` | `observability.serviceName` | `devcontainer-builder` |
+| Deployment environment | `--environment` | `DEPLOYMENT_ENVIRONMENT` | `observability.environment` | `development` |
+| Command-log retention (per kind) | `--command-log-retention` | `COMMAND_LOG_RETENTION` | `logs.retention` | `10` |
 | Settings file path itself | `--settings` | `SERVICE_CONFIG_PATH` | — | *(unset)* |
+
+Both new fields land on every structured log line (`service.name`/
+`deployment.environment.name` — see
+[Architecture](../concepts/architecture.md#observability)). There's no
+field for the service's own *version* — it's always this build's own
+`package.json` version, never something an operator would choose to
+override. The Helm chart sets `SERVICE_NAME` unconditionally (from
+`.Chart.Name`, matching the `app.kubernetes.io/name` label every other part
+of the chart already uses) and `DEPLOYMENT_ENVIRONMENT` from its own
+`environment` value — see [Helm reference](HELM.md).
+
+`git clone`/`devcontainer build --push` output is captured to a file per
+invocation rather than the pod's own stdout (see
+[0010](../decisions/0010-command-output-capture.md)), fetchable via `GET
+/logs/{id}` (see
+[HTTP API (Redoc)](../api-reference.html){:target="_blank" rel="noopener"}) -
+`commandLogRetention` caps how many of these are kept per kind (`git`/
+`docker`) before the oldest are pruned.
 
 OpenTelemetry tracing is deliberately **not** in this table — it's
 bootstrapped from the standard `OTEL_EXPORTER_OTLP_ENDPOINT`/
 `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` env vars before this config even
 loads (see [Architecture](../concepts/architecture.md#observability)), the
 same env vars any OTel SDK reads — not an app-specific flag with its own
-precedence chain.
+precedence chain. `DEPLOYMENT_ENVIRONMENT` is the one exception read in
+*both* places independently: `tracing.ts` reads it directly (for the trace
+resource's `deployment.environment.name`) since it runs before this
+config ever loads, while `config.ts` reads the identical env var again
+(for the log fields above) — the same value, read twice, rather than
+plumbing OTel's bootstrap through this file's own precedence chain.
 
 `gitCredentials`/`registryMapping` have no CLI flag or env var of their
 own for the *entries themselves* (only a *path* to a file, for both the
@@ -74,7 +100,8 @@ immediately:
     "rules": [
       { "hostMatch": "github.com", "pathPrefix": "org-a/", "registry": "ghcr.io/org-a" }
     ]
-  }
+  },
+  "observability": { "serviceName": "devcontainer-builder", "environment": "production" }
 }
 ```
 

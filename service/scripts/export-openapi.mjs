@@ -1,9 +1,10 @@
 #!/usr/bin/env node
 // Dumps the real, generated OpenAPI document to a file - run after `npm run
 // build`, before `mkdocs build`, so the docs site can bundle a static copy
-// (see docs/reference/API.md#bundled-api-docs) without a running service.
-// Never hand-authored: this is the exact same document GET
-// /documentation/json serves from a real running instance.
+// (see docs/project/installing.md#this-documentation-site - api-reference.html
+// via redocly build-docs, api-swagger-ui/ via export-swagger-ui.mjs) without
+// a running service. Never hand-authored: this is the exact same document
+// GET /documentation/json serves from a real running instance.
 // An env var, not a CLI positional - build.js's own loadServiceConfig()
 // parses process.argv itself (strict: true, rejects any argument it
 // doesn't recognize), so this script can't add a positional of its own

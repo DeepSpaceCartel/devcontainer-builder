@@ -38,11 +38,14 @@ jobs:
           node-version: "20"
       - run: npm install
       - run: npm run build
-      # Generates docs/openapi.json (repo root) for the Bundled API docs
-      # section (docs/reference/API.md) - the exact same document a
-      # running instance serves at GET /documentation/json, never
-      # hand-authored.
+      # Generates docs/openapi.json (repo root) and its two rendered
+      # static pages (docs/api-reference.html, docs/api-swagger-ui/) for
+      # the Bundled API docs section (docs/reference/API.md) - the exact
+      # same document a running instance serves at GET
+      # /documentation/json, never hand-authored.
       - run: OPENAPI_OUTPUT_PATH=../docs/openapi.json node scripts/export-openapi.mjs
+      - run: npx redocly build-docs ../docs/openapi.json -o ../docs/api-reference.html
+      - run: SWAGGER_UI_OUTPUT_DIR=../docs/api-swagger-ui node scripts/export-swagger-ui.mjs
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"

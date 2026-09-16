@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Installs the CLI tools the base devcontainer image doesn't already provide:
-# Starship, Helm, Terraform, GitHub CLI, kubectl, k9s, Docker CLI + buildx
-# plugin + devcontainers CLI, Claude Code CLI, and the `helm tui` plugin. No
+# Bun (bun/bunx), Starship, Helm, Terraform, GitHub CLI, kubectl, k9s, Docker
+# CLI + buildx plugin + devcontainers CLI, Claude Code CLI, and the
+# `helm tui` plugin. No
 # Dev Container
 # Features are used here (they aren't usable yet in this repo's Coder/K8s
 # setup) - everything goes through plain shell so this script also works
@@ -49,6 +50,22 @@ if ! command -v curl >/dev/null 2>&1 || ! command -v gpg >/dev/null 2>&1; then
   $SUDO apt-get update
   $SUDO apt-get install -y --no-install-recommends ca-certificates curl gnupg
 fi
+
+# --- Bun + bunx (https://bun.sh) ------------------------------------------
+# JS/TS runtime + package runner, fetched by Bun's own installer. Lands in
+# ~/.bun/bin, so put it on PATH for this run and future interactive shells
+# (the installer writes to a login profile, but not the rc files used here).
+if ! command -v bun >/dev/null 2>&1; then
+  echo "Installing Bun..."
+  curl -fsSL https://bun.sh/install | bash
+fi
+
+export PATH="$HOME/.bun/bin:$PATH"
+for rc in "$HOME/.bashrc" "$HOME/.zshrc"; do
+  if [ -f "$rc" ] && ! grep -qF '.bun/bin' "$rc"; then
+    echo 'export PATH="$HOME/.bun/bin:$PATH"' >> "$rc"
+  fi
+done
 
 # --- MkDocs Material -----------------------------------------------------
 # Install into an isolated pipx environment so Debian's system Python stays
@@ -237,4 +254,4 @@ if command -v helm >/dev/null 2>&1 && ! helm plugin list 2>/dev/null | grep -qw 
   helm plugin install https://github.com/pidanou/helm-tui
 fi
 
-echo "postCreateCommand.sh done: node, timezone, starship, helm, terraform, gh, kubectl, krew (kubectl-tree), k9s, docker cli, devcontainers cli, claude code cli, MkDocs Material, helm tui plugin ready."
+echo "postCreateCommand.sh done: node, bun/bunx, timezone, starship, helm, terraform, gh, kubectl, krew (kubectl-tree), k9s, docker cli, devcontainers cli, claude code cli, MkDocs Material, helm tui plugin ready."

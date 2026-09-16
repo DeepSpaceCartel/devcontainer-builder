@@ -125,6 +125,8 @@ interface RawSettingsFile {
   gitCredentials?: { entries?: unknown[] };
   registryMapping?: { rules?: unknown[] };
   sentry?: { dsn?: string };
+  observability?: { serviceName?: string; environment?: string };
+  logs?: { retention?: number };
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
@@ -234,6 +236,34 @@ function loadSettingsFile(path: string | undefined): RawSettingsFile {
     }
   }
 
+  if (parsed.observability !== undefined) {
+    if (!isPlainObject(parsed.observability)) throw new Error(`settings file field "observability" must be an object`);
+    const observability: RawSettingsFile["observability"] = {};
+    if (parsed.observability.serviceName !== undefined) {
+      if (typeof parsed.observability.serviceName !== "string") {
+        throw new Error(`settings file field "observability.serviceName" must be a string`);
+      }
+      observability.serviceName = parsed.observability.serviceName;
+    }
+    if (parsed.observability.environment !== undefined) {
+      if (typeof parsed.observability.environment !== "string") {
+        throw new Error(`settings file field "observability.environment" must be a string`);
+      }
+      observability.environment = parsed.observability.environment;
+    }
+    settings.observability = observability;
+  }
+
+  if (parsed.logs !== undefined) {
+    if (!isPlainObject(parsed.logs)) throw new Error(`settings file field "logs" must be an object`);
+    if (parsed.logs.retention !== undefined) {
+      if (typeof parsed.logs.retention !== "number") {
+        throw new Error(`settings file field "logs.retention" must be a number`);
+      }
+      settings.logs = { retention: parsed.logs.retention };
+    }
+  }
+
   return settings;
 }
 
@@ -262,10 +292,22 @@ function loadCliOptions(argv: string[]) {
       "build-cache-to": { type: "string" },
       "buildkit-mode": { type: "string" },
       "sentry-dsn": { type: "string" },
+      "service-name": { type: "string" },
+      environment: { type: "string" },
+      "command-log-retention": { type: "string" },
     },
     strict: true,
   });
   return values;
+}
+
+function parseRetentionCount(name: string, raw: string | number | undefined): number | undefined {
+  if (raw === undefined) return undefined;
+  const value = typeof raw === "number" ? raw : Number(raw);
+  if (!Number.isInteger(value) || value <= 0) {
+    throw new Error(`${name} must be a positive integer, got ${JSON.stringify(raw)}`);
+  }
+  return value;
 }
 
 export interface DefaultBuildOptions {
@@ -290,6 +332,20 @@ export interface ServiceConfig {
   // before this config even loads (see tracing.ts), the same way any
   // OTel-instrumented app is configured, not through an app-specific flag.
   sentryDsn?: string;
+  // "service.name"/"deployment.environment.name" on every structured log
+  // line (logger.ts). serviceVersion has no field here - it's always this
+  // build's own package.json version, never a value an operator would
+  // choose to override. environment is also read directly from
+  // DEPLOYMENT_ENVIRONMENT by tracing.ts (which runs before this config
+  // loads) - an accepted, explicit duplication of one env var across two
+  // independent read sites, the same shape as the sentryDsn/OTel split
+  // above.
+  serviceName: string;
+  environment: string;
+  // How many captured command-output log files (see command-log.ts) to
+  // keep per kind ("git"/"docker") before the oldest are pruned - two
+  // independent buckets, not a combined cap.
+  commandLogRetention: number;
 }
 
 function parsePlatformsList(raw: string | undefined): string[] | undefined {
@@ -344,5 +400,18 @@ export function loadServiceConfig(argv: string[] = process.argv.slice(2)): Servi
       : validateEntries(settings.registryMapping?.rules ?? [], isRegistryMappingRule, "registry mapping"),
     sshHostKeyPolicy: loadSshHostKeyPolicy(cli["ssh-host-key-policy"] ?? process.env.SSH_HOST_KEY_POLICY ?? settings.sshHostKeyPolicy),
     sentryDsn: cli["sentry-dsn"] ?? process.env.SENTRY_DSN ?? settings.sentry?.dsn,
+    serviceName: cli["service-name"] ?? process.env.SERVICE_NAME ?? settings.observability?.serviceName ?? "devcontainer-builder",
+    environment: cli.environment ?? process.env.DEPLOYMENT_ENVIRONMENT ?? settings.observability?.environment ?? "development",
+    commandLogRetention:
+      parseRetentionCount("COMMAND_LOG_RETENTION", cli["command-log-retention"] ?? process.env.COMMAND_LOG_RETENTION) ??
+      parseRetentionCount("logs.retention", settings.logs?.retention) ??
+      10,
   };
 }
+
+// Single shared instance - config.ts has no dependency of its own, so
+// every other module (build.ts, logger.ts, server.ts, index.ts) can import
+// this without risking a load-order cycle (this used to live in build.ts,
+// which broke the moment logger.ts needed to import both `serviceConfig`
+// and, separately, build.ts needed to import logger.ts's `logger`).
+export const serviceConfig = loadServiceConfig();
