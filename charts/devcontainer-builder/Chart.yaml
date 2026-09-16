@@ -4,6 +4,7 @@ description: Deploys the devcontainer-builder service, which builds a container 
 type: application
 version: 0.1.0
 appVersion: "0.1.0"
+icon: https://containers.dev/img/favicon.ico
 dependencies:
   # Optional, off by default (buildkit.deploy.enabled, see values.yaml) -
   # the same chart rts-terraform already runs in production
