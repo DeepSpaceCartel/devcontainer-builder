@@ -4,8 +4,10 @@ terraform {
 
   required_providers {
     devcontainerbuilder = {
-      source  = "deepspacecartel/devcontainer-builder"
-      version = ">= 1.0"
+      source = "deepspacecartel/devcontainer-builder"
+      # The provider has its own independent release cycle from this repo
+      # (see its README) - its first published version is 0.1.0, not 1.0.
+      version = "~> 0.1"
     }
   }
 }
