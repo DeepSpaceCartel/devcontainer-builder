@@ -90,7 +90,16 @@ jobs:
       - run: npm install
       - run: npm run build
       - run: npm version --no-git-tag-version --allow-same-version "${{ needs.version.outputs.version }}"
-      - run: npm publish --access public
+      # This package's Trusted Publisher (npmjs.com) is only granted the
+      # "stage" action, not "publish" directly - the stricter of the two
+      # grants npm's Trusted Publishing offers, deliberately: it stages
+      # the tarball with no 2FA needed for this unattended CI step, but a
+      # maintainer still has to separately approve it
+      # (`npm stage approve <stage-id>`, or npmjs.com's "Staged Packages"
+      # tab), with 2FA, before it's actually live. A plain `npm publish`
+      # here would 403 - the OIDC token this job gets genuinely can't do
+      # more than stage, by design.
+      - run: npm stage publish --access public
 
   github-release:
     needs: [version, image, chart, npm]
