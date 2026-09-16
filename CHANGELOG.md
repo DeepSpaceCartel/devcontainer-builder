@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-## [0.1.0] - 2026-09-16
+## [0.1.1] - 2026-09-16
 
 ### Added
 
@@ -121,5 +121,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   by the two fully static generated pages above, which don't depend on a
   script running after navigation at all.
 
-[Unreleased]: https://github.com/DeepSpaceCartel/devcontainer-builder/compare/v0.1.0...HEAD
-[1.0.0]: https://github.com/DeepSpaceCartel/devcontainer-builder/releases/tag/v0.1.0
+[Unreleased]: https://github.com/DeepSpaceCartel/devcontainer-builder/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/DeepSpaceCartel/devcontainer-builder/releases/tag/v0.1.1
