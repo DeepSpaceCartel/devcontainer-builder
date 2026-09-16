@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Installs the CLI tools the base devcontainer image doesn't already provide:
-# Bun (bun/bunx), Starship, Helm, Terraform, GitHub CLI, kubectl, k9s, Docker
-# CLI + buildx plugin + devcontainers CLI, Claude Code CLI, and the
-# `helm tui` plugin. No
+# Bun (bun/bunx), Starship, Helm, Terraform, GitHub CLI, 1Password CLI,
+# kubectl, k9s, Docker CLI + buildx plugin + devcontainers CLI, Claude Code
+# CLI, and the `helm tui` plugin. No
 # Dev Container
 # Features are used here (they aren't usable yet in this repo's Coder/K8s
 # setup) - everything goes through plain shell so this script also works
@@ -158,6 +158,25 @@ if ! command -v gh >/dev/null 2>&1; then
   $SUDO apt-get install -y --no-install-recommends gh
 fi
 
+# --- 1Password CLI (apt repo + debsig package verification, per
+#     https://developer.1password.com/docs/cli/get-started/#install) ------
+if ! command -v op >/dev/null 2>&1; then
+  echo "Installing 1Password CLI..."
+  $SUDO install -m 0755 -d /usr/share/keyrings
+  curl -fsSL https://downloads.1password.com/linux/keys/1password.asc \
+    | $SUDO gpg --dearmor --output /usr/share/keyrings/1password-archive-keyring.gpg
+  echo "deb [arch=${arch} signed-by=/usr/share/keyrings/1password-archive-keyring.gpg] https://downloads.1password.com/linux/debian/${arch} stable main" \
+    | $SUDO tee /etc/apt/sources.list.d/1password.list > /dev/null
+  $SUDO mkdir -p /etc/debsig/policies/AC2D62742012EA22/
+  curl -fsSL https://downloads.1password.com/linux/debian/debsig/1password.pol \
+    | $SUDO tee /etc/debsig/policies/AC2D62742012EA22/1password.pol > /dev/null
+  $SUDO mkdir -p /usr/share/debsig/keyrings/AC2D62742012EA22
+  curl -fsSL https://downloads.1password.com/linux/keys/1password.asc \
+    | $SUDO gpg --dearmor --output /usr/share/debsig/keyrings/AC2D62742012EA22/debsig.gpg
+  $SUDO apt-get update
+  $SUDO apt-get install -y --no-install-recommends 1password-cli
+fi
+
 # --- kubectl --------------------------------------------------------------
 if ! command -v kubectl >/dev/null 2>&1; then
   echo "Installing kubectl..."
@@ -254,4 +273,4 @@ if command -v helm >/dev/null 2>&1 && ! helm plugin list 2>/dev/null | grep -qw 
   helm plugin install https://github.com/pidanou/helm-tui
 fi
 
-echo "postCreateCommand.sh done: node, bun/bunx, timezone, starship, helm, terraform, gh, kubectl, krew (kubectl-tree), k9s, docker cli, devcontainers cli, claude code cli, MkDocs Material, helm tui plugin ready."
+echo "postCreateCommand.sh done: node, bun/bunx, timezone, starship, helm, terraform, gh, 1Password CLI, kubectl, krew (kubectl-tree), k9s, docker cli, devcontainers cli, claude code cli, MkDocs Material, helm tui plugin ready."
