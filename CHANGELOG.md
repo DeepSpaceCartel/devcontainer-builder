@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- `charts/devcontainer-builder`'s `fullname` template no longer duplicates
+  the chart name onto the release name when the release is already named
+  `devcontainer-builder` — Service/Secret/ServiceAccount names used to come
+  out as `devcontainer-builder-devcontainer-builder`, now the standard
+  `helm create`-style dedup applies.
+
 ## [0.1.1] - 2026-09-16
 
 ### Added
