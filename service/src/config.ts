@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
-import { extname } from "node:path";
+import { homedir } from "node:os";
+import { extname, join } from "node:path";
 import { parseArgs } from "node:util";
 import { parse as parseYaml } from "yaml";
 
@@ -346,6 +347,10 @@ export interface ServiceConfig {
   // keep per kind ("git"/"docker") before the oldest are pruned - two
   // independent buckets, not a combined cap.
   commandLogRetention: number;
+  // Registries this instance has ambient push credentials for, from the
+  // mounted Docker config (see loadRegistryAuthRegistries) - hostnames
+  // only, never read for any other purpose than reporting via GET /config.
+  registryAuthRegistries: string[];
 }
 
 function parsePlatformsList(raw: string | undefined): string[] | undefined {
@@ -361,6 +366,33 @@ function parseBooleanEnv(name: string, raw: string | undefined): boolean | undef
   if (raw === "true") return true;
   if (raw === "false") return false;
   throw new Error(`${name} must be "true" or "false", got ${JSON.stringify(raw)}`);
+}
+
+// Reads the same file the Docker/buildx CLI subprocess itself reads for
+// push credentials - this service never parsed it before, so /config had
+// no way to report whether ambient registryAuth (as opposed to a per-request
+// registryCredentials) actually loaded, short of shelling into the pod to
+// decode the Secret directly. Resolved the same way the real Docker CLI
+// does ($DOCKER_CONFIG/config.json, else $HOME/.docker/config.json).
+// Missing or unparsable -> no registries, not a startup error: ambient
+// registry auth is entirely optional. Read once at startup like every
+// other ServiceConfig field - accurate to reality, since the chart mounts
+// this via subPath, which Kubernetes doesn't live-update on Secret change
+// anyway.
+function loadRegistryAuthRegistries(): string[] {
+  const dir = process.env.DOCKER_CONFIG ?? join(homedir(), ".docker");
+  let raw: string;
+  try {
+    raw = readFileSync(join(dir, "config.json"), "utf8");
+  } catch {
+    return [];
+  }
+  try {
+    const parsed = JSON.parse(raw) as { auths?: Record<string, unknown> };
+    return Object.keys(parsed.auths ?? {});
+  } catch {
+    return [];
+  }
 }
 
 function loadBuildkitMode(raw: string | undefined): "auto" | "never" {
@@ -406,6 +438,7 @@ export function loadServiceConfig(argv: string[] = process.argv.slice(2)): Servi
       parseRetentionCount("COMMAND_LOG_RETENTION", cli["command-log-retention"] ?? process.env.COMMAND_LOG_RETENTION) ??
       parseRetentionCount("logs.retention", settings.logs?.retention) ??
       10,
+    registryAuthRegistries: loadRegistryAuthRegistries(),
   };
 }
 

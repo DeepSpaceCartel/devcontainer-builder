@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- `GET /config` now reports `registryAuth` — which registries this instance
+  has ambient push credentials for (hostnames only, never the credential
+  material), read from the same Docker config file the `docker`/`buildx`
+  CLI subprocess itself reads. Previously the only way to confirm ambient
+  `registryAuth` actually took effect was decoding the K8s Secret directly.
+
+## [0.1.2] - 2026-09-16
+
 ### Fixed
 
 - `charts/devcontainer-builder`'s `fullname` template no longer duplicates
@@ -14,6 +24,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   `devcontainer-builder` — Service/Secret/ServiceAccount names used to come
   out as `devcontainer-builder-devcontainer-builder`, now the standard
   `helm create`-style dedup applies.
+- `.github/workflows/release.yaml`'s `image` job now waits for a
+  just-published npm version to actually propagate before the `release`
+  Dockerfile target tries to `npm install` it — hit a real race where the
+  build started seconds after `npm publish` returned and the version wasn't
+  resolvable yet.
 
 ## [0.1.1] - 2026-09-16
 
@@ -129,5 +144,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   by the two fully static generated pages above, which don't depend on a
   script running after navigation at all.
 
-[Unreleased]: https://github.com/DeepSpaceCartel/devcontainer-builder/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/DeepSpaceCartel/devcontainer-builder/compare/v0.1.2...HEAD
+[0.1.2]: https://github.com/DeepSpaceCartel/devcontainer-builder/releases/tag/v0.1.2
 [0.1.1]: https://github.com/DeepSpaceCartel/devcontainer-builder/releases/tag/v0.1.1

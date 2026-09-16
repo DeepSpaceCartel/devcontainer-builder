@@ -271,6 +271,7 @@ export async function buildApp(): Promise<FastifyInstance> {
       // already know about", the whole point of this endpoint.
       gitCredentials: serviceConfig.gitCredentials.map((entry) => ({ host: entry.host, kind: entry.kind })),
       registryMappingRules: serviceConfig.registryMappingRules,
+      registryAuth: serviceConfig.registryAuthRegistries.map((registry) => ({ registry })),
     };
   });
 
