@@ -1,5 +1,16 @@
+{{- /*
+Standard helm create convention: don't duplicate the chart name onto the
+release name when the release name already contains it (e.g. a release
+named "devcontainer-builder" of the "devcontainer-builder" chart gets
+Service/Secret/ServiceAccount names of "devcontainer-builder", not
+"devcontainer-builder-devcontainer-builder").
+*/ -}}
 {{- define "devcontainer-builder.fullname" -}}
-{{- .Release.Name }}-{{ .Chart.Name }}
+{{- if contains .Chart.Name .Release.Name -}}
+{{- .Release.Name | trunc 63 | trimSuffix "-" -}}
+{{- else -}}
+{{- printf "%s-%s" .Release.Name .Chart.Name | trunc 63 | trimSuffix "-" -}}
+{{- end -}}
 {{- end -}}
 
 {{- define "devcontainer-builder.labels" -}}
