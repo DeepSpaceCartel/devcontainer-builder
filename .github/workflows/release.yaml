@@ -65,6 +65,14 @@ jobs:
   npm:
     needs: version
     runs-on: ubuntu-latest
+    # id-token: write is the whole mechanism - npm CLI >= 11.5.1 exchanges
+    # this job's own GitHub OIDC token for a short-lived publish token
+    # itself, via npm's Trusted Publishing
+    # (https://docs.npmjs.com/trusted-publishers), no NPM_TOKEN secret
+    # needed at all. Scoped to just this job, not the workflow-level
+    # `permissions:` block above, since nothing else here needs it.
+    permissions:
+      id-token: write
     defaults:
       run:
         working-directory: service
@@ -74,12 +82,15 @@ jobs:
         with:
           node-version: "20"
           registry-url: "https://registry.npmjs.org"
+      # Node 20's own bundled npm (10.x) predates Trusted Publishing
+      # support - bump to a real minimum here rather than "latest", so a
+      # future npm major release can't silently change this job's
+      # behavior out from under it.
+      - run: npm install -g npm@^11.5.1
       - run: npm install
       - run: npm run build
       - run: npm version --no-git-tag-version --allow-same-version "${{ needs.version.outputs.version }}"
       - run: npm publish --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
   github-release:
     needs: [version, image, chart, npm]
