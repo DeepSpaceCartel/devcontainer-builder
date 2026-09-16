@@ -25,6 +25,11 @@ jobs:
       - uses: actions/checkout@v4
       - uses: azure/setup-helm@v4
       - run: helm lint charts/devcontainer-builder
+      # The optional bundled BuildKit dependency (buildkit.deploy.enabled)
+      # means the chart declares a subchart in Chart.yaml - `helm template`
+      # fails without it fetched into charts/, even with the dependency
+      # disabled by default.
+      - run: helm dependency update charts/devcontainer-builder
       - run: helm template charts/devcontainer-builder
 
   terraform:
