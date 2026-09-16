@@ -7,7 +7,7 @@ metadata:
 spec:
   type: ClusterIP
   selector:
-    {{- include "devcontainer-builder.labels" . | nindent 4 }}
+    {{- include "devcontainer-builder.selectorLabels" . | nindent 4 }}
   ports:
     - name: http
       port: {{ .Values.service.port }}

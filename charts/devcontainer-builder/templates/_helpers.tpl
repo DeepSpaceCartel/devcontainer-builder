@@ -13,9 +13,21 @@ Service/Secret/ServiceAccount names of "devcontainer-builder", not
 {{- end -}}
 {{- end -}}
 
-{{- define "devcontainer-builder.labels" -}}
+{{- /*
+Stable identity only - never anything that varies between chart versions
+(like helm.sh/chart below). This is what Deployment's spec.selector.matchLabels
+and Service's spec.selector must use, not the full .labels - a Deployment's
+selector is immutable, so putting a per-version label in it breaks the very
+first real `helm upgrade` (found live: upgrading 0.1.3 -> 0.1.4 failed with
+"field is immutable" for exactly this reason).
+*/ -}}
+{{- define "devcontainer-builder.selectorLabels" -}}
 app.kubernetes.io/name: {{ .Chart.Name }}
 app.kubernetes.io/instance: {{ .Release.Name }}
+{{- end -}}
+
+{{- define "devcontainer-builder.labels" -}}
+{{ include "devcontainer-builder.selectorLabels" . }}
 app.kubernetes.io/managed-by: {{ .Release.Service }}
 helm.sh/chart: {{ .Chart.Name }}-{{ .Chart.Version }}
 {{- end -}}

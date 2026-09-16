@@ -9,6 +9,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- `charts/devcontainer-builder`'s Deployment `spec.selector.matchLabels` and
+  Service `spec.selector` no longer include `helm.sh/chart` (which changes
+  every chart release) — only the stable `app.kubernetes.io/name`/`instance`
+  identity labels, via a new `selectorLabels` helper. A Deployment's
+  selector is immutable, so the old behavior broke the very first real
+  `helm upgrade` any installation ever did, with `field is immutable`.
+  **Upgrading from an already-deployed pre-fix chart version still needs a
+  one-time manual `kubectl delete deployment <release>-devcontainer-builder`
+  (Service/Secrets/ConfigMap untouched) before the next `helm upgrade`** —
+  changing the selector's shape is itself an immutable-field change, so this
+  fix can't retroactively repair an existing Deployment on its own.
+
+## [0.1.4] - 2026-09-16
+
+### Fixed
+
 - `charts/devcontainer-builder`'s deployment template now defaults
   `image.tag` to the chart's own `.Chart.AppVersion` instead of the
   hardcoded, never-updated `"0.1.0"` in `values.yaml` — every chart release
@@ -16,6 +32,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   `helm install`/`helm upgrade` (no explicit `--set image.tag=...`) always
   ran the very first image ever published, regardless of which chart
   version was actually deployed.
+- Chart icon added, clearing `helm lint`'s "icon is recommended" notice.
 
 ## [0.1.3] - 2026-09-16
 
@@ -157,7 +174,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   by the two fully static generated pages above, which don't depend on a
   script running after navigation at all.
 
-[Unreleased]: https://github.com/DeepSpaceCartel/devcontainer-builder/compare/v0.1.3...HEAD
+[Unreleased]: https://github.com/DeepSpaceCartel/devcontainer-builder/compare/v0.1.4...HEAD
+[0.1.4]: https://github.com/DeepSpaceCartel/devcontainer-builder/releases/tag/v0.1.4
 [0.1.3]: https://github.com/DeepSpaceCartel/devcontainer-builder/releases/tag/v0.1.3
 [0.1.2]: https://github.com/DeepSpaceCartel/devcontainer-builder/releases/tag/v0.1.2
 [0.1.1]: https://github.com/DeepSpaceCartel/devcontainer-builder/releases/tag/v0.1.1
