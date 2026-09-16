@@ -24,44 +24,6 @@ jobs:
       - id: version
         run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
 
-  image:
-    needs: version
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: docker/setup-qemu-action@v3
-      - uses: docker/setup-buildx-action@v3
-      - uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-      - uses: docker/build-push-action@v6
-        with:
-          context: service
-          platforms: linux/amd64,linux/arm64
-          push: true
-          tags: |
-            ghcr.io/deepspacecartel/devcontainer-builder:${{ needs.version.outputs.version }}
-            ghcr.io/deepspacecartel/devcontainer-builder:latest
-
-  chart:
-    needs: [version, image]
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: azure/setup-helm@v4
-      - run: helm lint charts/devcontainer-builder
-      - run: helm dependency update charts/devcontainer-builder
-      - run: |
-          helm registry login ghcr.io -u "${{ github.actor }}" --password-stdin <<< "${{ secrets.GITHUB_TOKEN }}"
-          helm package charts/devcontainer-builder \
-            --version "${{ needs.version.outputs.version }}" \
-            --app-version "${{ needs.version.outputs.version }}" \
-            --destination /tmp/chart-out
-          helm push "/tmp/chart-out/devcontainer-builder-${{ needs.version.outputs.version }}.tgz" \
-            oci://ghcr.io/deepspacecartel/charts
-
   npm:
     needs: version
     runs-on: ubuntu-latest
@@ -90,16 +52,56 @@ jobs:
       - run: npm install
       - run: npm run build
       - run: npm version --no-git-tag-version --allow-same-version "${{ needs.version.outputs.version }}"
-      # This package's Trusted Publisher (npmjs.com) is only granted the
-      # "stage" action, not "publish" directly - the stricter of the two
-      # grants npm's Trusted Publishing offers, deliberately: it stages
-      # the tarball with no 2FA needed for this unattended CI step, but a
-      # maintainer still has to separately approve it
-      # (`npm stage approve <stage-id>`, or npmjs.com's "Staged Packages"
-      # tab), with 2FA, before it's actually live. A plain `npm publish`
-      # here would 403 - the OIDC token this job gets genuinely can't do
-      # more than stage, by design.
-      - run: npm stage publish --access public
+      # This package's Trusted Publisher (npmjs.com) is granted the full
+      # "publish" action (not the stricter "stage" option) - the `image`
+      # job below installs this exact version straight from the registry,
+      # so publish has to complete unattended, in this same run, with no
+      # manual approval step in between.
+      - run: npm publish --access public
+
+  image:
+    # Depends on npm, not just version - the release target installs this
+    # exact version from the npm registry (see service/Dockerfile), so it
+    # has to already be live before this build can even start.
+    needs: [version, npm]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: service
+          target: release
+          build-args: |
+            PACKAGE_VERSION=${{ needs.version.outputs.version }}
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ghcr.io/deepspacecartel/devcontainer-builder:${{ needs.version.outputs.version }}
+            ghcr.io/deepspacecartel/devcontainer-builder:latest
+
+  chart:
+    needs: [version, image]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@v4
+      - run: helm lint charts/devcontainer-builder
+      - run: helm dependency update charts/devcontainer-builder
+      - run: |
+          helm registry login ghcr.io -u "${{ github.actor }}" --password-stdin <<< "${{ secrets.GITHUB_TOKEN }}"
+          helm package charts/devcontainer-builder \
+            --version "${{ needs.version.outputs.version }}" \
+            --app-version "${{ needs.version.outputs.version }}" \
+            --destination /tmp/chart-out
+          helm push "/tmp/chart-out/devcontainer-builder-${{ needs.version.outputs.version }}.tgz" \
+            oci://ghcr.io/deepspacecartel/charts
 
   github-release:
     needs: [version, image, chart, npm]
