@@ -29,9 +29,21 @@ triggers on a `vX.Y.Z` tag and stamps the Docker image, the Helm chart, and
 the npm/CLI package with the same version in one run: multi-arch
 (`linux/amd64`/`linux/arm64`) image build+push to
 `ghcr.io/deepspacecartel/devcontainer-builder`, `helm package`+`helm push`
-to `oci://ghcr.io/deepspacecartel/charts`, and `npm publish` of
+to `oci://ghcr.io/deepspacecartel/charts`, and `npm stage publish` of
 `@deepspacecartel/devcontainer-builder`, followed by a GitHub Release with
 generated notes.
+
+!!! warning "npm publication needs a real, manual, 2FA-gated approval after every tag"
+    `@deepspacecartel/devcontainer-builder`'s
+    [Trusted Publisher](https://docs.npmjs.com/trusted-publishers) grant on
+    npmjs.com is deliberately scoped to `stage` only, not `publish` — the
+    stricter of npm's two Trusted Publishing options. CI's `npm stage
+    publish` genuinely cannot make a version live on its own; a maintainer
+    has to separately run `npm stage approve <stage-id>` (or use
+    npmjs.com's "Staged Packages" tab), with 2FA, after every tagged
+    release. The GitHub Release step doesn't wait for this — it's created
+    as soon as `image`/`chart`/`npm stage publish` succeed, which can be
+    *before* the npm version is actually live.
 
 ## What isn't covered yet
 
