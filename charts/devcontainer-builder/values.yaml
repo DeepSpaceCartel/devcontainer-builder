@@ -15,7 +15,11 @@ podSecurityContext:
 
 image:
   repository: ghcr.io/deepspacecartel/devcontainer-builder
-  tag: "0.1.0"
+  # Empty by default - the deployment template falls back to the chart's
+  # own .Chart.AppVersion, so every release's default install/upgrade tracks
+  # its own matching image without needing a manual bump here. Set this
+  # only to deliberately override that (e.g. pinning to an older image).
+  tag: ""
   pullPolicy: IfNotPresent
 
 service:

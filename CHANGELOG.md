@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- `charts/devcontainer-builder`'s deployment template now defaults
+  `image.tag` to the chart's own `.Chart.AppVersion` instead of the
+  hardcoded, never-updated `"0.1.0"` in `values.yaml` — every chart release
+  since the start shipped with this stale default, so a plain
+  `helm install`/`helm upgrade` (no explicit `--set image.tag=...`) always
+  ran the very first image ever published, regardless of which chart
+  version was actually deployed.
+
+## [0.1.3] - 2026-09-16
+
 ### Added
 
 - `GET /config` now reports `registryAuth` — which registries this instance
@@ -14,6 +26,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   material), read from the same Docker config file the `docker`/`buildx`
   CLI subprocess itself reads. Previously the only way to confirm ambient
   `registryAuth` actually took effect was decoding the K8s Secret directly.
+- `service/README.md` — the published npm package had no README of its own.
 
 ## [0.1.2] - 2026-09-16
 
@@ -144,6 +157,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   by the two fully static generated pages above, which don't depend on a
   script running after navigation at all.
 
-[Unreleased]: https://github.com/DeepSpaceCartel/devcontainer-builder/compare/v0.1.2...HEAD
+[Unreleased]: https://github.com/DeepSpaceCartel/devcontainer-builder/compare/v0.1.3...HEAD
+[0.1.3]: https://github.com/DeepSpaceCartel/devcontainer-builder/releases/tag/v0.1.3
 [0.1.2]: https://github.com/DeepSpaceCartel/devcontainer-builder/releases/tag/v0.1.2
 [0.1.1]: https://github.com/DeepSpaceCartel/devcontainer-builder/releases/tag/v0.1.1
