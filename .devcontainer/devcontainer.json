@@ -1,0 +1,21 @@
+{
+  "name": "devcontainer-builder",
+  "image": "mcr.microsoft.com/devcontainers/typescript-node:1-20-bookworm",
+  "remoteUser": "node",
+  "postCreateCommand": "bash .devcontainer/postCreateCommand.sh",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "hashicorp.terraform",
+        "redhat.vscode-yaml",
+        "alexkrechik.cucumberautocomplete",
+        "HashiCorp.terraform",
+        "ms-azuretools.vscode-containers",
+        "openai.chatgpt",
+        "Google.geminicodeassist",
+        "sst-dev.opencode",
+        "Anthropic.claude-code"
+      ]
+    }
+  }
+}

@@ -1,0 +1,27 @@
+replicaCount: 1
+
+image:
+  repository: registry
+  tag: "3"
+  pullPolicy: IfNotPresent
+
+auth:
+  # When enabled, only pushes/pulls authenticated with username/password
+  # (htpasswd, bcrypt) succeed - used by registry_auth.feature to test
+  # credential handling for real. Disabled by default: most fixtures using
+  # this chart just need somewhere to push, not auth enforcement.
+  enabled: false
+  username: ""
+  password: ""
+  htpasswdImage: httpd:2.4-alpine
+
+service:
+  port: 5000
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 64Mi
+  limits:
+    cpu: 500m
+    memory: 256Mi

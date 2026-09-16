@@ -1,15 +1,91 @@
 import { spawn } from "node:child_process";
-import { mkdtemp, rm, writeFile, chmod } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { mkdtemp, rm, writeFile, chmod, cp, readFile } from "node:fs/promises";
+import { tmpdir, homedir } from "node:os";
 import { join } from "node:path";
-import type { BuildRequest } from "./types.js";
+import { trace, SpanStatusCode } from "@opentelemetry/api";
+import type { BuildRequest, BuildResponse, RegistryCredentials } from "./types.js";
+import { serviceConfig, type GitCredentialEntry, type RegistryMappingRule, type SshHostKeyPolicy } from "./config.js";
+import { logger } from "./logger.js";
+import { openCommandLog, closeCommandLog, type CommandLogKind } from "./command-log.js";
 
-const BUILDKIT_ENDPOINT = process.env.BUILDKIT_ENDPOINT;
-const BUILDX_BUILDER_NAME = process.env.BUILDX_BUILDER_NAME ?? "devcontainer-builder-remote";
+// git clone and `devcontainer build --push` are both plain child_process
+// subprocesses (see `run`/`runCapture` below) - OTel's auto-instrumentation
+// only patches library calls (http/undici/fs/dns/...), never arbitrary
+// subprocesses, so without this they're invisible inside a trace: the
+// whole buildDevcontainer call shows as one flat span under the HTTP
+// server span auto-instrumentation already provides. This wraps a phase
+// in its own child span so it shows up nested under that request's trace.
+const tracer = trace.getTracer("devcontainer-builder");
 
-function run(cmd: string, args: string[], env: NodeJS.ProcessEnv = process.env): Promise<void> {
+async function withSpan<T>(name: string, attributes: Record<string, string | number>, fn: () => Promise<T>): Promise<T> {
+  return tracer.startActiveSpan(name, { attributes }, async (span) => {
+    try {
+      const result = await fn();
+      span.setStatus({ code: SpanStatusCode.OK });
+      return result;
+    } catch (err) {
+      span.recordException(err instanceof Error ? err : String(err));
+      span.setStatus({ code: SpanStatusCode.ERROR, message: err instanceof Error ? err.message : String(err) });
+      throw err;
+    } finally {
+      span.end();
+    }
+  });
+}
+
+// git clone / devcontainer build --push's own stdout+stderr used to be
+// inherited straight onto this process's stdout (see `run` below before
+// this change), interleaving raw text into the middle of the JSON log
+// stream Pino writes everything else as. This captures that output into
+// its own file (rotated per `serviceConfig.commandLogRetention`, see
+// command-log.ts) instead, and reports only a small JSON breadcrumb - the
+// file's id, fetchable via GET /logs/:id - through the normal structured
+// logger. Not `request.log` (build.ts has no request context) - a plain
+// `logger` call still gets trace.id/span.id injected automatically here
+// because it runs inside the active span `fn` was called from.
+async function withCommandLog<T>(
+  kind: CommandLogKind,
+  event: string,
+  fn: (logStream: NodeJS.WritableStream) => Promise<T>,
+): Promise<{ result: T; logId: string }> {
+  const log = await openCommandLog(kind);
+  try {
+    const result = await fn(log.stream);
+    return { result, logId: log.id };
+  } catch (err) {
+    (err as Error & { logId?: string }).logId = log.id;
+    throw err;
+  } finally {
+    await closeCommandLog(log);
+    logger.info({ event, "log.id": log.id });
+  }
+}
+
+// Thrown for user-fixable request problems discovered mid-build (can't be
+// caught by server.ts's up-front shape validation alone, e.g. no registry
+// resolves for a repository) - server.ts maps this to 400, everything else
+// to 500.
+export class BuildRequestError extends Error {}
+
+export function isReady(): { ready: boolean; reason?: string } {
+  if (!serviceConfig.buildkitEndpoint) {
+    return { ready: false, reason: "BUILDKIT_ENDPOINT not configured" };
+  }
+  return { ready: true };
+}
+
+// `logStream`, when given, replaces "inherit" a plain `run("git"|"docker", ...)`
+// call would otherwise use - the two callers that matter (git clone,
+// devcontainer build --push) always pass one; anything still calling this
+// without one (ssh-keyscan's single benign line via runCapture) keeps
+// today's inherited behavior, out of scope for this change.
+function run(cmd: string, args: string[], env: NodeJS.ProcessEnv = process.env, logStream?: NodeJS.WritableStream): Promise<void> {
   return new Promise((resolve, reject) => {
-    const child = spawn(cmd, args, { stdio: "inherit", env });
+    const child = spawn(cmd, args, { stdio: logStream ? ["ignore", "pipe", "pipe"] : "inherit", env });
+    if (logStream) {
+      child.stdout?.pipe(logStream, { end: false });
+      child.stderr?.pipe(logStream, { end: false });
+    }
     child.on("error", reject);
     child.on("exit", (code) => {
       if (code === 0) {
@@ -21,30 +97,59 @@ function run(cmd: string, args: string[], env: NodeJS.ProcessEnv = process.env):
   });
 }
 
+function runCapture(
+  cmd: string,
+  args: string[],
+  opts: { cwd?: string; env?: NodeJS.ProcessEnv; logStream?: NodeJS.WritableStream } = {},
+): Promise<{ stdout: string }> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(cmd, args, {
+      stdio: ["ignore", "pipe", opts.logStream ? "pipe" : "inherit"],
+      cwd: opts.cwd,
+      env: opts.env ?? process.env,
+    });
+    let stdout = "";
+    child.stdout!.on("data", (chunk) => {
+      stdout += chunk;
+      opts.logStream?.write(chunk);
+    });
+    if (opts.logStream) {
+      child.stderr?.pipe(opts.logStream, { end: false });
+    }
+    child.on("error", reject);
+    child.on("exit", (code) => {
+      if (code === 0) {
+        resolve({ stdout: stdout.trim() });
+      } else {
+        reject(new Error(`${cmd} ${args.join(" ")} exited with code ${code}`));
+      }
+    });
+  });
+}
+
 // `docker buildx create --driver remote` talks straight to the remote
 // BuildKit daemon over TCP - no local dockerd is needed. `--use` makes it
 // the active builder so plain `docker build` (which the devcontainer CLI
-// shells out to) is transparently routed through it.
-async function ensureRemoteBuilder(): Promise<void> {
-  if (!BUILDKIT_ENDPOINT) {
+// shells out to) is transparently routed through it. `env` lets a caller
+// point this at a scratch DOCKER_CONFIG (see withRegistryAuthEnv) while
+// still finding the builder state copied into that scratch dir.
+async function ensureRemoteBuilder(env: NodeJS.ProcessEnv = process.env, logStream?: NodeJS.WritableStream): Promise<void> {
+  if (!serviceConfig.buildkitEndpoint) {
     throw new Error("BUILDKIT_ENDPOINT is not configured");
   }
 
   try {
-    await run("docker", ["buildx", "inspect", BUILDX_BUILDER_NAME]);
+    await run("docker", ["buildx", "inspect", serviceConfig.buildxBuilderName], env, logStream);
   } catch {
-    await run("docker", [
-      "buildx",
-      "create",
-      "--name",
-      BUILDX_BUILDER_NAME,
-      "--driver",
-      "remote",
-      BUILDKIT_ENDPOINT,
-    ]);
+    await run(
+      "docker",
+      ["buildx", "create", "--name", serviceConfig.buildxBuilderName, "--driver", "remote", serviceConfig.buildkitEndpoint],
+      env,
+      logStream,
+    );
   }
 
-  await run("docker", ["buildx", "use", BUILDX_BUILDER_NAME]);
+  await run("docker", ["buildx", "use", serviceConfig.buildxBuilderName], env, logStream);
 }
 
 // Git credentials go into a scratch `.netrc` (never argv or the remote URL)
@@ -67,28 +172,242 @@ async function withNetrcEnv<T>(
   }
 }
 
-export async function buildDevcontainer(req: BuildRequest): Promise<string> {
-  await ensureRemoteBuilder();
+// SSH private key + known_hosts go into a scratch dir (never argv or the
+// remote URL either), same rationale as withNetrcEnv. known_hosts content
+// depends on the deployment-wide host-key policy: "tofu" scans the host at
+// clone time (trust-on-first-use), "pinned" uses the operator-supplied key
+// for this host and fails closed if none was configured.
+async function withSshKeyEnv<T>(
+  host: string,
+  entry: Extract<GitCredentialEntry, { kind: "ssh" }>,
+  hostKeyPolicy: SshHostKeyPolicy,
+  fn: (env: NodeJS.ProcessEnv) => Promise<T>,
+): Promise<T> {
+  if (hostKeyPolicy === "pinned" && !entry.pinnedHostKey) {
+    throw new BuildRequestError(`SSH host key policy is "pinned" but no pinned key configured for host ${host}`);
+  }
+
+  const scratchDir = await mkdtemp(join(tmpdir(), "git-ssh-"));
+  const keyPath = join(scratchDir, "id");
+  const knownHostsPath = join(scratchDir, "known_hosts");
+
+  try {
+    await writeFile(keyPath, entry.privateKey.endsWith("\n") ? entry.privateKey : `${entry.privateKey}\n`);
+    await chmod(keyPath, 0o600);
+
+    if (hostKeyPolicy === "pinned") {
+      await writeFile(knownHostsPath, `${entry.pinnedHostKey!.trim()}\n`);
+    } else {
+      const scan = await runCapture("ssh-keyscan", ["-H", host]);
+      await writeFile(knownHostsPath, `${scan.stdout}\n`);
+    }
+    await chmod(knownHostsPath, 0o600);
+
+    const gitSshCommand = `ssh -i ${keyPath} -o UserKnownHostsFile=${knownHostsPath} -o StrictHostKeyChecking=yes -o IdentitiesOnly=yes -o BatchMode=yes`;
+
+    return await fn({ ...process.env, GIT_SSH_COMMAND: gitSshCommand, GIT_TERMINAL_PROMPT: "0" });
+  } finally {
+    await rm(scratchDir, { recursive: true, force: true });
+  }
+}
+
+// Per-request registry push credentials get a scratch DOCKER_CONFIG, seeded
+// from the ambient one (config.json *and* buildx/ builder state) before
+// merging in the override entry - seeding from ambient means
+// ensureRemoteBuilder still finds the already-created "remote" builder
+// under the scratch dir instead of recreating it on every such request.
+async function withRegistryAuthEnv<T>(
+  creds: RegistryCredentials,
+  fn: (env: NodeJS.ProcessEnv) => Promise<T>,
+): Promise<T> {
+  const ambientDockerConfig = process.env.DOCKER_CONFIG ?? join(homedir(), ".docker");
+  const scratchDir = await mkdtemp(join(tmpdir(), "docker-config-"));
+
+  try {
+    try {
+      await cp(ambientDockerConfig, scratchDir, { recursive: true });
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
+    }
+
+    const configPath = join(scratchDir, "config.json");
+    let config: { auths?: Record<string, { auth: string }> } = {};
+    try {
+      config = JSON.parse(await readFile(configPath, "utf8"));
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
+    }
+
+    config.auths = { ...config.auths, [creds.registry]: { auth: Buffer.from(`${creds.username}:${creds.password}`).toString("base64") } };
+
+    await writeFile(configPath, JSON.stringify(config));
+    await chmod(configPath, 0o600);
+
+    return await fn({ ...process.env, DOCKER_CONFIG: scratchDir });
+  } finally {
+    await rm(scratchDir, { recursive: true, force: true });
+  }
+}
+
+interface ParsedGitUrl {
+  host: string;
+  path: string;
+}
+
+const SCHEME_RE = /^[a-z][a-z0-9+.-]*:\/\//i;
+const SCP_RE = /^(?:[^@/]+@)?([^:/]+):(?!\/\/)(.+)$/;
+
+// Accepts `https://host/path`, `ssh://[user@]host[:port]/path`, and git's
+// own SCP-style shorthand `[user@]host:path` - the third form is not a
+// valid `URL` and previously crashed `new URL(repository)` unconditionally.
+function parseGitUrl(repository: string): ParsedGitUrl {
+  if (SCHEME_RE.test(repository)) {
+    const url = new URL(repository);
+    return { host: url.hostname, path: url.pathname.replace(/^\//, "") };
+  }
+
+  const match = SCP_RE.exec(repository);
+  if (match) {
+    return { host: match[1], path: match[2] };
+  }
+
+  throw new BuildRequestError(`unable to parse git repository URL: ${repository}`);
+}
+
+type GitCredentialKind = "https" | "ssh" | "none";
+
+function toCloneUrl(repository: string, parsed: ParsedGitUrl, kind: GitCredentialKind): string {
+  switch (kind) {
+    case "none":
+      return repository;
+    case "https":
+      return `https://${parsed.host}/${parsed.path}`;
+    case "ssh":
+      return `ssh://git@${parsed.host}/${parsed.path}`;
+  }
+}
+
+type ResolvedGitCredential =
+  | { kind: "none" }
+  | { kind: "https"; username: string; token: string }
+  | { kind: "ssh"; entry: Extract<GitCredentialEntry, { kind: "ssh" }> };
+
+// Request-level gitCredentials (always HTTPS/token-shaped) take priority;
+// otherwise fall back to the server's own config, keyed by host, which may
+// be HTTPS- or SSH-keyed. Whichever resolves determines the clone URL's
+// protocol via toCloneUrl - this is what lets a caller pass an HTTPS URL
+// for a host the server only has an SSH credential for, and vice versa.
+function resolveGitCredential(host: string, req: BuildRequest): ResolvedGitCredential {
+  if (req.gitCredentials) {
+    return { kind: "https", username: req.gitCredentials.username, token: req.gitCredentials.token };
+  }
+
+  const entry = serviceConfig.gitCredentials.find((e) => e.host === host);
+  if (!entry) return { kind: "none" };
+  if (entry.kind === "https") return { kind: "https", username: entry.username, token: entry.token };
+  return { kind: "ssh", entry };
+}
+
+function resolveRegistry(parsed: ParsedGitUrl, rules: RegistryMappingRule[]): string | undefined {
+  for (const rule of rules) {
+    if (rule.hostMatch && rule.hostMatch !== parsed.host) continue;
+    if (rule.pathPrefix && !parsed.path.startsWith(rule.pathPrefix)) continue;
+    return rule.registry;
+  }
+  return undefined;
+}
+
+function deriveImageName(path: string): string {
+  const segments = path.replace(/\.git$/, "").split("/").filter(Boolean);
+  return segments[segments.length - 1] ?? path;
+}
+
+export async function buildDevcontainer(req: BuildRequest): Promise<BuildResponse> {
+  const branch = req.branch ?? "main";
+  const parsed = parseGitUrl(req.repository);
+  const gitCredential = resolveGitCredential(parsed.host, req);
+  const cloneUrl = toCloneUrl(req.repository, parsed, gitCredential.kind);
 
   const workDir = await mkdtemp(join(tmpdir(), "devcontainer-build-"));
   const repoDir = join(workDir, "repo");
-  const image = `${req.image.registry}/${req.image.name}:${req.image.tag}`;
 
   try {
-    const cloneArgs = ["clone", "--branch", req.branch, "--single-branch", "--depth", "1", req.repository, repoDir];
+    const cloneArgs = ["clone", "--branch", branch, "--single-branch", "--depth", "1", cloneUrl, repoDir];
 
-    if (req.gitCredentials) {
-      const hostname = new URL(req.repository).hostname;
-      await withNetrcEnv(hostname, req.gitCredentials.username, req.gitCredentials.token, (env) =>
-        run("git", cloneArgs, env),
+    const { result: headSha, logId: gitCloneLogId } = await withSpan(
+      "git.clone",
+      { "git.repository.url": req.repository, "git.branch": branch },
+      () =>
+        withCommandLog("git", "git.clone.output_captured", async (logStream) => {
+          if (gitCredential.kind === "https") {
+            await withNetrcEnv(parsed.host, gitCredential.username, gitCredential.token, (env) =>
+              run("git", cloneArgs, env, logStream),
+            );
+          } else if (gitCredential.kind === "ssh") {
+            await withSshKeyEnv(parsed.host, gitCredential.entry, serviceConfig.sshHostKeyPolicy, (env) =>
+              run("git", cloneArgs, env, logStream),
+            );
+          } else {
+            // GIT_TERMINAL_PROMPT=0 only suppresses git's own (HTTPS-style)
+            // credential prompts - it does nothing for the `ssh` subprocess git
+            // spawns underneath for an ssh://SCP-style URL with no credential
+            // configured. Without BatchMode=yes, an unrecognized host or a
+            // rejected identity lets ssh fall through to an interactive host-key
+            // confirmation or password prompt - invisible in automated testing
+            // (no TTY attached, so ssh just fails immediately instead), but a
+            // real hang risk for a backend service if one ever is attached.
+            await run(
+              "git",
+              cloneArgs,
+              { ...process.env, GIT_TERMINAL_PROMPT: "0", GIT_SSH_COMMAND: "ssh -o BatchMode=yes" },
+              logStream,
+            );
+          }
+
+          const { stdout } = await runCapture("git", ["rev-parse", "HEAD"], { cwd: repoDir, logStream });
+          return stdout;
+        }),
+    );
+
+    const name = req.image?.name ?? deriveImageName(parsed.path);
+    const tag = req.image?.tag ?? `sha-${headSha.slice(0, 7)}`;
+    const registry = req.image?.registry ?? resolveRegistry(parsed, serviceConfig.registryMappingRules);
+    if (!registry) {
+      throw new BuildRequestError(
+        `no registry resolved for repository ${req.repository}: provide image.registry or configure a matching registry mapping rule`,
       );
-    } else {
-      await run("git", cloneArgs, { ...process.env, GIT_TERMINAL_PROMPT: "0" });
     }
+    const image = `${registry}/${name}:${tag}`;
 
-    await run("devcontainer", ["build", "--workspace-folder", repoDir, "--image-name", image, "--push"]);
+    const platforms = req.platforms ?? serviceConfig.defaultPlatforms;
+    const noCache = req.buildOptions?.noCache ?? serviceConfig.defaultBuildOptions.noCache;
+    const cacheFrom = req.buildOptions?.cacheFrom ?? serviceConfig.defaultBuildOptions.cacheFrom;
+    const cacheTo = req.buildOptions?.cacheTo ?? serviceConfig.defaultBuildOptions.cacheTo;
+    const mode = req.buildOptions?.mode ?? serviceConfig.defaultBuildOptions.mode;
 
-    return image;
+    const runBuild = async (env: NodeJS.ProcessEnv, logStream: NodeJS.WritableStream) => {
+      await ensureRemoteBuilder(env, logStream);
+      const args = ["build", "--workspace-folder", repoDir, "--image-name", image, "--push"];
+      if (platforms.length > 0) args.push("--platform", platforms.join(","));
+      if (noCache) args.push("--no-cache");
+      if (cacheFrom) args.push("--cache-from", cacheFrom);
+      if (cacheTo) args.push("--cache-to", cacheTo);
+      if (mode) args.push("--buildkit", mode);
+      await run("devcontainer", args, env, logStream);
+    };
+
+    const { logId: imageBuildLogId } = await withSpan(
+      "image.build_push",
+      { "image.registry": registry, "image.name": name, "image.tag": tag },
+      () =>
+        withCommandLog("docker", "image.build_push.output_captured", (logStream) =>
+          req.registryCredentials
+            ? withRegistryAuthEnv(req.registryCredentials, (env) => runBuild(env, logStream))
+            : runBuild(process.env, logStream),
+        ),
+    );
+
+    return { image, registry, name, tag, gitCloneLogId, imageBuildLogId };
   } finally {
     await rm(workDir, { recursive: true, force: true });
   }

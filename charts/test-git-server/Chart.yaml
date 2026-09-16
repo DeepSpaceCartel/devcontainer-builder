@@ -1,0 +1,21 @@
+apiVersion: v2
+name: test-git-server
+description: >-
+  Real git server test fixture serving seeded bare repos for real over
+  git:// (git-daemon), plain HTTP and real TLS-terminated HTTPS
+  (git-http-backend via Python's stdlib CGI handler, self-signed cert
+  supplied at install time), and SSH (a real sshd with exactly one
+  authorized key, supplied at install time, via a command= path-normalizing
+  wrapper - the same technique real git hosts use). Clone AND push all work
+  on every transport. No custom image build: off-the-shelf images plus an
+  initContainer that seeds repos from a ConfigMap. Not a production chart.
+  NOTE: the git-daemon, git-http, and git-ssh containers install their own
+  packages (apk/apt) at every pod startup rather than using a pre-built
+  image with those packages baked in - see the "no custom image build"
+  comment in templates/deployment.yaml for why, and the tradeoff it costs
+  (a real, sometimes 10-30s+ window of transient readiness-probe
+  "Unhealthy" events on every fresh pod start, which `helm --wait`
+  correctly waits through rather than a real failure).
+type: application
+version: 0.1.0
+appVersion: "1.0"

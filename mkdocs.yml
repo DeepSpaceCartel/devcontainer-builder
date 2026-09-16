@@ -1,0 +1,112 @@
+site_name: devcontainer-builder
+site_description: Builds a container image from a git repo's .devcontainer.json via a remote BuildKit builder, for Coder Workspace Templates on Kubernetes.
+site_url: https://deepspacecartel.github.io/devcontainer-builder/
+repo_url: https://github.com/DeepSpaceCartel/devcontainer-builder
+repo_name: DeepSpaceCartel/devcontainer-builder
+edit_uri: edit/main/docs/
+
+# docs/claude/{plans,notes} are internal planning/investigation records,
+# deliberately real content that isn't part of this published site - not an
+# oversight (see project/installing.md). not_in_nav (not just omitting them
+# from nav: above) is what actually silences mkdocs build's own "exists but
+# not in nav" INFO line for these paths.
+not_in_nav: |
+  claude/**
+
+nav:
+  - Home:
+    - Welcome: home/index.md
+    - Quickstart: home/quickstart.md
+  - Guides:
+      - Coder Workspace Template: guides/coder-workspace-template.md
+  - Application:
+      - Architecture: concepts/architecture.md
+      - Credential handling: concepts/credential-handling.md
+      - Configuration: reference/CONFIGURATION.md
+      - HTTP API (Redoc): api-reference.html
+      - HTTP API (Swagger UI): api-swagger-ui/index.html
+  - Helm Chart:
+      - Reference: reference/HELM.md
+  - Terraform:
+      - Module: reference/TERRAFORM.md
+      - Provider: reference/TERRAFORM-PROVIDER.md
+  - Project:
+      - Installing: project/installing.md
+      - Running the tests: project/testing.md
+      - Testing philosophy: concepts/testing.md
+      - CI: project/ci.md
+  - Decisions:
+      - Decision log: decisions/index.md
+      - 0001. Remote BuildKit builder, no local Docker-in-Docker: decisions/0001-remote-buildkit-builder.md
+      - 0002. Credentials never touch argv, env history, or the clone URL: decisions/0002-credentials-never-touch-argv-or-urls.md
+      - 0003. Registry resolution via server-side mapping rules: decisions/0003-registry-resolution-via-mapping-rules.md
+      - 0004. SSH host key verification is always enforced: decisions/0004-ssh-host-key-verification-always-enforced.md
+      - 0005. The BDD suite runs on Thomas, a real-command framework: decisions/0005-bdd-suite-on-thomas.md
+      - 0006. A reusable chart owns every test namespace, not --create-namespace: decisions/0006-privileged-test-namespace-via-chart.md
+      - 0007. Structured registry auth, and an auto-rendered settings file: decisions/0007-structured-registry-auth-and-auto-rendered-settings.md
+      - 0008. GET/DELETE /image for existence checks and best-effort deletion: decisions/0008-image-existence-and-deletion-endpoints.md
+      - 0009. Event-oriented structured logging, and log/trace correlation via OpenTelemetry: decisions/0009-event-oriented-structured-logging.md
+      - 0010. Capture git/docker subprocess output to files instead of stdout: decisions/0010-command-output-capture.md
+
+theme:
+  name: material
+  features:
+    - navigation.sections
+    - navigation.tabs
+    - navigation.tabs.sticky
+    - navigation.top
+    - navigation.footer
+    - navigation.path
+    - navigation.instant
+    - navigation.instant.progress
+    - navigation.instant.prefetch
+    - toc.follow
+    - header.autohide
+    - search.highlight
+    - search.suggest
+    - search.share
+    - content.code.copy
+    - content.code.annotate
+    - content.code.select
+    - content.action.edit
+    - content.action.view
+    - content.tooltips
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  icon:
+    repo: fontawesome/brands/github
+
+markdown_extensions:
+  - abbr
+  - admonition
+  - attr_list
+  - def_list
+  - md_in_html
+  - pymdownx.details
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+  - pymdownx.highlight
+  - pymdownx.inlinehilite
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.tabbed:
+      alternate_style: true
+  - tables
+  - toc:
+      permalink: true
+
+plugins:
+  - search

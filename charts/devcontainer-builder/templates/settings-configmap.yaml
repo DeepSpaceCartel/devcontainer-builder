@@ -1,0 +1,8 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "devcontainer-builder.fullname" . }}-settings
+  labels:
+    {{- include "devcontainer-builder.labels" . | nindent 4 }}
+data:
+  settings.json: {{ include "devcontainer-builder.settingsJson" . | quote }}

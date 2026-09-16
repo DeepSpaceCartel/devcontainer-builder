@@ -1,0 +1,119 @@
+replicaCount: 1
+
+images:
+  git: alpine/git:latest
+  alpine: alpine:latest
+  python: python:3-slim
+
+# Each entry becomes a bare repo at /repos/<path>, seeded (via initContainer)
+# with a single commit on `main` containing devcontainerJson as
+# `.devcontainer.json`. Keep devcontainerJson minimal - it's the payload the
+# service-under-test actually builds, not something this fixture cares
+# about beyond "a valid devcontainer.json".
+#
+# Base image is deliberately mcr.microsoft.com, not docker.io/library/alpine:
+# Docker Hub's anonymous pull rate limit is real and gets hit hard by BDD
+# runs that do many real builds against the same base image from one
+# cluster egress IP (confirmed: HTTP 429 TOOMANYREQUESTS from
+# registry-1.docker.io during testing). MCR has no comparable limit.
+seedRepos:
+  - name: example-devcontainer
+    path: example/example-devcontainer.git
+    devcontainerJson: |
+      { "image": "mcr.microsoft.com/devcontainers/base:alpine-3.20" }
+    # A real, distinct, clone-able branch for end_to_end_build.feature's
+    # explicit-branch scenario - same content as main, just a separate
+    # empty commit on top so it's a genuine branch to check out by name.
+    extraBranches: [release]
+  # Extra paths for image_resolution.feature's name-derivation checks
+  # (nested path, no .git suffix, top-level bare repo) - same minimal
+  # payload, only the path shape differs.
+  - name: sub-example-devcontainer
+    path: example/sub/example-devcontainer
+    devcontainerJson: |
+      { "image": "mcr.microsoft.com/devcontainers/base:alpine-3.20" }
+  - name: solo-repo
+    path: solo-repo.git
+    devcontainerJson: |
+      { "image": "mcr.microsoft.com/devcontainers/base:alpine-3.20" }
+  # One repo per devcontainer.json location the spec recognizes
+  # (containers.dev/implementors/spec/#devcontainerjson), for a functional
+  # test proving the service finds the config after clone regardless of
+  # where it lives. Three separate repos for the sub-folder form (rather
+  # than one), since the spec leaves <folder>'s name unspecified - each
+  # uses a different one, to prove discovery isn't hardcoded to a
+  # particular folder name.
+  - name: devcontainer-json-root
+    path: location/devcontainer-json-root.git
+    configPath: .devcontainer.json
+    devcontainerJson: |
+      { "image": "mcr.microsoft.com/devcontainers/base:alpine-3.20" }
+  - name: devcontainer-json-standard
+    path: location/devcontainer-json-standard.git
+    configPath: .devcontainer/devcontainer.json
+    devcontainerJson: |
+      { "image": "mcr.microsoft.com/devcontainers/base:alpine-3.20" }
+  - name: devcontainer-json-subfolder-alpha
+    path: location/devcontainer-json-subfolder-alpha.git
+    configPath: .devcontainer/alpha/devcontainer.json
+    devcontainerJson: |
+      { "image": "mcr.microsoft.com/devcontainers/base:alpine-3.20" }
+  - name: devcontainer-json-subfolder-beta
+    path: location/devcontainer-json-subfolder-beta.git
+    configPath: .devcontainer/beta/devcontainer.json
+    devcontainerJson: |
+      { "image": "mcr.microsoft.com/devcontainers/base:alpine-3.20" }
+  - name: devcontainer-json-subfolder-gamma
+    path: location/devcontainer-json-subfolder-gamma.git
+    configPath: .devcontainer/gamma/devcontainer.json
+    devcontainerJson: |
+      { "image": "mcr.microsoft.com/devcontainers/base:alpine-3.20" }
+  # No devcontainer.json anywhere - the "not found at all" case, distinct
+  # from (and adjacent to) the location-discovery repos above.
+  - name: devcontainer-json-missing
+    path: location/devcontainer-json-missing.git
+    noConfig: true
+  # Syntactically valid JSON, but missing everything the CLI needs to
+  # actually build anything (no image, no build/dockerFile) - a
+  # content-level failure, distinct from a location-discovery failure.
+  - name: devcontainer-json-empty-config
+    path: location/devcontainer-json-empty-config.git
+    devcontainerJson: "{}"
+  # References a Dockerfile that was never seeded - proves the CLI's
+  # missing-Dockerfile error path, not the missing-devcontainer.json one.
+  - name: devcontainer-json-missing-dockerfile
+    path: location/devcontainer-json-missing-dockerfile.git
+    devcontainerJson: |
+      { "build": { "dockerfile": "Dockerfile" } }
+  # The "build": {"dockerfile": ...} shape, done correctly with a real
+  # Dockerfile present - a materially different real build path through
+  # BuildKit than every other seed repo's plain "image" reference.
+  - name: devcontainer-json-dockerfile-build
+    path: location/devcontainer-json-dockerfile-build.git
+    devcontainerJson: |
+      { "build": { "dockerfile": "Dockerfile" } }
+    dockerfile: |
+      FROM mcr.microsoft.com/devcontainers/base:alpine-3.20
+
+# Generated fresh per test run (openssl/ssh-keygen, via literal commands in
+# each .feature file's Background - see the disposable-k8s-test-fixtures
+# skill) and passed via --set-string/--set-file - not committed anywhere,
+# not meant to be stable across deploys. sshAuthorizedKey is a single
+# OpenSSH public-key line
+# (e.g. "ssh-ed25519 AAAA... comment"); tlsCert/tlsKey are PEM content for a
+# self-signed leaf certificate/key for this fixture's real Service DNS name.
+sshAuthorizedKey: ""
+tlsCert: ""
+tlsKey: ""
+
+service:
+  gitPort: 9418
+  httpPort: 8080
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 64Mi
+  limits:
+    cpu: 250m
+    memory: 256Mi

@@ -6,6 +6,10 @@ metadata:
     {{- include "devcontainer-builder.labels" . | nindent 4 }}
 spec:
   replicas: {{ .Values.replicaCount }}
+  {{- if .Values.updateStrategy }}
+  strategy:
+    {{- toYaml .Values.updateStrategy | nindent 4 }}
+  {{- end }}
   selector:
     matchLabels:
       {{- include "devcontainer-builder.labels" . | nindent 6 }}
@@ -13,8 +17,28 @@ spec:
     metadata:
       labels:
         {{- include "devcontainer-builder.labels" . | nindent 8 }}
+      annotations:
+        # A Secret/ConfigMap's *name* staying the same across an upgrade
+        # (the common case here - these are all chart-managed, fixed
+        # names) never changes the pod template hash on its own, so
+        # Kubernetes has no reason to roll a new pod just because the
+        # mounted content changed - the already-running process keeps
+        # whatever it read at its own startup. These checksums make
+        # content changes show up in the pod template itself, forcing a
+        # real rollout whenever any of them change. Skipped for
+        # existingSecret/existingConfigMap - that content lives outside
+        # this chart's values, so triggering on it is the caller's job.
+        {{- if not .Values.registryAuth.existingSecret }}
+        checksum/registry-auth: {{ .Values.registryAuth.registries | toJson | sha256sum }}
+        {{- end }}
+        {{- if and .Values.gitCredentials.enabled (not .Values.gitCredentials.existingSecret) }}
+        checksum/git-credentials: {{ .Values.gitCredentials.entries | toJson | sha256sum }}
+        {{- end }}
+        checksum/settings: {{ include "devcontainer-builder.settingsJson" . | sha256sum }}
     spec:
       serviceAccountName: {{ include "devcontainer-builder.fullname" . }}
+      securityContext:
+        fsGroup: {{ .Values.podSecurityContext.fsGroup }}
       containers:
         - name: devcontainer-builder
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
@@ -22,28 +46,90 @@ spec:
           ports:
             - name: http
               containerPort: 8080
+          {{- if .Values.extraArgs }}
+          args:
+            {{- toYaml .Values.extraArgs | nindent 12 }}
+          {{- end }}
           env:
             - name: PORT
               value: "8080"
-            - name: BUILDKIT_ENDPOINT
-              value: {{ .Values.buildkit.endpoint | quote }}
+            # Always .Chart.Name, unconditionally - the same value the
+            # app.kubernetes.io/name label already uses (_helpers.tpl), so
+            # the service's own service.name log field can never drift
+            # from what Alloy already promotes to Loki's `app` label for
+            # this same pod.
+            - name: SERVICE_NAME
+              value: {{ .Chart.Name }}
+            {{- if .Values.environment }}
+            - name: DEPLOYMENT_ENVIRONMENT
+              value: {{ .Values.environment | quote }}
+            {{- end }}
             - name: DOCKER_CONFIG
               value: /home/builder/.docker
+            {{- if .Values.gitCredentials.enabled }}
+            - name: GIT_CREDENTIALS_CONFIG_PATH
+              value: /home/builder/.config/git-credentials.json
+            {{- end }}
+            {{- if and .Values.registryMapping.enabled .Values.registryMapping.existingConfigMap }}
+            - name: REGISTRY_MAPPING_CONFIG_PATH
+              value: /home/builder/.config/registry-mapping.json
+            {{- end }}
+            - name: SERVICE_CONFIG_PATH
+              value: /home/builder/.config/settings.json
+            {{- if .Values.extraEnv }}
+            {{- toYaml .Values.extraEnv | nindent 12 }}
+            {{- end }}
           volumeMounts:
+            # Mounted at the specific file, not the whole DOCKER_CONFIG
+            # directory - `docker buildx create` needs to write its own
+            # builder state under DOCKER_CONFIG/buildx/, which a read-only
+            # mount of the whole directory silently forecloses ("mkdir
+            # .../buildx: read-only file system", surfacing as an opaque
+            # "docker buildx create ... exited with code 1" from build.ts).
             - name: registry-auth
-              mountPath: /home/builder/.docker
+              mountPath: /home/builder/.docker/config.json
+              subPath: config.json
+              readOnly: true
+            {{- if .Values.gitCredentials.enabled }}
+            - name: git-credentials
+              mountPath: /home/builder/.config/git-credentials.json
+              subPath: git-credentials.json
+              readOnly: true
+            {{- end }}
+            {{- if and .Values.registryMapping.enabled .Values.registryMapping.existingConfigMap }}
+            - name: registry-mapping
+              mountPath: /home/builder/.config/registry-mapping.json
+              subPath: registry-mapping.json
+              readOnly: true
+            {{- end }}
+            - name: settings
+              mountPath: /home/builder/.config/settings.json
+              subPath: settings.json
               readOnly: true
             - name: scratch
               mountPath: /tmp
+            {{- if .Values.extraVolumeMounts }}
+            {{- toYaml .Values.extraVolumeMounts | nindent 12 }}
+            {{- end }}
+          startupProbe:
+            httpGet:
+              path: /health/startup
+              port: http
+            # Generous total budget (30 * 5s = 150s) for pod
+            # scheduling/image pull - liveness/readiness only start once
+            # this passes, so this being slow is never itself a restart
+            # trigger the way a too-tight livenessProbe would be.
+            periodSeconds: 5
+            failureThreshold: 30
           readinessProbe:
             httpGet:
-              path: /healthz
+              path: /health/ready
               port: http
             initialDelaySeconds: 2
             periodSeconds: 5
           livenessProbe:
             httpGet:
-              path: /healthz
+              path: /health/live
               port: http
             initialDelaySeconds: 5
             periodSeconds: 15
@@ -56,6 +142,26 @@ spec:
             items:
               - key: .dockerconfigjson
                 path: config.json
+        {{- if .Values.gitCredentials.enabled }}
+        - name: git-credentials
+          secret:
+            secretName: {{ include "devcontainer-builder.gitCredentialsSecretName" . }}
+            items:
+              - key: git-credentials.json
+                path: git-credentials.json
+                mode: 0440
+        {{- end }}
+        {{- if and .Values.registryMapping.enabled .Values.registryMapping.existingConfigMap }}
+        - name: registry-mapping
+          configMap:
+            name: {{ include "devcontainer-builder.registryMappingConfigMapName" . }}
+        {{- end }}
+        - name: settings
+          configMap:
+            name: {{ include "devcontainer-builder.fullname" . }}-settings
         - name: scratch
           emptyDir:
             sizeLimit: {{ .Values.scratchVolume.sizeLimit }}
+        {{- if .Values.extraVolumes }}
+        {{- toYaml .Values.extraVolumes | nindent 8 }}
+        {{- end }}

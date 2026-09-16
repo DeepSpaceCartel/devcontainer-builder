@@ -1,0 +1,4 @@
+targetNamespace: "" # required - the real namespace to create/label
+# Only files that install a genuinely privileged fixture (test-buildkit's
+# buildkit-service chart) set this true.
+privileged: false
