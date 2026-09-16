@@ -103,6 +103,14 @@ jobs:
           tags: |
             ghcr.io/deepspacecartel/devcontainer-builder:${{ needs.version.outputs.version }}
             ghcr.io/deepspacecartel/devcontainer-builder:latest
+          # runtime-base (apt installs, non-root user) never actually
+          # changes release to release - only the release stage's npm
+          # install of the just-published version does. GitHub's own
+          # BuildKit cache backend caches every stage (mode=max, not just
+          # the final one), so a normal release re-runs the apt-get dance
+          # from a cache hit instead of from scratch on both platforms.
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
   chart:
     needs: [version, image]

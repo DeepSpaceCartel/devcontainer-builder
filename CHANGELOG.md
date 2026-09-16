@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- `.github/workflows/release.yaml`'s `image` job now caches Docker layers
+  via BuildKit's GitHub Actions cache backend (`cache-from`/`cache-to:
+  type=gha`, `mode=max`) — `runtime-base`'s apt-get install (git,
+  `docker-ce-cli`, `buildx`, `@devcontainers/cli`) never actually changes
+  release to release, but was being rebuilt from scratch on both
+  `linux/amd64` and `linux/arm64` every single time.
+
+## [0.1.5] - 2026-09-16
+
 ### Fixed
 
 - `charts/devcontainer-builder`'s Deployment `spec.selector.matchLabels` and
@@ -174,7 +185,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   by the two fully static generated pages above, which don't depend on a
   script running after navigation at all.
 
-[Unreleased]: https://github.com/DeepSpaceCartel/devcontainer-builder/compare/v0.1.4...HEAD
+[Unreleased]: https://github.com/DeepSpaceCartel/devcontainer-builder/compare/v0.1.5...HEAD
+[0.1.5]: https://github.com/DeepSpaceCartel/devcontainer-builder/releases/tag/v0.1.5
 [0.1.4]: https://github.com/DeepSpaceCartel/devcontainer-builder/releases/tag/v0.1.4
 [0.1.3]: https://github.com/DeepSpaceCartel/devcontainer-builder/releases/tag/v0.1.3
 [0.1.2]: https://github.com/DeepSpaceCartel/devcontainer-builder/releases/tag/v0.1.2
