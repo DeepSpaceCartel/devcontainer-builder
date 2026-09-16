@@ -1,29 +1,58 @@
 {
-  "name": "devcontainer-builder",
+  "name": "@deepspacecartel/devcontainer-builder",
   "version": "0.1.0",
-  "private": true,
+  "description": "Builds a container image from a git repository's .devcontainer.json using a remote BuildKit builder, and pushes it to a registry.",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/DeepSpaceCartel/devcontainer-builder.git",
+    "directory": "service"
+  },
+  "license": "MIT",
+  "keywords": [
+    "devcontainer",
+    "devcontainers",
+    "buildkit",
+    "coder",
+    "kubernetes"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
   "type": "module",
+  "bin": {
+    "devcontainer-builder": "bin/devcontainer-builder.js"
+  },
+  "files": [
+    "dist",
+    "bin"
+  ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "start": "node dist/index.js",
-    "test": "npm run build && cucumber-js --import 'features/support/*.js' --import 'features/support/optional/cluster_teardown_hooks.js' --import 'features/step_definitions/**/*.js' features/*.feature",
-    "test:health": "npm run build && cucumber-js --import 'features/support/*.js' --import 'features/support/optional/cluster_teardown_hooks.js' --import 'features/step_definitions/**/*.js' features/health.feature",
-    "test:request-validation": "npm run build && cucumber-js --import 'features/support/*.js' --import 'features/support/optional/cluster_teardown_hooks.js' --import 'features/step_definitions/**/*.js' features/request_validation.feature",
-    "test:service-startup-configuration": "npm run build && cucumber-js --import 'features/support/*.js' --import 'features/support/optional/cluster_teardown_hooks.js' --import 'features/step_definitions/**/*.js' features/service_startup_configuration.feature",
-    "test:service-settings-file": "npm run build && cucumber-js --import 'features/support/*.js' --import 'features/support/optional/cluster_teardown_hooks.js' --import 'features/step_definitions/**/*.js' features/service_settings_file.feature",
-    "test:registry-auth": "npm run build && cucumber-js --import 'features/support/*.js' --import 'features/support/optional/cluster_teardown_hooks.js' --import 'features/step_definitions/**/*.js' features/registry_auth.feature",
-    "test:image-resolution": "npm run build && cucumber-js --import 'features/support/*.js' --import 'features/support/optional/cluster_teardown_hooks.js' --import 'features/step_definitions/**/*.js' features/image_resolution.feature",
-    "test:git-source-resolution": "npm run build && cucumber-js --import 'features/support/*.js' --import 'features/support/optional/cluster_teardown_hooks.js' --import 'features/step_definitions/**/*.js' features/git_source_resolution.feature",
-    "test:devcontainer-config-discovery": "npm run build && cucumber-js --import 'features/support/*.js' --import 'features/support/optional/cluster_teardown_hooks.js' --import 'features/step_definitions/**/*.js' features/devcontainer_config_discovery.feature",
-    "test:devcontainer-config-content": "npm run build && cucumber-js --import 'features/support/*.js' --import 'features/support/optional/cluster_teardown_hooks.js' --import 'features/step_definitions/**/*.js' features/devcontainer_config_content.feature",
-    "test:end-to-end-build": "npm run build && cucumber-js --import 'features/support/*.js' --import 'features/support/optional/cluster_teardown_hooks.js' --import 'features/step_definitions/**/*.js' features/end_to_end_build.feature"
+    "test": "NODE_OPTIONS='--import tsx' cucumber-js"
   },
   "dependencies": {
+    "@fastify/swagger": "^9.8.1",
+    "@fastify/swagger-ui": "^6.1.1",
+    "@fastify/type-provider-typebox": "^6.1.0",
+    "@opentelemetry/api": "^1.9.1",
+    "@opentelemetry/auto-instrumentations-node": "^0.80.0",
+    "@opentelemetry/exporter-trace-otlp-http": "^0.222.0",
+    "@opentelemetry/resources": "^2.11.0",
+    "@opentelemetry/sdk-node": "^0.222.0",
+    "@opentelemetry/semantic-conventions": "^1.43.0",
+    "@sentry/node": "^10.74.0",
+    "@sinclair/typebox": "^0.34.52",
+    "fastify": "^5.12.4",
+    "prom-client": "^15.1.3",
     "yaml": "^2.9.0"
   },
   "devDependencies": {
     "@cucumber/cucumber": "^12.2.0",
+    "@redocly/cli": "^2.53.2",
     "@types/node": "^20.14.0",
+    "thomas": "github:DeepSpaceCartel/thomas#bc54f0cd85be7bf6f54bddd102bd6a784c0a7bc1",
+    "tsx": "^4.19.0",
     "typescript": "^5.6.0"
   }
 }

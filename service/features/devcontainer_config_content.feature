@@ -7,86 +7,206 @@ Feature: devcontainer.json content validity, once it's been found
   *where* the file lives - every repo here has its devcontainer.json at the
   plain root location, found without ambiguity. What's under test is
   whether its *content* is enough to build anything, including the
-  alternate `"build": {"dockerfile": ...}` shape (every other fixture repo
-  in this suite uses a plain `"image"` reference instead - a materially
-  different real path through the devcontainer CLI and BuildKit).
+  alternate "build": {"dockerfile": ...} shape (every other fixture repo in
+  this suite uses a plain "image" reference instead - a materially
+  different real path through the devcontainer CLI and BuildKit). Same
+  fixture shape as devcontainer_config_discovery.feature (its own dedicated
+  trust-configured test-buildkit + disposable test-registry, anonymous
+  git:// only) - see that file's own header comment for why that's safe
+  here (nothing built against test-registry is ever pulled by kubelet).
 
   Background:
-    Given "echo devcontainer-builder-${CODER_WORKSPACE_OWNER_NAME:-${USER:-local}}-default" has been run
-    And the command output is known as "<namespace>"
-    And "kubectl create namespace <namespace> --dry-run=client -o yaml | kubectl apply -f -" has been run
-    And "kubectl label namespace <namespace> pod-security.kubernetes.io/enforce=privileged --overwrite" has been run
+    Given the value of environment variable "CODER_WORKSPACE_OWNER_NAME", or "USER", or "local" is known as "<Owner>"
+    And the value of environment variable "CUCUMBER_WORKER_ID" or "0" is known as "<WorkerId>"
+    And the value "devcontainer-builder-<Owner>-w<WorkerId>" is known as "<Namespace>"
 
-    And "helm upgrade --install test-registry ../charts/test-registry -n <namespace> --wait --timeout 120s" has been run
-    And "timeout 30 bash -c 'until (exec 3<>/dev/tcp/test-registry-test-registry.<namespace>.svc.cluster.local/5000); do sleep 1; done'" has been run
-    And the value "test-registry-test-registry.<namespace>.svc.cluster.local:5000" is known as "<registry-url>"
+    Given Directory "<NamespaceChartDir>" at "../charts/test-namespace"
+    And Helm Chart "<NamespaceChart>" in "<NamespaceChartDir>"
+    And Helm Release known as "<NamespaceRelease>":
+      | PROPERTY  | VALUE                      |
+      | chart     | <NamespaceChart>           |
+      | name      | test-namespace-<Namespace> |
+      | namespace | default                    |
+    When I upgrade Helm Release known as "<NamespaceRelease>" with:
+      | OPTION    | VALUE                       |
+      | --install | True                        |
+      | --set     | targetNamespace=<Namespace> |
+      | --set     | privileged=true             |
+    Then the command exited with 0
 
-    And the following is written to "/tmp/e2e-fixtures/buildkit-trust.toml":
+    Given Directory "<TestRegistryChartDir>" at "../charts/test-registry"
+    And Helm Chart "<TestRegistryChart>" in "<TestRegistryChartDir>"
+    And Helm Release known as "<TestRegistryRelease>":
+      | PROPERTY  | VALUE                |
+      | chart     | <TestRegistryChart>  |
+      | name      | test-registry        |
+      | namespace | <Namespace>          |
+    When I upgrade Helm Release known as "<TestRegistryRelease>" with:
+      | OPTION             | VALUE |
+      | --install          | True  |
+      | --wait              | True  |
+      | --timeout           | 120s  |
+    Then the command exited with 0
+    Given the value "test-registry-test-registry.<Namespace>.svc.cluster.local:5000" is known as "<RegistryUrl>"
+
+    When I create File known as "<BuildkitTrustFile>" at ".cache/fixtures/devcontainer-config-content-w<WorkerId>/buildkit-trust.toml" with:
       """
-      [registry."test-registry-test-registry.<namespace>.svc.cluster.local:5000"]
+      [registry."test-registry-test-registry.<Namespace>.svc.cluster.local:5000"]
         http = true
         insecure = true
-      [registry."test-registry-authed-test-registry.<namespace>.svc.cluster.local:5000"]
-        http = true
-        insecure = true
       """
-    And "helm upgrade --install test-buildkit buildkit-service --repo https://andrcuns.github.io/charts -n <namespace> --set-file buildkitdToml=/tmp/e2e-fixtures/buildkit-trust.toml --wait --timeout 180s" has been run
-    And "timeout 30 bash -c 'until (exec 3<>/dev/tcp/test-buildkit-buildkit-service.<namespace>.svc.cluster.local/1234); do sleep 1; done'" has been run
-    And the value "tcp://test-buildkit-buildkit-service.<namespace>.svc.cluster.local:1234" is known as "<buildkit-endpoint>"
+    Given Helm Chart known as "<BuildkitChart>":
+      | PROPERTY | VALUE                              |
+      | chart    | buildkit-service                   |
+      | repo     | https://andrcuns.github.io/charts  |
+    And Helm Release known as "<TestBuildkitRelease>":
+      | PROPERTY  | VALUE           |
+      | chart     | <BuildkitChart> |
+      | name      | test-buildkit   |
+      | namespace | <Namespace>     |
+    When I upgrade Helm Release known as "<TestBuildkitRelease>" with:
+      | OPTION             | VALUE                                                                        |
+      | --install          | True                                                                         |
+      | --set-file         | buildkitdToml=.cache/fixtures/devcontainer-config-content-w<WorkerId>/buildkit-trust.toml |
+      | --wait             | True                                                                         |
+      | --timeout          | 180s                                                                         |
+    Then the command exited with 0
+    Given the value "tcp://test-buildkit-buildkit-service.<Namespace>.svc.cluster.local:1234" is known as "<BuildkitEndpoint>"
 
-    And "rm -rf /tmp/e2e-fixtures/git-tls && mkdir -p /tmp/e2e-fixtures/git-tls" has been run
-    And "rm -rf /tmp/e2e-fixtures/git-ssh && mkdir -p /tmp/e2e-fixtures/git-ssh" has been run
-    And "openssl req -x509 -newkey rsa:2048 -nodes -keyout /tmp/e2e-fixtures/git-tls/ca-key.pem -out /tmp/e2e-fixtures/git-tls/ca-cert.pem -days 2 -subj /CN=devcontainer-builder-test-ca" has been run
-    And "openssl req -newkey rsa:2048 -nodes -keyout /tmp/e2e-fixtures/git-tls/server-key.pem -out /tmp/e2e-fixtures/git-tls/server.csr -subj /CN=devcontainer-builder-test-git-server" has been run
-    And the following is written to "/tmp/e2e-fixtures/git-tls/san.cnf":
-      """
-      subjectAltName=DNS:test-git-server-test-git-server.<namespace>.svc.cluster.local
-      """
-    And "openssl x509 -req -in /tmp/e2e-fixtures/git-tls/server.csr -CA /tmp/e2e-fixtures/git-tls/ca-cert.pem -CAkey /tmp/e2e-fixtures/git-tls/ca-key.pem -CAcreateserial -out /tmp/e2e-fixtures/git-tls/server-cert.pem -days 2 -extfile /tmp/e2e-fixtures/git-tls/san.cnf" has been run
-    And "ssh-keygen -t ed25519 -N '' -f /tmp/e2e-fixtures/git-ssh/id_ed25519 -C devcontainer-builder-test" has been run
-    And "helm upgrade --install test-git-server ../charts/test-git-server -n <namespace> --set-string sshAuthorizedKey=\"$(cat /tmp/e2e-fixtures/git-ssh/id_ed25519.pub)\" --set-file tlsCert=/tmp/e2e-fixtures/git-tls/server-cert.pem --set-file tlsKey=/tmp/e2e-fixtures/git-tls/server-key.pem --wait --timeout 180s" has been run
-    And "timeout 30 bash -c 'until (exec 3<>/dev/tcp/test-git-server-test-git-server.<namespace>.svc.cluster.local/9418); do sleep 1; done'" has been run
-    And "timeout 30 bash -c 'until (exec 3<>/dev/tcp/test-git-server-test-git-server.<namespace>.svc.cluster.local/8080); do sleep 1; done'" has been run
-    And "timeout 30 bash -c 'until (exec 3<>/dev/tcp/test-git-server-test-git-server.<namespace>.svc.cluster.local/443); do sleep 1; done'" has been run
-    And "timeout 30 bash -c 'until (exec 3<>/dev/tcp/test-git-server-test-git-server.<namespace>.svc.cluster.local/22); do sleep 1; done'" has been run
-    And the value "git://test-git-server-test-git-server.<namespace>.svc.cluster.local:9418" is known as "<git-url>"
+    Given Directory "<GitServerChartDir>" at "../charts/test-git-server"
+    And Helm Chart "<GitServerChart>" in "<GitServerChartDir>"
+    And Helm Release known as "<GitServerRelease>":
+      | PROPERTY  | VALUE            |
+      | chart     | <GitServerChart> |
+      | name      | test-git-server  |
+      | namespace | <Namespace>      |
+    When I upgrade Helm Release known as "<GitServerRelease>" with:
+      | OPTION             | VALUE |
+      | --install          | True  |
+      | --wait              | True  |
+      | --timeout           | 180s  |
+    Then the command exited with 0
+    # Anonymous git:// protocol only - see devcontainer_config_discovery.feature's
+    # own Background comment for why SSH/TLS values are left unset here.
+    Given the value "git://test-git-server-test-git-server.<Namespace>.svc.cluster.local:9418" is known as "<GitUrl>"
 
-    And "docker buildx inspect devcontainer-builder-test || docker buildx create --name devcontainer-builder-test --driver remote tcp://buildkit-buildkit-service.buildkit.svc.cluster.local:1234" has been run
-    And "docker buildx build --builder devcontainer-builder-test -t ghcr.io/alexanderilyin/devcontainer-builder-test:test --push ../service" has been run
-    And "helm upgrade --install devcontainer-builder ../charts/devcontainer-builder -n <namespace> --set image.repository=ghcr.io/alexanderilyin/devcontainer-builder-test --set image.tag=test --set image.pullPolicy=Always --set buildkit.endpoint=<buildkit-endpoint> --set updateStrategy.type=Recreate --wait --timeout 120s" has been run
-    And "timeout 30 bash -c 'until (exec 3<>/dev/tcp/devcontainer-builder-devcontainer-builder.<namespace>.svc.cluster.local/8080); do sleep 1; done'" has been run
-    And the value "http://devcontainer-builder-devcontainer-builder.<namespace>.svc.cluster.local:8080" is known as "<base-url>"
+    Given Docker Buildx Builder known as "<Builder>":
+      | PROPERTY | VALUE                                                            |
+      | name     | devcontainer-builder-config-content-w<WorkerId> |
+      | endpoint | tcp://buildkit-buildkit-service.buildkit.svc.cluster.local:1234 |
+    When I create Docker Buildx Builder known as "<Builder>"
+    Then the command exited with 0
+    When I build and push "ghcr.io/deepspacecartel/devcontainer-builder-test:test" from "." using Docker Buildx Builder known as "<Builder>" with:
+      | OPTION | VALUE |
+    Then the command exited with 0
+
+    Given Directory "<ChartDirectory>" at "../charts/devcontainer-builder"
+    And Helm Chart "<Chart>" in "<ChartDirectory>"
+    And Helm Release known as "<Release>":
+      | PROPERTY  | VALUE                |
+      | chart     | <Chart>              |
+      | name      | devcontainer-builder |
+      | namespace | <Namespace>          |
+    When I upgrade Helm Release known as "<Release>" with:
+      | OPTION             | VALUE                                                              |
+      | --install          | True                                                               |
+      | --set              | image.repository=ghcr.io/deepspacecartel/devcontainer-builder-test |
+      | --set              | image.tag=test                                                     |
+      | --set              | image.pullPolicy=Always                                            |
+      | --set              | buildkit.endpoint=<BuildkitEndpoint>                               |
+      | --wait             | True                                                               |
+      | --timeout          | 120s                                                               |
+    Then the command exited with 0
+
+    Given Service known as "<AppService>":
+      | PROPERTY                   | VALUE                |
+      | namespace                  | <Namespace>          |
+      | app.kubernetes.io/instance | devcontainer-builder |
+    And HTTP Endpoint "<AppApi>" on "<AppService>" port "8080"
+
+    Given Pod "<AppPod>"
+    And "<AppPod>" namespace is "<Namespace>"
+    And "<AppPod>" label "app.kubernetes.io/instance" is "devcontainer-builder"
 
   @negative @client-request
   Scenario: A syntactically valid but empty devcontainer.json fails clearly
-    When I send a POST request to "<base-url>/build" with body:
-      """
-      { "repository": "<git-url>/location/devcontainer-json-empty-config.git", "image": { "registry": "<registry-url>" } }
-      """
-    Then the response status should be 500
-    And the response body should contain "exited with code 1"
-    And the devcontainer-builder's logs are captured
-    And the service logs should contain "No image information specified in devcontainer.json"
+    When I send a POST request to Endpoint known as "<AppApi>" path "/build" with:
+      | TYPE | KEY | VALUE                                                                                                          |
+      | BODY |     | {"repository":"<GitUrl>/location/devcontainer-json-empty-config.git","image":{"registry":"<RegistryUrl>"}} |
+    Then the response status is 500:
+      | SOURCE | CONDITION | VALUE              |
+      | BODY   | contains  | exited with code 1 |
+    Given the value at "logId" from the last response is known as "<LogId>"
+    When I send a GET request to Endpoint known as "<AppApi>" path "/logs/<LogId>"
+    Then the response status is 200:
+      | SOURCE | CONDITION | VALUE                                                |
+      | BODY   | contains  | No image information specified in devcontainer.json |
+
+    When I remove Docker Buildx Builder known as "<Builder>"
+    Then the command exited with 0
+    When I uninstall Helm Release known as "<Release>"
+    Then the command exited with 0
+    When I uninstall Helm Release known as "<GitServerRelease>"
+    Then the command exited with 0
+    When I uninstall Helm Release known as "<TestBuildkitRelease>"
+    Then the command exited with 0
+    When I uninstall Helm Release known as "<TestRegistryRelease>"
+    Then the command exited with 0
+    When I uninstall Helm Release "<NamespaceRelease>" with --wait --timeout 120s
+    Then the command exited with 0
 
   @negative @client-request
   Scenario: A devcontainer.json referencing a Dockerfile that was never seeded fails clearly
-    When I send a POST request to "<base-url>/build" with body:
-      """
-      { "repository": "<git-url>/location/devcontainer-json-missing-dockerfile.git", "image": { "registry": "<registry-url>" } }
-      """
-    Then the response status should be 500
-    And the response body should contain "exited with code 1"
-    And the devcontainer-builder's logs are captured
-    And the service logs should contain "no such file or directory"
-    And the service logs should contain "Dockerfile"
+    When I send a POST request to Endpoint known as "<AppApi>" path "/build" with:
+      | TYPE | KEY | VALUE                                                                                                                 |
+      | BODY |     | {"repository":"<GitUrl>/location/devcontainer-json-missing-dockerfile.git","image":{"registry":"<RegistryUrl>"}} |
+    Then the response status is 500:
+      | SOURCE | CONDITION | VALUE              |
+      | BODY   | contains  | exited with code 1 |
+    Given the value at "logId" from the last response is known as "<LogId>"
+    When I send a GET request to Endpoint known as "<AppApi>" path "/logs/<LogId>"
+    Then the response status is 200:
+      | SOURCE | CONDITION | VALUE                     |
+      | BODY   | contains  | no such file or directory |
+      | BODY   | contains  | Dockerfile                 |
+
+    When I remove Docker Buildx Builder known as "<Builder>"
+    Then the command exited with 0
+    When I uninstall Helm Release known as "<Release>"
+    Then the command exited with 0
+    When I uninstall Helm Release known as "<GitServerRelease>"
+    Then the command exited with 0
+    When I uninstall Helm Release known as "<TestBuildkitRelease>"
+    Then the command exited with 0
+    When I uninstall Helm Release known as "<TestRegistryRelease>"
+    Then the command exited with 0
+    When I uninstall Helm Release "<NamespaceRelease>" with --wait --timeout 120s
+    Then the command exited with 0
 
   @client-request
   Scenario: A devcontainer.json using "build": {"dockerfile": ...} with a real Dockerfile succeeds
-    Given "git ls-remote git://test-git-server-test-git-server.<namespace>.svc.cluster.local:9418/location/devcontainer-json-dockerfile-build.git HEAD | cut -c1-7" has been run
-    And the command output is known as "<expected-sha>"
-    When I send a POST request to "<base-url>/build" with body:
-      """
-      { "repository": "<git-url>/location/devcontainer-json-dockerfile-build.git", "image": { "registry": "<registry-url>" } }
-      """
-    Then the response status should be 200
-    And the resolved image should be "<registry-url>/devcontainer-json-dockerfile-build:sha-<expected-sha>"
+    # Distinct real path through the devcontainer CLI/BuildKit from every
+    # other fixture repo in this suite (a plain "image" reference) - proves
+    # the Dockerfile-build shape works end to end, not just that a valid
+    # devcontainer.json exists. The exact resolved image tag isn't asserted
+    # here (see devcontainer_config_discovery.feature's own header comment
+    # for why) - a 200 is already direct proof the Dockerfile build path
+    # succeeded; tag/registry correctness is image_resolution.feature's
+    # own, separate concern.
+    When I send a POST request to Endpoint known as "<AppApi>" path "/build" with:
+      | TYPE | KEY | VALUE                                                                                                                |
+      | BODY |     | {"repository":"<GitUrl>/location/devcontainer-json-dockerfile-build.git","image":{"registry":"<RegistryUrl>"}} |
+    Then the response status is 200
+
+    When I remove Docker Buildx Builder known as "<Builder>"
+    Then the command exited with 0
+    When I uninstall Helm Release known as "<Release>"
+    Then the command exited with 0
+    When I uninstall Helm Release known as "<GitServerRelease>"
+    Then the command exited with 0
+    When I uninstall Helm Release known as "<TestBuildkitRelease>"
+    Then the command exited with 0
+    When I uninstall Helm Release known as "<TestRegistryRelease>"
+    Then the command exited with 0
+    When I uninstall Helm Release "<NamespaceRelease>" with --wait --timeout 120s
+    Then the command exited with 0

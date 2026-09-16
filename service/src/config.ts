@@ -119,10 +119,14 @@ function loadSshHostKeyPolicy(raw: string | undefined): SshHostKeyPolicy {
 // meaning here and are simply ignored if present.
 interface RawSettingsFile {
   buildkit?: { endpoint?: string };
+  build?: { platforms?: string[]; noCache?: boolean; cacheFrom?: string; cacheTo?: string; mode?: string };
   service?: { port?: number };
   sshHostKeyPolicy?: string;
   gitCredentials?: { entries?: unknown[] };
   registryMapping?: { rules?: unknown[] };
+  sentry?: { dsn?: string };
+  observability?: { serviceName?: string; environment?: string };
+  logs?: { retention?: number };
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
@@ -147,6 +151,42 @@ function loadSettingsFile(path: string | undefined): RawSettingsFile {
       }
       settings.buildkit = { endpoint: parsed.buildkit.endpoint };
     }
+  }
+
+  if (parsed.build !== undefined) {
+    if (!isPlainObject(parsed.build)) throw new Error(`settings file field "build" must be an object`);
+    const build: RawSettingsFile["build"] = {};
+    if (parsed.build.platforms !== undefined) {
+      if (!Array.isArray(parsed.build.platforms) || !parsed.build.platforms.every((p) => typeof p === "string")) {
+        throw new Error(`settings file field "build.platforms" must be an array of strings`);
+      }
+      build.platforms = parsed.build.platforms as string[];
+    }
+    if (parsed.build.noCache !== undefined) {
+      if (typeof parsed.build.noCache !== "boolean") {
+        throw new Error(`settings file field "build.noCache" must be a boolean`);
+      }
+      build.noCache = parsed.build.noCache;
+    }
+    if (parsed.build.cacheFrom !== undefined) {
+      if (typeof parsed.build.cacheFrom !== "string") {
+        throw new Error(`settings file field "build.cacheFrom" must be a string`);
+      }
+      build.cacheFrom = parsed.build.cacheFrom;
+    }
+    if (parsed.build.cacheTo !== undefined) {
+      if (typeof parsed.build.cacheTo !== "string") {
+        throw new Error(`settings file field "build.cacheTo" must be a string`);
+      }
+      build.cacheTo = parsed.build.cacheTo;
+    }
+    if (parsed.build.mode !== undefined) {
+      if (parsed.build.mode !== "auto" && parsed.build.mode !== "never") {
+        throw new Error(`settings file field "build.mode" must be "auto" or "never"`);
+      }
+      build.mode = parsed.build.mode;
+    }
+    settings.build = build;
   }
 
   if (parsed.service !== undefined) {
@@ -186,6 +226,44 @@ function loadSettingsFile(path: string | undefined): RawSettingsFile {
     }
   }
 
+  if (parsed.sentry !== undefined) {
+    if (!isPlainObject(parsed.sentry)) throw new Error(`settings file field "sentry" must be an object`);
+    if (parsed.sentry.dsn !== undefined) {
+      if (typeof parsed.sentry.dsn !== "string") {
+        throw new Error(`settings file field "sentry.dsn" must be a string`);
+      }
+      settings.sentry = { dsn: parsed.sentry.dsn };
+    }
+  }
+
+  if (parsed.observability !== undefined) {
+    if (!isPlainObject(parsed.observability)) throw new Error(`settings file field "observability" must be an object`);
+    const observability: RawSettingsFile["observability"] = {};
+    if (parsed.observability.serviceName !== undefined) {
+      if (typeof parsed.observability.serviceName !== "string") {
+        throw new Error(`settings file field "observability.serviceName" must be a string`);
+      }
+      observability.serviceName = parsed.observability.serviceName;
+    }
+    if (parsed.observability.environment !== undefined) {
+      if (typeof parsed.observability.environment !== "string") {
+        throw new Error(`settings file field "observability.environment" must be a string`);
+      }
+      observability.environment = parsed.observability.environment;
+    }
+    settings.observability = observability;
+  }
+
+  if (parsed.logs !== undefined) {
+    if (!isPlainObject(parsed.logs)) throw new Error(`settings file field "logs" must be an object`);
+    if (parsed.logs.retention !== undefined) {
+      if (typeof parsed.logs.retention !== "number") {
+        throw new Error(`settings file field "logs.retention" must be a number`);
+      }
+      settings.logs = { retention: parsed.logs.retention };
+    }
+  }
+
   return settings;
 }
 
@@ -208,10 +286,35 @@ function loadCliOptions(argv: string[]) {
       "ssh-host-key-policy": { type: "string" },
       "git-credentials-config-path": { type: "string" },
       "registry-mapping-config-path": { type: "string" },
+      "build-platforms": { type: "string" },
+      "build-no-cache": { type: "boolean" },
+      "build-cache-from": { type: "string" },
+      "build-cache-to": { type: "string" },
+      "buildkit-mode": { type: "string" },
+      "sentry-dsn": { type: "string" },
+      "service-name": { type: "string" },
+      environment: { type: "string" },
+      "command-log-retention": { type: "string" },
     },
     strict: true,
   });
   return values;
+}
+
+function parseRetentionCount(name: string, raw: string | number | undefined): number | undefined {
+  if (raw === undefined) return undefined;
+  const value = typeof raw === "number" ? raw : Number(raw);
+  if (!Number.isInteger(value) || value <= 0) {
+    throw new Error(`${name} must be a positive integer, got ${JSON.stringify(raw)}`);
+  }
+  return value;
+}
+
+export interface DefaultBuildOptions {
+  noCache: boolean;
+  cacheFrom?: string;
+  cacheTo?: string;
+  mode: "auto" | "never";
 }
 
 export interface ServiceConfig {
@@ -221,6 +324,49 @@ export interface ServiceConfig {
   gitCredentials: GitCredentialEntry[];
   registryMappingRules: RegistryMappingRule[];
   sshHostKeyPolicy: SshHostKeyPolicy;
+  defaultPlatforms: string[];
+  defaultBuildOptions: DefaultBuildOptions;
+  // Sentry/GlitchTip DSN - error tracking is entirely opt-in, off unless
+  // set. OpenTelemetry tracing is deliberately not a field here - it's
+  // bootstrapped from the standard OTEL_EXPORTER_OTLP_ENDPOINT env var
+  // before this config even loads (see tracing.ts), the same way any
+  // OTel-instrumented app is configured, not through an app-specific flag.
+  sentryDsn?: string;
+  // "service.name"/"deployment.environment.name" on every structured log
+  // line (logger.ts). serviceVersion has no field here - it's always this
+  // build's own package.json version, never a value an operator would
+  // choose to override. environment is also read directly from
+  // DEPLOYMENT_ENVIRONMENT by tracing.ts (which runs before this config
+  // loads) - an accepted, explicit duplication of one env var across two
+  // independent read sites, the same shape as the sentryDsn/OTel split
+  // above.
+  serviceName: string;
+  environment: string;
+  // How many captured command-output log files (see command-log.ts) to
+  // keep per kind ("git"/"docker") before the oldest are pruned - two
+  // independent buckets, not a combined cap.
+  commandLogRetention: number;
+}
+
+function parsePlatformsList(raw: string | undefined): string[] | undefined {
+  if (raw === undefined) return undefined;
+  return raw
+    .split(",")
+    .map((p) => p.trim())
+    .filter((p) => p.length > 0);
+}
+
+function parseBooleanEnv(name: string, raw: string | undefined): boolean | undefined {
+  if (raw === undefined) return undefined;
+  if (raw === "true") return true;
+  if (raw === "false") return false;
+  throw new Error(`${name} must be "true" or "false", got ${JSON.stringify(raw)}`);
+}
+
+function loadBuildkitMode(raw: string | undefined): "auto" | "never" {
+  if (raw === undefined) return "auto";
+  if (raw === "auto" || raw === "never") return raw;
+  throw new Error(`buildkit mode must be "auto" or "never", got ${JSON.stringify(raw)}`);
 }
 
 // Precedence at every field: CLI flag > env var > settings file > default.
@@ -237,6 +383,15 @@ export function loadServiceConfig(argv: string[] = process.argv.slice(2)): Servi
     buildkitEndpoint: cli["buildkit-endpoint"] ?? process.env.BUILDKIT_ENDPOINT ?? settings.buildkit?.endpoint,
     port: Number(cli.port ?? process.env.PORT ?? settings.service?.port ?? 8080),
     buildxBuilderName: cli["buildx-builder-name"] ?? process.env.BUILDX_BUILDER_NAME ?? "devcontainer-builder-remote",
+    defaultPlatforms:
+      parsePlatformsList(cli["build-platforms"]) ?? parsePlatformsList(process.env.BUILD_PLATFORMS) ?? settings.build?.platforms ?? [],
+    defaultBuildOptions: {
+      noCache:
+        cli["build-no-cache"] ?? parseBooleanEnv("BUILD_NO_CACHE", process.env.BUILD_NO_CACHE) ?? settings.build?.noCache ?? false,
+      cacheFrom: cli["build-cache-from"] ?? process.env.BUILD_CACHE_FROM ?? settings.build?.cacheFrom,
+      cacheTo: cli["build-cache-to"] ?? process.env.BUILD_CACHE_TO ?? settings.build?.cacheTo,
+      mode: loadBuildkitMode(cli["buildkit-mode"] ?? process.env.BUILDKIT_MODE ?? settings.build?.mode),
+    },
     gitCredentials: gitCredentialsPath
       ? loadArrayConfigFile(gitCredentialsPath, isGitCredentialEntry, "git credentials")
       : validateEntries(settings.gitCredentials?.entries ?? [], isGitCredentialEntry, "git credentials"),
@@ -244,5 +399,19 @@ export function loadServiceConfig(argv: string[] = process.argv.slice(2)): Servi
       ? loadArrayConfigFile(registryMappingPath, isRegistryMappingRule, "registry mapping")
       : validateEntries(settings.registryMapping?.rules ?? [], isRegistryMappingRule, "registry mapping"),
     sshHostKeyPolicy: loadSshHostKeyPolicy(cli["ssh-host-key-policy"] ?? process.env.SSH_HOST_KEY_POLICY ?? settings.sshHostKeyPolicy),
+    sentryDsn: cli["sentry-dsn"] ?? process.env.SENTRY_DSN ?? settings.sentry?.dsn,
+    serviceName: cli["service-name"] ?? process.env.SERVICE_NAME ?? settings.observability?.serviceName ?? "devcontainer-builder",
+    environment: cli.environment ?? process.env.DEPLOYMENT_ENVIRONMENT ?? settings.observability?.environment ?? "development",
+    commandLogRetention:
+      parseRetentionCount("COMMAND_LOG_RETENTION", cli["command-log-retention"] ?? process.env.COMMAND_LOG_RETENTION) ??
+      parseRetentionCount("logs.retention", settings.logs?.retention) ??
+      10,
   };
 }
+
+// Single shared instance - config.ts has no dependency of its own, so
+// every other module (build.ts, logger.ts, server.ts, index.ts) can import
+// this without risking a load-order cycle (this used to live in build.ts,
+// which broke the moment logger.ts needed to import both `serviceConfig`
+// and, separately, build.ts needed to import logger.ts's `logger`).
+export const serviceConfig = loadServiceConfig();

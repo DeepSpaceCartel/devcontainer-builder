@@ -8,8 +8,9 @@ created: 2026-09-06
 ## What happened
 
 Building and pushing a scratch test image to GHCR
-(`ghcr.io/alexanderilyin/devcontainer-builder-test`) for the BDD suite's
-Kubernetes-based service startup:
+(`ghcr.io/deepspacecartel/devcontainer-builder-test` today - this incident
+happened against the repo's previous `ghcr.io/alexanderilyin/...` namespace,
+see the note below) for the BDD suite's Kubernetes-based service startup:
 
 ```
 gh auth token | docker login ghcr.io -u alexanderilyin --password-stdin

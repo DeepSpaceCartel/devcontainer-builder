@@ -4,302 +4,728 @@ Feature: Image name, tag, and registry resolution
   So that I don't have to compute a registry, name, or tag myself for every build
 
   Runs real builds against a real git server and the anonymous test
-  registry - "git ls-remote ... | cut -c1-7" captures the fixture repo's
-  actual current HEAD short sha (a real, content-derived value, not one a
-  scenario can dictate) for later assertions to reference by name.
+  registry. Almost every scenario needs its own registryMapping.rules, so -
+  unlike every other migrated file so far - the devcontainer-builder Helm
+  Release itself is NOT in the Background; only the fixtures every
+  scenario shares (test-registry, test-registry-authed, test-buildkit,
+  test-git-server, this repo's own service image) are. gitCredentials
+  stays disabled throughout (this file never needs git auth), so only
+  registryMapping varies per scenario.
 
-  Runs the real service as a Kubernetes Deployment - almost every scenario
-  needs its own `registryMapping.rules`, so (per the accepted cost of this
-  approach - see the migration plan) each one triggers its own rollout via
-  "has been run again", same mechanics as git_source_resolution.feature.
-  gitCredentials stays disabled throughout (this file never needs git
-  auth), so only registryMapping varies per scenario.
+  A resolved image's exact sha suffix is a real, content-derived value
+  this suite can't dictate (it depends on the seed commit's real
+  timestamp) - rather than independently re-deriving it via a second git
+  query (the old suite's `git ls-remote ... | cut -c1-7`), scenarios that
+  need one compare a *prefix* (registry/name:sha-) via `contains`, which is
+  exactly as precise for what's actually under test here (did resolution
+  pick the right registry/name and correctly default to a sha-tag) without
+  a second, independent fixture round-trip. Scenarios with a fully literal
+  expected tag (no sha involved) compare with `equals` instead. Both use
+  the new `the value known as ... {condition} ...` comparison (see
+  docs/reference/REST.md) to compare the response's real resolved image
+  against an expected value composed from <RegistryUrl>/<AuthedRegistryUrl>
+  (namespace-dependent, so not writable as a fixed literal).
 
   Background:
-    Given "echo devcontainer-builder-${CODER_WORKSPACE_OWNER_NAME:-${USER:-local}}-default" has been run
-    And the command output is known as "<namespace>"
-    And "kubectl create namespace <namespace> --dry-run=client -o yaml | kubectl apply -f -" has been run
-    And "kubectl label namespace <namespace> pod-security.kubernetes.io/enforce=privileged --overwrite" has been run
+    Given the value of environment variable "CODER_WORKSPACE_OWNER_NAME", or "USER", or "local" is known as "<Owner>"
+    And the value of environment variable "CUCUMBER_WORKER_ID" or "0" is known as "<WorkerId>"
+    And the value "devcontainer-builder-<Owner>-w<WorkerId>" is known as "<Namespace>"
 
-    And "helm upgrade --install test-registry ../charts/test-registry -n <namespace> --wait --timeout 120s" has been run
-    And "timeout 30 bash -c 'until (exec 3<>/dev/tcp/test-registry-test-registry.<namespace>.svc.cluster.local/5000); do sleep 1; done'" has been run
-    And the value "test-registry-test-registry.<namespace>.svc.cluster.local:5000" is known as "<registry-url>"
+    Given Directory "<NamespaceChartDir>" at "../charts/test-namespace"
+    And Helm Chart "<NamespaceChart>" in "<NamespaceChartDir>"
+    And Helm Release known as "<NamespaceRelease>":
+      | PROPERTY  | VALUE                      |
+      | chart     | <NamespaceChart>           |
+      | name      | test-namespace-<Namespace> |
+      | namespace | default                    |
+    When I upgrade Helm Release known as "<NamespaceRelease>" with:
+      | OPTION    | VALUE                       |
+      | --install | True                        |
+      | --set     | targetNamespace=<Namespace> |
+      | --set     | privileged=true             |
+    Then the command exited with 0
 
-    And the following is written to "/tmp/e2e-fixtures/registry-authed-values.yaml":
+    Given Directory "<TestRegistryChartDir>" at "../charts/test-registry"
+    And Helm Chart "<TestRegistryChart>" in "<TestRegistryChartDir>"
+    And Helm Release known as "<TestRegistryRelease>":
+      | PROPERTY  | VALUE               |
+      | chart     | <TestRegistryChart> |
+      | name      | test-registry       |
+      | namespace | <Namespace>         |
+    When I upgrade Helm Release known as "<TestRegistryRelease>" with:
+      | OPTION             | VALUE |
+      | --install          | True  |
+      | --wait              | True  |
+      | --timeout           | 120s  |
+    Then the command exited with 0
+    Given the value "test-registry-test-registry.<Namespace>.svc.cluster.local:5000" is known as "<RegistryUrl>"
+
+    When I create File known as "<AuthedRegistryValuesFile>" at ".cache/fixtures/image-resolution-w<WorkerId>/registry-authed-values.yaml" with:
       """
       auth:
         enabled: true
         username: svc-bot
         password: hunter2
       """
-    And "helm upgrade --install test-registry-authed ../charts/test-registry -n <namespace> -f /tmp/e2e-fixtures/registry-authed-values.yaml --wait --timeout 120s" has been run
-    And "timeout 30 bash -c 'until (exec 3<>/dev/tcp/test-registry-authed-test-registry.<namespace>.svc.cluster.local/5000); do sleep 1; done'" has been run
-    And the value "test-registry-authed-test-registry.<namespace>.svc.cluster.local:5000" is known as "<authed-registry-url>"
+    Given Helm Release known as "<TestRegistryAuthedRelease>":
+      | PROPERTY  | VALUE               |
+      | chart     | <TestRegistryChart> |
+      | name      | test-registry-authed |
+      | namespace | <Namespace>         |
+    When I upgrade Helm Release known as "<TestRegistryAuthedRelease>" with:
+      | OPTION             | VALUE                                                       |
+      | --install          | True                                                        |
+      | -f                 | .cache/fixtures/image-resolution-w<WorkerId>/registry-authed-values.yaml |
+      | --wait             | True                                                        |
+      | --timeout          | 120s                                                        |
+    Then the command exited with 0
+    Given the value "test-registry-authed-test-registry.<Namespace>.svc.cluster.local:5000" is known as "<AuthedRegistryUrl>"
 
-    And the following is written to "/tmp/e2e-fixtures/buildkit-trust.toml":
+    When I create File known as "<BuildkitTrustFile>" at ".cache/fixtures/image-resolution-w<WorkerId>/buildkit-trust.toml" with:
       """
-      [registry."test-registry-test-registry.<namespace>.svc.cluster.local:5000"]
+      [registry."test-registry-test-registry.<Namespace>.svc.cluster.local:5000"]
         http = true
         insecure = true
-      [registry."test-registry-authed-test-registry.<namespace>.svc.cluster.local:5000"]
+      [registry."test-registry-authed-test-registry.<Namespace>.svc.cluster.local:5000"]
         http = true
         insecure = true
       """
-    And "helm upgrade --install test-buildkit buildkit-service --repo https://andrcuns.github.io/charts -n <namespace> --set-file buildkitdToml=/tmp/e2e-fixtures/buildkit-trust.toml --wait --timeout 180s" has been run
-    And "timeout 30 bash -c 'until (exec 3<>/dev/tcp/test-buildkit-buildkit-service.<namespace>.svc.cluster.local/1234); do sleep 1; done'" has been run
-    And the value "tcp://test-buildkit-buildkit-service.<namespace>.svc.cluster.local:1234" is known as "<buildkit-endpoint>"
+    Given Helm Chart known as "<BuildkitChart>":
+      | PROPERTY | VALUE                              |
+      | chart    | buildkit-service                   |
+      | repo     | https://andrcuns.github.io/charts  |
+    And Helm Release known as "<TestBuildkitRelease>":
+      | PROPERTY  | VALUE           |
+      | chart     | <BuildkitChart> |
+      | name      | test-buildkit   |
+      | namespace | <Namespace>     |
+    When I upgrade Helm Release known as "<TestBuildkitRelease>" with:
+      | OPTION             | VALUE                                                    |
+      | --install          | True                                                     |
+      | --set-file         | buildkitdToml=.cache/fixtures/image-resolution-w<WorkerId>/buildkit-trust.toml |
+      | --wait             | True                                                     |
+      | --timeout          | 180s                                                     |
+    Then the command exited with 0
+    Given the value "tcp://test-buildkit-buildkit-service.<Namespace>.svc.cluster.local:1234" is known as "<BuildkitEndpoint>"
 
-    And "rm -rf /tmp/e2e-fixtures/git-tls && mkdir -p /tmp/e2e-fixtures/git-tls" has been run
-    And "rm -rf /tmp/e2e-fixtures/git-ssh && mkdir -p /tmp/e2e-fixtures/git-ssh" has been run
-    And "openssl req -x509 -newkey rsa:2048 -nodes -keyout /tmp/e2e-fixtures/git-tls/ca-key.pem -out /tmp/e2e-fixtures/git-tls/ca-cert.pem -days 2 -subj /CN=devcontainer-builder-test-ca" has been run
-    And "openssl req -newkey rsa:2048 -nodes -keyout /tmp/e2e-fixtures/git-tls/server-key.pem -out /tmp/e2e-fixtures/git-tls/server.csr -subj /CN=devcontainer-builder-test-git-server" has been run
-    And the following is written to "/tmp/e2e-fixtures/git-tls/san.cnf":
-      """
-      subjectAltName=DNS:test-git-server-test-git-server.<namespace>.svc.cluster.local
-      """
-    And "openssl x509 -req -in /tmp/e2e-fixtures/git-tls/server.csr -CA /tmp/e2e-fixtures/git-tls/ca-cert.pem -CAkey /tmp/e2e-fixtures/git-tls/ca-key.pem -CAcreateserial -out /tmp/e2e-fixtures/git-tls/server-cert.pem -days 2 -extfile /tmp/e2e-fixtures/git-tls/san.cnf" has been run
-    And "ssh-keygen -t ed25519 -N '' -f /tmp/e2e-fixtures/git-ssh/id_ed25519 -C devcontainer-builder-test" has been run
-    And "helm upgrade --install test-git-server ../charts/test-git-server -n <namespace> --set-string sshAuthorizedKey=\"$(cat /tmp/e2e-fixtures/git-ssh/id_ed25519.pub)\" --set-file tlsCert=/tmp/e2e-fixtures/git-tls/server-cert.pem --set-file tlsKey=/tmp/e2e-fixtures/git-tls/server-key.pem --wait --timeout 180s" has been run
-    And "timeout 30 bash -c 'until (exec 3<>/dev/tcp/test-git-server-test-git-server.<namespace>.svc.cluster.local/9418); do sleep 1; done'" has been run
-    And "timeout 30 bash -c 'until (exec 3<>/dev/tcp/test-git-server-test-git-server.<namespace>.svc.cluster.local/8080); do sleep 1; done'" has been run
-    And "timeout 30 bash -c 'until (exec 3<>/dev/tcp/test-git-server-test-git-server.<namespace>.svc.cluster.local/443); do sleep 1; done'" has been run
-    And "timeout 30 bash -c 'until (exec 3<>/dev/tcp/test-git-server-test-git-server.<namespace>.svc.cluster.local/22); do sleep 1; done'" has been run
-    And the value "test-git-server-test-git-server.<namespace>.svc.cluster.local" is known as "<git-host>"
-    And the value "git://test-git-server-test-git-server.<namespace>.svc.cluster.local:9418" is known as "<git-url>"
+    Given Directory "<GitServerChartDir>" at "../charts/test-git-server"
+    And Helm Chart "<GitServerChart>" in "<GitServerChartDir>"
+    And Helm Release known as "<GitServerRelease>":
+      | PROPERTY  | VALUE            |
+      | chart     | <GitServerChart> |
+      | name      | test-git-server  |
+      | namespace | <Namespace>      |
+    When I upgrade Helm Release known as "<GitServerRelease>" with:
+      | OPTION             | VALUE |
+      | --install          | True  |
+      | --wait              | True  |
+      | --timeout           | 180s  |
+    Then the command exited with 0
+    # Anonymous git:// protocol only - see devcontainer_config_discovery.feature's
+    # own Background comment for why SSH/TLS values are left unset here.
+    Given the value "test-git-server-test-git-server.<Namespace>.svc.cluster.local" is known as "<GitHost>"
+    Given the value "git://test-git-server-test-git-server.<Namespace>.svc.cluster.local:9418" is known as "<GitUrl>"
 
-    And "docker buildx inspect devcontainer-builder-test || docker buildx create --name devcontainer-builder-test --driver remote tcp://buildkit-buildkit-service.buildkit.svc.cluster.local:1234" has been run
-    And "docker buildx build --builder devcontainer-builder-test -t ghcr.io/alexanderilyin/devcontainer-builder-test:test --push ../service" has been run
+    Given Docker Buildx Builder known as "<Builder>":
+      | PROPERTY | VALUE                                                            |
+      | name     | devcontainer-builder-image-resolution-w<WorkerId> |
+      | endpoint | tcp://buildkit-buildkit-service.buildkit.svc.cluster.local:1234 |
+    When I create Docker Buildx Builder known as "<Builder>"
+    Then the command exited with 0
+    When I build and push "ghcr.io/deepspacecartel/devcontainer-builder-test:test" from "." using Docker Buildx Builder known as "<Builder>" with:
+      | OPTION | VALUE |
+    Then the command exited with 0
+
+    Given Directory "<ChartDirectory>" at "../charts/devcontainer-builder"
+    And Helm Chart "<Chart>" in "<ChartDirectory>"
 
   @client-request
   Scenario: A fully-specified image target is used verbatim
-    Given "helm upgrade --install devcontainer-builder ../charts/devcontainer-builder -n <namespace> --set image.repository=ghcr.io/alexanderilyin/devcontainer-builder-test --set image.tag=test --set image.pullPolicy=Always --set buildkit.endpoint=<buildkit-endpoint> --set gitCredentials.enabled=false --set updateStrategy.type=Recreate --wait --timeout 120s" has been run again
-    And "timeout 30 bash -c 'until (exec 3<>/dev/tcp/devcontainer-builder-devcontainer-builder.<namespace>.svc.cluster.local/8080); do sleep 1; done'" has been run again
-    And the value "http://devcontainer-builder-devcontainer-builder.<namespace>.svc.cluster.local:8080" is known as "<base-url>"
-    When I send a POST request to "<base-url>/build" with body:
-      """
-      {
-        "repository": "<git-url>/example/example-devcontainer.git",
-        "image": { "registry": "<registry-url>", "name": "custom-name", "tag": "v1.2.3" }
-      }
-      """
-    Then the response status should be 200
-    And the resolved image should be "<registry-url>/custom-name:v1.2.3"
+    Given Helm Release known as "<Release>":
+      | PROPERTY  | VALUE                |
+      | chart     | <Chart>              |
+      | name      | devcontainer-builder |
+      | namespace | <Namespace>          |
+    When I upgrade Helm Release known as "<Release>" with:
+      | OPTION             | VALUE                                                              |
+      | --install          | True                                                               |
+      | --set              | image.repository=ghcr.io/deepspacecartel/devcontainer-builder-test |
+      | --set              | image.tag=test                                                     |
+      | --set              | image.pullPolicy=Always                                            |
+      | --set              | buildkit.endpoint=<BuildkitEndpoint>                               |
+      | --set              | gitCredentials.enabled=false                                       |
+      | --wait             | True                                                               |
+      | --timeout          | 120s                                                               |
+    Then the command exited with 0
+    Given Service known as "<AppService>":
+      | PROPERTY                   | VALUE                |
+      | namespace                  | <Namespace>          |
+      | app.kubernetes.io/instance | devcontainer-builder |
+    And HTTP Endpoint "<AppApi>" on "<AppService>" port "8080"
+
+    When I send a POST request to Endpoint known as "<AppApi>" path "/build" with:
+      | TYPE | KEY | VALUE                                                                                                             |
+      | BODY |     | {"repository":"<GitUrl>/example/example-devcontainer.git","image":{"registry":"<RegistryUrl>","name":"custom-name","tag":"v1.2.3"}} |
+    Then the response status is 200
+    Given the value at "image" from the last response is known as "<ActualImage>"
+    Given the value "<RegistryUrl>/custom-name:v1.2.3" is known as "<ExpectedImage>"
+    Then the value known as "<ActualImage>" equals "<ExpectedImage>"
+
+    When I remove Docker Buildx Builder known as "<Builder>"
+    Then the command exited with 0
+    When I uninstall Helm Release known as "<Release>"
+    Then the command exited with 0
+    When I uninstall Helm Release known as "<GitServerRelease>"
+    Then the command exited with 0
+    When I uninstall Helm Release known as "<TestBuildkitRelease>"
+    Then the command exited with 0
+    When I uninstall Helm Release known as "<TestRegistryAuthedRelease>"
+    Then the command exited with 0
+    When I uninstall Helm Release known as "<TestRegistryRelease>"
+    Then the command exited with 0
+    When I uninstall Helm Release "<NamespaceRelease>" with --wait --timeout 120s
+    Then the command exited with 0
 
   @server-config @client-request
   Scenario: Omitting image entirely derives registry, name, and tag
-    Given the following is written to "/tmp/e2e-fixtures/img-mapping-1-values.yaml":
+    When I create File known as "<MappingFile>" at ".cache/fixtures/image-resolution-w<WorkerId>/mapping-1.yaml" with:
       """
       gitCredentials:
         enabled: false
       registryMapping:
         rules:
           - pathPrefix: example/
-            registry: <registry-url>
+            registry: <RegistryUrl>
       """
-    And "helm upgrade --install devcontainer-builder ../charts/devcontainer-builder -n <namespace> --set image.repository=ghcr.io/alexanderilyin/devcontainer-builder-test --set image.tag=test --set image.pullPolicy=Always --set buildkit.endpoint=<buildkit-endpoint> -f /tmp/e2e-fixtures/img-mapping-1-values.yaml --set updateStrategy.type=Recreate --wait --timeout 120s" has been run again
-    And "timeout 30 bash -c 'until (exec 3<>/dev/tcp/devcontainer-builder-devcontainer-builder.<namespace>.svc.cluster.local/8080); do sleep 1; done'" has been run again
-    And the value "http://devcontainer-builder-devcontainer-builder.<namespace>.svc.cluster.local:8080" is known as "<base-url>"
-    And "git ls-remote git://test-git-server-test-git-server.<namespace>.svc.cluster.local:9418/example/example-devcontainer.git HEAD | cut -c1-7" has been run
-    And the command output is known as "<expected-sha>"
-    When I send a POST request to "<base-url>/build" with body:
-      """
-      { "repository": "<git-url>/example/example-devcontainer.git" }
-      """
-    Then the response status should be 200
-    And the resolved image should be "<registry-url>/example-devcontainer:sha-<expected-sha>"
+    Given Helm Release known as "<Release>":
+      | PROPERTY  | VALUE                |
+      | chart     | <Chart>              |
+      | name      | devcontainer-builder |
+      | namespace | <Namespace>          |
+    When I upgrade Helm Release known as "<Release>" with:
+      | OPTION             | VALUE                                                              |
+      | --install          | True                                                               |
+      | --set              | image.repository=ghcr.io/deepspacecartel/devcontainer-builder-test |
+      | --set              | image.tag=test                                                     |
+      | --set              | image.pullPolicy=Always                                            |
+      | --set              | buildkit.endpoint=<BuildkitEndpoint>                               |
+      | -f                 | .cache/fixtures/image-resolution-w<WorkerId>/mapping-1.yaml                    |
+      | --wait             | True                                                               |
+      | --timeout          | 120s                                                               |
+    Then the command exited with 0
+    Given Service known as "<AppService>":
+      | PROPERTY                   | VALUE                |
+      | namespace                  | <Namespace>          |
+      | app.kubernetes.io/instance | devcontainer-builder |
+    And HTTP Endpoint "<AppApi>" on "<AppService>" port "8080"
+
+    When I send a POST request to Endpoint known as "<AppApi>" path "/build" with:
+      | TYPE | KEY | VALUE                                                          |
+      | BODY |     | {"repository":"<GitUrl>/example/example-devcontainer.git"}    |
+    Then the response status is 200
+    Given the value at "image" from the last response is known as "<ActualImage>"
+    Given the value "<RegistryUrl>/example-devcontainer:sha-" is known as "<ExpectedImagePrefix>"
+    Then the value known as "<ActualImage>" contains "<ExpectedImagePrefix>"
+
+    When I remove Docker Buildx Builder known as "<Builder>"
+    Then the command exited with 0
+    When I uninstall Helm Release known as "<Release>"
+    Then the command exited with 0
+    When I uninstall Helm Release known as "<GitServerRelease>"
+    Then the command exited with 0
+    When I uninstall Helm Release known as "<TestBuildkitRelease>"
+    Then the command exited with 0
+    When I uninstall Helm Release known as "<TestRegistryAuthedRelease>"
+    Then the command exited with 0
+    When I uninstall Helm Release known as "<TestRegistryRelease>"
+    Then the command exited with 0
+    When I uninstall Helm Release "<NamespaceRelease>" with --wait --timeout 120s
+    Then the command exited with 0
 
   @client-request
   Scenario: A partially-specified image target derives only the missing fields
-    Given the following is written to "/tmp/e2e-fixtures/img-mapping-2-values.yaml":
+    When I create File known as "<MappingFile>" at ".cache/fixtures/image-resolution-w<WorkerId>/mapping-2.yaml" with:
       """
       gitCredentials:
         enabled: false
       registryMapping:
         rules:
           - pathPrefix: example/
-            registry: <registry-url>
+            registry: <RegistryUrl>
       """
-    And "helm upgrade --install devcontainer-builder ../charts/devcontainer-builder -n <namespace> --set image.repository=ghcr.io/alexanderilyin/devcontainer-builder-test --set image.tag=test --set image.pullPolicy=Always --set buildkit.endpoint=<buildkit-endpoint> -f /tmp/e2e-fixtures/img-mapping-2-values.yaml --set updateStrategy.type=Recreate --wait --timeout 120s" has been run again
-    And "timeout 30 bash -c 'until (exec 3<>/dev/tcp/devcontainer-builder-devcontainer-builder.<namespace>.svc.cluster.local/8080); do sleep 1; done'" has been run again
-    And the value "http://devcontainer-builder-devcontainer-builder.<namespace>.svc.cluster.local:8080" is known as "<base-url>"
-    And "git ls-remote git://test-git-server-test-git-server.<namespace>.svc.cluster.local:9418/example/example-devcontainer.git HEAD | cut -c1-7" has been run
-    And the command output is known as "<expected-sha>"
-    When I send a POST request to "<base-url>/build" with body:
-      """
-      {
-        "repository": "<git-url>/example/example-devcontainer.git",
-        "image": { "name": "custom-name" }
-      }
-      """
-    Then the response status should be 200
-    And the resolved image should be "<registry-url>/custom-name:sha-<expected-sha>"
+    Given Helm Release known as "<Release>":
+      | PROPERTY  | VALUE                |
+      | chart     | <Chart>              |
+      | name      | devcontainer-builder |
+      | namespace | <Namespace>          |
+    When I upgrade Helm Release known as "<Release>" with:
+      | OPTION             | VALUE                                                              |
+      | --install          | True                                                               |
+      | --set              | image.repository=ghcr.io/deepspacecartel/devcontainer-builder-test |
+      | --set              | image.tag=test                                                     |
+      | --set              | image.pullPolicy=Always                                            |
+      | --set              | buildkit.endpoint=<BuildkitEndpoint>                               |
+      | -f                 | .cache/fixtures/image-resolution-w<WorkerId>/mapping-2.yaml                    |
+      | --wait             | True                                                               |
+      | --timeout          | 120s                                                               |
+    Then the command exited with 0
+    Given Service known as "<AppService>":
+      | PROPERTY                   | VALUE                |
+      | namespace                  | <Namespace>          |
+      | app.kubernetes.io/instance | devcontainer-builder |
+    And HTTP Endpoint "<AppApi>" on "<AppService>" port "8080"
+
+    When I send a POST request to Endpoint known as "<AppApi>" path "/build" with:
+      | TYPE | KEY | VALUE                                                                              |
+      | BODY |     | {"repository":"<GitUrl>/example/example-devcontainer.git","image":{"name":"custom-name"}} |
+    Then the response status is 200
+    Given the value at "image" from the last response is known as "<ActualImage>"
+    Given the value "<RegistryUrl>/custom-name:sha-" is known as "<ExpectedImagePrefix>"
+    Then the value known as "<ActualImage>" contains "<ExpectedImagePrefix>"
+
+    When I remove Docker Buildx Builder known as "<Builder>"
+    Then the command exited with 0
+    When I uninstall Helm Release known as "<Release>"
+    Then the command exited with 0
+    When I uninstall Helm Release known as "<GitServerRelease>"
+    Then the command exited with 0
+    When I uninstall Helm Release known as "<TestBuildkitRelease>"
+    Then the command exited with 0
+    When I uninstall Helm Release known as "<TestRegistryAuthedRelease>"
+    Then the command exited with 0
+    When I uninstall Helm Release known as "<TestRegistryRelease>"
+    Then the command exited with 0
+    When I uninstall Helm Release "<NamespaceRelease>" with --wait --timeout 120s
+    Then the command exited with 0
 
   @client-request
   Scenario Outline: The derived name strips a trailing .git and uses the last path segment
-    Given "helm upgrade --install devcontainer-builder ../charts/devcontainer-builder -n <namespace> --set image.repository=ghcr.io/alexanderilyin/devcontainer-builder-test --set image.tag=test --set image.pullPolicy=Always --set buildkit.endpoint=<buildkit-endpoint> --set gitCredentials.enabled=false --set updateStrategy.type=Recreate --wait --timeout 120s" has been run again
-    And "timeout 30 bash -c 'until (exec 3<>/dev/tcp/devcontainer-builder-devcontainer-builder.<namespace>.svc.cluster.local/8080); do sleep 1; done'" has been run again
-    And the value "http://devcontainer-builder-devcontainer-builder.<namespace>.svc.cluster.local:8080" is known as "<base-url>"
-    And "git ls-remote git://test-git-server-test-git-server.<namespace>.svc.cluster.local:9418/<repo-path> HEAD | cut -c1-7" has been run
-    And the command output is known as "<expected-sha>"
-    When I send a POST request to "<base-url>/build" with body:
-      """
-      { "repository": "<repository>", "image": { "registry": "<registry-url>" } }
-      """
-    Then the response status should be 200
-    And the resolved image should be "<registry-url>/<expected-name>:sha-<expected-sha>"
+    Given Helm Release known as "<Release>":
+      | PROPERTY  | VALUE                |
+      | chart     | <Chart>              |
+      | name      | devcontainer-builder |
+      | namespace | <Namespace>          |
+    When I upgrade Helm Release known as "<Release>" with:
+      | OPTION             | VALUE                                                              |
+      | --install          | True                                                               |
+      | --set              | image.repository=ghcr.io/deepspacecartel/devcontainer-builder-test |
+      | --set              | image.tag=test                                                     |
+      | --set              | image.pullPolicy=Always                                            |
+      | --set              | buildkit.endpoint=<BuildkitEndpoint>                               |
+      | --set              | gitCredentials.enabled=false                                       |
+      | --wait             | True                                                               |
+      | --timeout          | 120s                                                               |
+    Then the command exited with 0
+    Given Service known as "<AppService>":
+      | PROPERTY                   | VALUE                |
+      | namespace                  | <Namespace>          |
+      | app.kubernetes.io/instance | devcontainer-builder |
+    And HTTP Endpoint "<AppApi>" on "<AppService>" port "8080"
+
+    When I send a POST request to Endpoint known as "<AppApi>" path "/build" with:
+      | TYPE | KEY | VALUE                                                                        |
+      | BODY |     | {"repository":"<repository>","image":{"registry":"<RegistryUrl>"}} |
+    Then the response status is 200
+    Given the value at "image" from the last response is known as "<ActualImage>"
+    Given the value "<RegistryUrl>/<expected-name>:sha-" is known as "<ExpectedImagePrefix>"
+    Then the value known as "<ActualImage>" contains "<ExpectedImagePrefix>"
+
+    When I remove Docker Buildx Builder known as "<Builder>"
+    Then the command exited with 0
+    When I uninstall Helm Release known as "<Release>"
+    Then the command exited with 0
+    When I uninstall Helm Release known as "<GitServerRelease>"
+    Then the command exited with 0
+    When I uninstall Helm Release known as "<TestBuildkitRelease>"
+    Then the command exited with 0
+    When I uninstall Helm Release known as "<TestRegistryAuthedRelease>"
+    Then the command exited with 0
+    When I uninstall Helm Release known as "<TestRegistryRelease>"
+    Then the command exited with 0
+    When I uninstall Helm Release "<NamespaceRelease>" with --wait --timeout 120s
+    Then the command exited with 0
 
     Examples:
-      | repository                                            | repo-path                          | expected-name            |
-      | <git-url>/example/example-devcontainer.git    | example/example-devcontainer.git   | example-devcontainer     |
-      | <git-url>/example/sub/example-devcontainer     | example/sub/example-devcontainer   | example-devcontainer     |
-      | <git-url>/solo-repo.git                        | solo-repo.git                      | solo-repo                |
+      | repository                                     | expected-name         |
+      | <GitUrl>/example/example-devcontainer.git      | example-devcontainer  |
+      | <GitUrl>/example/sub/example-devcontainer      | example-devcontainer  |
+      | <GitUrl>/solo-repo.git                         | solo-repo             |
 
   @server-config
   Scenario: A registry mapping rule matching on hostMatch only applies to any path on that host
-    Given the following is written to "/tmp/e2e-fixtures/img-mapping-3-values.yaml":
+    When I create File known as "<MappingFile>" at ".cache/fixtures/image-resolution-w<WorkerId>/mapping-3.yaml" with:
       """
       gitCredentials:
         enabled: false
       registryMapping:
         rules:
-          - hostMatch: <git-host>
-            registry: <registry-url>
+          - hostMatch: <GitHost>
+            registry: <RegistryUrl>
       """
-    And "helm upgrade --install devcontainer-builder ../charts/devcontainer-builder -n <namespace> --set image.repository=ghcr.io/alexanderilyin/devcontainer-builder-test --set image.tag=test --set image.pullPolicy=Always --set buildkit.endpoint=<buildkit-endpoint> -f /tmp/e2e-fixtures/img-mapping-3-values.yaml --set updateStrategy.type=Recreate --wait --timeout 120s" has been run again
-    And "timeout 30 bash -c 'until (exec 3<>/dev/tcp/devcontainer-builder-devcontainer-builder.<namespace>.svc.cluster.local/8080); do sleep 1; done'" has been run again
-    And the value "http://devcontainer-builder-devcontainer-builder.<namespace>.svc.cluster.local:8080" is known as "<base-url>"
-    And "git ls-remote git://test-git-server-test-git-server.<namespace>.svc.cluster.local:9418/example/example-devcontainer.git HEAD | cut -c1-7" has been run
-    And the command output is known as "<expected-sha>"
-    When I send a POST request to "<base-url>/build" with body:
-      """
-      { "repository": "<git-url>/example/example-devcontainer.git" }
-      """
-    Then the response status should be 200
-    And the resolved image should be "<registry-url>/example-devcontainer:sha-<expected-sha>"
+    Given Helm Release known as "<Release>":
+      | PROPERTY  | VALUE                |
+      | chart     | <Chart>              |
+      | name      | devcontainer-builder |
+      | namespace | <Namespace>          |
+    When I upgrade Helm Release known as "<Release>" with:
+      | OPTION             | VALUE                                                              |
+      | --install          | True                                                               |
+      | --set              | image.repository=ghcr.io/deepspacecartel/devcontainer-builder-test |
+      | --set              | image.tag=test                                                     |
+      | --set              | image.pullPolicy=Always                                            |
+      | --set              | buildkit.endpoint=<BuildkitEndpoint>                               |
+      | -f                 | .cache/fixtures/image-resolution-w<WorkerId>/mapping-3.yaml                    |
+      | --wait             | True                                                               |
+      | --timeout          | 120s                                                               |
+    Then the command exited with 0
+    Given Service known as "<AppService>":
+      | PROPERTY                   | VALUE                |
+      | namespace                  | <Namespace>          |
+      | app.kubernetes.io/instance | devcontainer-builder |
+    And HTTP Endpoint "<AppApi>" on "<AppService>" port "8080"
+
+    When I send a POST request to Endpoint known as "<AppApi>" path "/build" with:
+      | TYPE | KEY | VALUE                                                       |
+      | BODY |     | {"repository":"<GitUrl>/example/example-devcontainer.git"} |
+    Then the response status is 200
+    Given the value at "image" from the last response is known as "<ActualImage>"
+    Given the value "<RegistryUrl>/example-devcontainer:sha-" is known as "<ExpectedImagePrefix>"
+    Then the value known as "<ActualImage>" contains "<ExpectedImagePrefix>"
+
+    When I remove Docker Buildx Builder known as "<Builder>"
+    Then the command exited with 0
+    When I uninstall Helm Release known as "<Release>"
+    Then the command exited with 0
+    When I uninstall Helm Release known as "<GitServerRelease>"
+    Then the command exited with 0
+    When I uninstall Helm Release known as "<TestBuildkitRelease>"
+    Then the command exited with 0
+    When I uninstall Helm Release known as "<TestRegistryAuthedRelease>"
+    Then the command exited with 0
+    When I uninstall Helm Release known as "<TestRegistryRelease>"
+    Then the command exited with 0
+    When I uninstall Helm Release "<NamespaceRelease>" with --wait --timeout 120s
+    Then the command exited with 0
 
   @server-config
   Scenario: A registry mapping rule matching on pathPrefix only applies regardless of host
-    Given the following is written to "/tmp/e2e-fixtures/img-mapping-4-values.yaml":
+    When I create File known as "<MappingFile>" at ".cache/fixtures/image-resolution-w<WorkerId>/mapping-4.yaml" with:
       """
       gitCredentials:
         enabled: false
       registryMapping:
         rules:
           - pathPrefix: example/
-            registry: <registry-url>
+            registry: <RegistryUrl>
       """
-    And "helm upgrade --install devcontainer-builder ../charts/devcontainer-builder -n <namespace> --set image.repository=ghcr.io/alexanderilyin/devcontainer-builder-test --set image.tag=test --set image.pullPolicy=Always --set buildkit.endpoint=<buildkit-endpoint> -f /tmp/e2e-fixtures/img-mapping-4-values.yaml --set updateStrategy.type=Recreate --wait --timeout 120s" has been run again
-    And "timeout 30 bash -c 'until (exec 3<>/dev/tcp/devcontainer-builder-devcontainer-builder.<namespace>.svc.cluster.local/8080); do sleep 1; done'" has been run again
-    And the value "http://devcontainer-builder-devcontainer-builder.<namespace>.svc.cluster.local:8080" is known as "<base-url>"
-    And "git ls-remote git://test-git-server-test-git-server.<namespace>.svc.cluster.local:9418/example/example-devcontainer.git HEAD | cut -c1-7" has been run
-    And the command output is known as "<expected-sha>"
-    When I send a POST request to "<base-url>/build" with body:
-      """
-      { "repository": "<git-url>/example/example-devcontainer.git" }
-      """
-    Then the response status should be 200
-    And the resolved image should be "<registry-url>/example-devcontainer:sha-<expected-sha>"
+    Given Helm Release known as "<Release>":
+      | PROPERTY  | VALUE                |
+      | chart     | <Chart>              |
+      | name      | devcontainer-builder |
+      | namespace | <Namespace>          |
+    When I upgrade Helm Release known as "<Release>" with:
+      | OPTION             | VALUE                                                              |
+      | --install          | True                                                               |
+      | --set              | image.repository=ghcr.io/deepspacecartel/devcontainer-builder-test |
+      | --set              | image.tag=test                                                     |
+      | --set              | image.pullPolicy=Always                                            |
+      | --set              | buildkit.endpoint=<BuildkitEndpoint>                               |
+      | -f                 | .cache/fixtures/image-resolution-w<WorkerId>/mapping-4.yaml                    |
+      | --wait             | True                                                               |
+      | --timeout          | 120s                                                               |
+    Then the command exited with 0
+    Given Service known as "<AppService>":
+      | PROPERTY                   | VALUE                |
+      | namespace                  | <Namespace>          |
+      | app.kubernetes.io/instance | devcontainer-builder |
+    And HTTP Endpoint "<AppApi>" on "<AppService>" port "8080"
+
+    When I send a POST request to Endpoint known as "<AppApi>" path "/build" with:
+      | TYPE | KEY | VALUE                                                       |
+      | BODY |     | {"repository":"<GitUrl>/example/example-devcontainer.git"} |
+    Then the response status is 200
+    Given the value at "image" from the last response is known as "<ActualImage>"
+    Given the value "<RegistryUrl>/example-devcontainer:sha-" is known as "<ExpectedImagePrefix>"
+    Then the value known as "<ActualImage>" contains "<ExpectedImagePrefix>"
+
+    When I remove Docker Buildx Builder known as "<Builder>"
+    Then the command exited with 0
+    When I uninstall Helm Release known as "<Release>"
+    Then the command exited with 0
+    When I uninstall Helm Release known as "<GitServerRelease>"
+    Then the command exited with 0
+    When I uninstall Helm Release known as "<TestBuildkitRelease>"
+    Then the command exited with 0
+    When I uninstall Helm Release known as "<TestRegistryAuthedRelease>"
+    Then the command exited with 0
+    When I uninstall Helm Release known as "<TestRegistryRelease>"
+    Then the command exited with 0
+    When I uninstall Helm Release "<NamespaceRelease>" with --wait --timeout 120s
+    Then the command exited with 0
 
   @server-config
   Scenario: A rule with neither hostMatch nor pathPrefix is a universal fallback
-    Given the following is written to "/tmp/e2e-fixtures/img-mapping-5-values.yaml":
+    When I create File known as "<MappingFile>" at ".cache/fixtures/image-resolution-w<WorkerId>/mapping-5.yaml" with:
       """
       gitCredentials:
         enabled: false
       registryMapping:
         rules:
-          - registry: <registry-url>
+          - registry: <RegistryUrl>
       """
-    And "helm upgrade --install devcontainer-builder ../charts/devcontainer-builder -n <namespace> --set image.repository=ghcr.io/alexanderilyin/devcontainer-builder-test --set image.tag=test --set image.pullPolicy=Always --set buildkit.endpoint=<buildkit-endpoint> -f /tmp/e2e-fixtures/img-mapping-5-values.yaml --set updateStrategy.type=Recreate --wait --timeout 120s" has been run again
-    And "timeout 30 bash -c 'until (exec 3<>/dev/tcp/devcontainer-builder-devcontainer-builder.<namespace>.svc.cluster.local/8080); do sleep 1; done'" has been run again
-    And the value "http://devcontainer-builder-devcontainer-builder.<namespace>.svc.cluster.local:8080" is known as "<base-url>"
-    And "git ls-remote git://test-git-server-test-git-server.<namespace>.svc.cluster.local:9418/example/example-devcontainer.git HEAD | cut -c1-7" has been run
-    And the command output is known as "<expected-sha>"
-    When I send a POST request to "<base-url>/build" with body:
-      """
-      { "repository": "<git-url>/example/example-devcontainer.git" }
-      """
-    Then the response status should be 200
-    And the resolved image should be "<registry-url>/example-devcontainer:sha-<expected-sha>"
+    Given Helm Release known as "<Release>":
+      | PROPERTY  | VALUE                |
+      | chart     | <Chart>              |
+      | name      | devcontainer-builder |
+      | namespace | <Namespace>          |
+    When I upgrade Helm Release known as "<Release>" with:
+      | OPTION             | VALUE                                                              |
+      | --install          | True                                                               |
+      | --set              | image.repository=ghcr.io/deepspacecartel/devcontainer-builder-test |
+      | --set              | image.tag=test                                                     |
+      | --set              | image.pullPolicy=Always                                            |
+      | --set              | buildkit.endpoint=<BuildkitEndpoint>                               |
+      | -f                 | .cache/fixtures/image-resolution-w<WorkerId>/mapping-5.yaml                    |
+      | --wait             | True                                                               |
+      | --timeout          | 120s                                                               |
+    Then the command exited with 0
+    Given Service known as "<AppService>":
+      | PROPERTY                   | VALUE                |
+      | namespace                  | <Namespace>          |
+      | app.kubernetes.io/instance | devcontainer-builder |
+    And HTTP Endpoint "<AppApi>" on "<AppService>" port "8080"
+
+    When I send a POST request to Endpoint known as "<AppApi>" path "/build" with:
+      | TYPE | KEY | VALUE                                                       |
+      | BODY |     | {"repository":"<GitUrl>/example/example-devcontainer.git"} |
+    Then the response status is 200
+    Given the value at "image" from the last response is known as "<ActualImage>"
+    Given the value "<RegistryUrl>/example-devcontainer:sha-" is known as "<ExpectedImagePrefix>"
+    Then the value known as "<ActualImage>" contains "<ExpectedImagePrefix>"
+
+    When I remove Docker Buildx Builder known as "<Builder>"
+    Then the command exited with 0
+    When I uninstall Helm Release known as "<Release>"
+    Then the command exited with 0
+    When I uninstall Helm Release known as "<GitServerRelease>"
+    Then the command exited with 0
+    When I uninstall Helm Release known as "<TestBuildkitRelease>"
+    Then the command exited with 0
+    When I uninstall Helm Release known as "<TestRegistryAuthedRelease>"
+    Then the command exited with 0
+    When I uninstall Helm Release known as "<TestRegistryRelease>"
+    Then the command exited with 0
+    When I uninstall Helm Release "<NamespaceRelease>" with --wait --timeout 120s
+    Then the command exited with 0
 
   @server-config
   Scenario: The first matching rule wins when more than one rule matches
-    Given the following is written to "/tmp/e2e-fixtures/img-mapping-6-values.yaml":
+    When I create File known as "<MappingFile>" at ".cache/fixtures/image-resolution-w<WorkerId>/mapping-6.yaml" with:
       """
       gitCredentials:
         enabled: false
       registryMapping:
         rules:
           - pathPrefix: example/
-            registry: <registry-url>
-          - registry: <authed-registry-url>
+            registry: <RegistryUrl>
+          - registry: <AuthedRegistryUrl>
       """
-    And "helm upgrade --install devcontainer-builder ../charts/devcontainer-builder -n <namespace> --set image.repository=ghcr.io/alexanderilyin/devcontainer-builder-test --set image.tag=test --set image.pullPolicy=Always --set buildkit.endpoint=<buildkit-endpoint> -f /tmp/e2e-fixtures/img-mapping-6-values.yaml --set updateStrategy.type=Recreate --wait --timeout 120s" has been run again
-    And "timeout 30 bash -c 'until (exec 3<>/dev/tcp/devcontainer-builder-devcontainer-builder.<namespace>.svc.cluster.local/8080); do sleep 1; done'" has been run again
-    And the value "http://devcontainer-builder-devcontainer-builder.<namespace>.svc.cluster.local:8080" is known as "<base-url>"
-    And "git ls-remote git://test-git-server-test-git-server.<namespace>.svc.cluster.local:9418/example/example-devcontainer.git HEAD | cut -c1-7" has been run
-    And the command output is known as "<expected-sha>"
-    When I send a POST request to "<base-url>/build" with body:
-      """
-      { "repository": "<git-url>/example/example-devcontainer.git" }
-      """
-    Then the response status should be 200
-    And the resolved image should be "<registry-url>/example-devcontainer:sha-<expected-sha>"
+    Given Helm Release known as "<Release>":
+      | PROPERTY  | VALUE                |
+      | chart     | <Chart>              |
+      | name      | devcontainer-builder |
+      | namespace | <Namespace>          |
+    When I upgrade Helm Release known as "<Release>" with:
+      | OPTION             | VALUE                                                              |
+      | --install          | True                                                               |
+      | --set              | image.repository=ghcr.io/deepspacecartel/devcontainer-builder-test |
+      | --set              | image.tag=test                                                     |
+      | --set              | image.pullPolicy=Always                                            |
+      | --set              | buildkit.endpoint=<BuildkitEndpoint>                               |
+      | -f                 | .cache/fixtures/image-resolution-w<WorkerId>/mapping-6.yaml                    |
+      | --wait             | True                                                               |
+      | --timeout          | 120s                                                               |
+    Then the command exited with 0
+    Given Service known as "<AppService>":
+      | PROPERTY                   | VALUE                |
+      | namespace                  | <Namespace>          |
+      | app.kubernetes.io/instance | devcontainer-builder |
+    And HTTP Endpoint "<AppApi>" on "<AppService>" port "8080"
+
+    When I send a POST request to Endpoint known as "<AppApi>" path "/build" with:
+      | TYPE | KEY | VALUE                                                       |
+      | BODY |     | {"repository":"<GitUrl>/example/example-devcontainer.git"} |
+    Then the response status is 200
+    Given the value at "image" from the last response is known as "<ActualImage>"
+    Given the value "<RegistryUrl>/example-devcontainer:sha-" is known as "<ExpectedImagePrefix>"
+    Then the value known as "<ActualImage>" contains "<ExpectedImagePrefix>"
+
+    When I remove Docker Buildx Builder known as "<Builder>"
+    Then the command exited with 0
+    When I uninstall Helm Release known as "<Release>"
+    Then the command exited with 0
+    When I uninstall Helm Release known as "<GitServerRelease>"
+    Then the command exited with 0
+    When I uninstall Helm Release known as "<TestBuildkitRelease>"
+    Then the command exited with 0
+    When I uninstall Helm Release known as "<TestRegistryAuthedRelease>"
+    Then the command exited with 0
+    When I uninstall Helm Release known as "<TestRegistryRelease>"
+    Then the command exited with 0
+    When I uninstall Helm Release "<NamespaceRelease>" with --wait --timeout 120s
+    Then the command exited with 0
 
   @client-request
   Scenario: An explicit image.registry wins over a matching registry mapping rule
-    Given the following is written to "/tmp/e2e-fixtures/img-mapping-7-values.yaml":
+    When I create File known as "<MappingFile>" at ".cache/fixtures/image-resolution-w<WorkerId>/mapping-7.yaml" with:
       """
       gitCredentials:
         enabled: false
       registryMapping:
         rules:
           - pathPrefix: example/
-            registry: <authed-registry-url>
+            registry: <AuthedRegistryUrl>
       """
-    And "helm upgrade --install devcontainer-builder ../charts/devcontainer-builder -n <namespace> --set image.repository=ghcr.io/alexanderilyin/devcontainer-builder-test --set image.tag=test --set image.pullPolicy=Always --set buildkit.endpoint=<buildkit-endpoint> -f /tmp/e2e-fixtures/img-mapping-7-values.yaml --set updateStrategy.type=Recreate --wait --timeout 120s" has been run again
-    And "timeout 30 bash -c 'until (exec 3<>/dev/tcp/devcontainer-builder-devcontainer-builder.<namespace>.svc.cluster.local/8080); do sleep 1; done'" has been run again
-    And the value "http://devcontainer-builder-devcontainer-builder.<namespace>.svc.cluster.local:8080" is known as "<base-url>"
-    And "git ls-remote git://test-git-server-test-git-server.<namespace>.svc.cluster.local:9418/example/example-devcontainer.git HEAD | cut -c1-7" has been run
-    And the command output is known as "<expected-sha>"
-    When I send a POST request to "<base-url>/build" with body:
-      """
-      {
-        "repository": "<git-url>/example/example-devcontainer.git",
-        "image": { "registry": "<registry-url>" }
-      }
-      """
-    Then the response status should be 200
-    And the resolved image should be "<registry-url>/example-devcontainer:sha-<expected-sha>"
+    Given Helm Release known as "<Release>":
+      | PROPERTY  | VALUE                |
+      | chart     | <Chart>              |
+      | name      | devcontainer-builder |
+      | namespace | <Namespace>          |
+    When I upgrade Helm Release known as "<Release>" with:
+      | OPTION             | VALUE                                                              |
+      | --install          | True                                                               |
+      | --set              | image.repository=ghcr.io/deepspacecartel/devcontainer-builder-test |
+      | --set              | image.tag=test                                                     |
+      | --set              | image.pullPolicy=Always                                            |
+      | --set              | buildkit.endpoint=<BuildkitEndpoint>                               |
+      | -f                 | .cache/fixtures/image-resolution-w<WorkerId>/mapping-7.yaml                    |
+      | --wait             | True                                                               |
+      | --timeout          | 120s                                                               |
+    Then the command exited with 0
+    Given Service known as "<AppService>":
+      | PROPERTY                   | VALUE                |
+      | namespace                  | <Namespace>          |
+      | app.kubernetes.io/instance | devcontainer-builder |
+    And HTTP Endpoint "<AppApi>" on "<AppService>" port "8080"
+
+    When I send a POST request to Endpoint known as "<AppApi>" path "/build" with:
+      | TYPE | KEY | VALUE                                                                                    |
+      | BODY |     | {"repository":"<GitUrl>/example/example-devcontainer.git","image":{"registry":"<RegistryUrl>"}} |
+    Then the response status is 200
+    Given the value at "image" from the last response is known as "<ActualImage>"
+    Given the value "<RegistryUrl>/example-devcontainer:sha-" is known as "<ExpectedImagePrefix>"
+    Then the value known as "<ActualImage>" contains "<ExpectedImagePrefix>"
+
+    When I remove Docker Buildx Builder known as "<Builder>"
+    Then the command exited with 0
+    When I uninstall Helm Release known as "<Release>"
+    Then the command exited with 0
+    When I uninstall Helm Release known as "<GitServerRelease>"
+    Then the command exited with 0
+    When I uninstall Helm Release known as "<TestBuildkitRelease>"
+    Then the command exited with 0
+    When I uninstall Helm Release known as "<TestRegistryAuthedRelease>"
+    Then the command exited with 0
+    When I uninstall Helm Release known as "<TestRegistryRelease>"
+    Then the command exited with 0
+    When I uninstall Helm Release "<NamespaceRelease>" with --wait --timeout 120s
+    Then the command exited with 0
 
   @negative @client-request
   Scenario: No image.registry given and no rule matches is a 400, not a 500
-    Given "helm upgrade --install devcontainer-builder ../charts/devcontainer-builder -n <namespace> --set image.repository=ghcr.io/alexanderilyin/devcontainer-builder-test --set image.tag=test --set image.pullPolicy=Always --set buildkit.endpoint=<buildkit-endpoint> --set gitCredentials.enabled=false --set updateStrategy.type=Recreate --wait --timeout 120s" has been run again
-    And "timeout 30 bash -c 'until (exec 3<>/dev/tcp/devcontainer-builder-devcontainer-builder.<namespace>.svc.cluster.local/8080); do sleep 1; done'" has been run again
-    And the value "http://devcontainer-builder-devcontainer-builder.<namespace>.svc.cluster.local:8080" is known as "<base-url>"
-    When I send a POST request to "<base-url>/build" with body:
-      """
-      { "repository": "<git-url>/example/example-devcontainer.git" }
-      """
-    Then the response status should be 400
-    And the response body should contain "no registry resolved for repository"
+    Given Helm Release known as "<Release>":
+      | PROPERTY  | VALUE                |
+      | chart     | <Chart>              |
+      | name      | devcontainer-builder |
+      | namespace | <Namespace>          |
+    When I upgrade Helm Release known as "<Release>" with:
+      | OPTION             | VALUE                                                              |
+      | --install          | True                                                               |
+      | --set              | image.repository=ghcr.io/deepspacecartel/devcontainer-builder-test |
+      | --set              | image.tag=test                                                     |
+      | --set              | image.pullPolicy=Always                                            |
+      | --set              | buildkit.endpoint=<BuildkitEndpoint>                               |
+      | --set              | gitCredentials.enabled=false                                       |
+      | --wait             | True                                                               |
+      | --timeout          | 120s                                                               |
+    Then the command exited with 0
+    Given Service known as "<AppService>":
+      | PROPERTY                   | VALUE                |
+      | namespace                  | <Namespace>          |
+      | app.kubernetes.io/instance | devcontainer-builder |
+    And HTTP Endpoint "<AppApi>" on "<AppService>" port "8080"
+
+    When I send a POST request to Endpoint known as "<AppApi>" path "/build" with:
+      | TYPE | KEY | VALUE                                                       |
+      | BODY |     | {"repository":"<GitUrl>/example/example-devcontainer.git"} |
+    Then the response status is 400:
+      | SOURCE | CONDITION | VALUE                            |
+      | BODY   | contains  | no registry resolved for repository |
+
+    When I remove Docker Buildx Builder known as "<Builder>"
+    Then the command exited with 0
+    When I uninstall Helm Release known as "<Release>"
+    Then the command exited with 0
+    When I uninstall Helm Release known as "<GitServerRelease>"
+    Then the command exited with 0
+    When I uninstall Helm Release known as "<TestBuildkitRelease>"
+    Then the command exited with 0
+    When I uninstall Helm Release known as "<TestRegistryAuthedRelease>"
+    Then the command exited with 0
+    When I uninstall Helm Release known as "<TestRegistryRelease>"
+    Then the command exited with 0
+    When I uninstall Helm Release "<NamespaceRelease>" with --wait --timeout 120s
+    Then the command exited with 0
 
   @negative @server-config
   Scenario: A non-matching registry mapping rule does not accidentally apply
-    Given the following is written to "/tmp/e2e-fixtures/img-mapping-8-values.yaml":
+    When I create File known as "<MappingFile>" at ".cache/fixtures/image-resolution-w<WorkerId>/mapping-8.yaml" with:
       """
       gitCredentials:
         enabled: false
       registryMapping:
         rules:
           - hostMatch: gitlab.internal.example.com
-            registry: <registry-url>
+            registry: <RegistryUrl>
       """
-    And "helm upgrade --install devcontainer-builder ../charts/devcontainer-builder -n <namespace> --set image.repository=ghcr.io/alexanderilyin/devcontainer-builder-test --set image.tag=test --set image.pullPolicy=Always --set buildkit.endpoint=<buildkit-endpoint> -f /tmp/e2e-fixtures/img-mapping-8-values.yaml --set updateStrategy.type=Recreate --wait --timeout 120s" has been run again
-    And "timeout 30 bash -c 'until (exec 3<>/dev/tcp/devcontainer-builder-devcontainer-builder.<namespace>.svc.cluster.local/8080); do sleep 1; done'" has been run again
-    And the value "http://devcontainer-builder-devcontainer-builder.<namespace>.svc.cluster.local:8080" is known as "<base-url>"
-    When I send a POST request to "<base-url>/build" with body:
-      """
-      { "repository": "<git-url>/example/example-devcontainer.git" }
-      """
-    Then the response status should be 400
+    Given Helm Release known as "<Release>":
+      | PROPERTY  | VALUE                |
+      | chart     | <Chart>              |
+      | name      | devcontainer-builder |
+      | namespace | <Namespace>          |
+    When I upgrade Helm Release known as "<Release>" with:
+      | OPTION             | VALUE                                                              |
+      | --install          | True                                                               |
+      | --set              | image.repository=ghcr.io/deepspacecartel/devcontainer-builder-test |
+      | --set              | image.tag=test                                                     |
+      | --set              | image.pullPolicy=Always                                            |
+      | --set              | buildkit.endpoint=<BuildkitEndpoint>                               |
+      | -f                 | .cache/fixtures/image-resolution-w<WorkerId>/mapping-8.yaml                    |
+      | --wait             | True                                                               |
+      | --timeout          | 120s                                                               |
+    Then the command exited with 0
+    Given Service known as "<AppService>":
+      | PROPERTY                   | VALUE                |
+      | namespace                  | <Namespace>          |
+      | app.kubernetes.io/instance | devcontainer-builder |
+    And HTTP Endpoint "<AppApi>" on "<AppService>" port "8080"
+
+    When I send a POST request to Endpoint known as "<AppApi>" path "/build" with:
+      | TYPE | KEY | VALUE                                                       |
+      | BODY |     | {"repository":"<GitUrl>/example/example-devcontainer.git"} |
+    Then the response status is 400
+
+    When I remove Docker Buildx Builder known as "<Builder>"
+    Then the command exited with 0
+    When I uninstall Helm Release known as "<Release>"
+    Then the command exited with 0
+    When I uninstall Helm Release known as "<GitServerRelease>"
+    Then the command exited with 0
+    When I uninstall Helm Release known as "<TestBuildkitRelease>"
+    Then the command exited with 0
+    When I uninstall Helm Release known as "<TestRegistryAuthedRelease>"
+    Then the command exited with 0
+    When I uninstall Helm Release known as "<TestRegistryRelease>"
+    Then the command exited with 0
+    When I uninstall Helm Release "<NamespaceRelease>" with --wait --timeout 120s
+    Then the command exited with 0

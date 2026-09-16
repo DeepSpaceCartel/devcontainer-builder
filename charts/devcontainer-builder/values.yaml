@@ -14,23 +14,103 @@ podSecurityContext:
   fsGroup: 2000
 
 image:
-  repository: ghcr.io/example/devcontainer-builder
+  repository: ghcr.io/deepspacecartel/devcontainer-builder
   tag: "0.1.0"
   pullPolicy: IfNotPresent
 
 service:
   port: 8080
 
+# Deployment environment name (e.g. "dev"/"staging"/"production") for the
+# service's own structured logs/traces (DEPLOYMENT_ENVIRONMENT env var - see
+# service/docs/reference/CONFIGURATION.md). Empty means unset - the service
+# falls back to its own "development" default, same "unconfigured is a
+# supported state" pattern as buildkit.endpoint below. There's no equivalent
+# field for the service's own name - that's always .Chart.Name, wired
+# unconditionally in deployment.yaml so it can never drift from the
+# app.kubernetes.io/name label every other part of this chart already uses.
+environment: ""
+
 buildkit:
   # e.g. tcp://buildkit-buildkit-service.buildkit.svc.cluster.local:1234
+  # Ignored when deploy.enabled below is true - the endpoint is computed
+  # automatically from the bundled release instead.
   endpoint: ""
 
+  deploy:
+    # Deploy a bundled BuildKit instance (the buildkitBundled dependency in
+    # Chart.yaml) alongside devcontainer-builder itself, for a single `helm
+    # install` with zero pre-existing BuildKit infra. Off by default so
+    # `buildkit.endpoint` above keeps meaning exactly what it always has -
+    # point it at BuildKit already running elsewhere.
+    #
+    # Real, non-optional prerequisite this doesn't remove: BuildKit's
+    # default mode is genuinely privileged (inherent to how it does OCI
+    # builds, not a chart shortcoming), so enabling this makes the chart
+    # label its own release namespace
+    # `pod-security.kubernetes.io/enforce: privileged`
+    # (templates/buildkit-namespace.yaml, same pattern ADR-0006 and
+    # charts/test-namespace already use) - meaning devcontainer-builder's
+    # own (ordinary, non-privileged) pod runs in that same
+    # relaxed-PodSecurity namespace too, since the bundled dependency has
+    # no support for installing into a namespace of its own. That's fine:
+    # "privileged" is the most permissive PodSecurity tier, so it only
+    # widens what the namespace *allows* - it doesn't force anything on a
+    # pod that doesn't ask for it. Don't pass `--create-namespace` when
+    # enabling this - let the chart create+label its own release namespace
+    # on first install instead (conflicts with Helm's own unlabeled
+    # --create-namespace otherwise).
+    enabled: false
+
+# Values passed through to the bundled BuildKit dependency
+# (https://github.com/andrcuns/charts/tree/main/charts/buildkit-service)
+# when buildkit.deploy.enabled is true. fullnameOverride pins its Service's
+# real name so devcontainer-builder can compute buildkit.endpoint from it
+# directly, instead of depending on the subchart's own
+# release-name-dependent fullname logic (see its own _helpers.tpl) - the
+# exact kind of naming gotcha rts-terraform/docs/buildkit.md documents
+# hitting with this same chart deployed standalone.
+buildkitBundled:
+  fullnameOverride: "buildkit"
+  service:
+    type: ClusterIP
+    port: 1234
+
+build:
+  # Default target platform(s) applied when a /build request doesn't
+  # specify its own `platforms` (e.g. ["linux/amd64", "linux/arm64"]).
+  # Empty means today's behavior: no --platform flag passed, so the build
+  # runs on whatever platform the remote BuildKit worker defaults to.
+  platforms: []
+  # Default BuildKit build options applied when a request doesn't specify
+  # its own buildOptions. cacheFrom/cacheTo point at a registry-backed
+  # BuildKit layer cache (e.g. "type=registry,ref=ghcr.io/example/app:buildcache",
+  # with mode=max on cacheTo to cache every intermediate layer, not just
+  # the ones in the final image) - unset by default, same "no ambient
+  # behavior" default as buildkit.endpoint.
+  noCache: false
+  cacheFrom: ""
+  cacheTo: ""
+  mode: auto # auto | never - passed to `devcontainer build --buildkit`
+
 registryAuth:
-  # Provide either an existing Secret (must contain a `.dockerconfigjson` key,
-  # same shape as a kubernetes.io/dockerconfigjson Secret) or an inline
-  # docker config JSON string below.
+  # Name of an existing kubernetes.io/dockerconfigjson-shaped Secret. If
+  # set, `registries` below is ignored (existingSecret always wins, same
+  # relationship gitCredentials.existingSecret/entries already has).
   existingSecret: ""
-  dockerConfigJson: ""
+  # Real registry push credentials - the chart builds the full
+  # dockerconfigjson (`{"auths": {"<registry>": {"auth": "<base64
+  # user:pass>"}}}`) from this list, so nobody hand-builds or pre-encodes
+  # JSON themselves. Empty list -> {"auths":{}}, same "no ambient auth"
+  # default as before this existed.
+  registries: []
+  # registries:
+  #   - registry: https://index.docker.io/v1/ # Docker Hub's real registry host
+  #     username: svc-bot
+  #     password: hunter2
+  #   - registry: ghcr.io
+  #     username: svc-bot
+  #     password: ghp_example
 
 gitCredentials:
   # Set to false to omit GIT_CREDENTIALS_CONFIG_PATH and its volume entirely
@@ -90,16 +170,6 @@ extraEnv: []
 # GIT_SSL_CAINFO at it). Appended after the chart's own volumes/mounts.
 extraVolumes: []
 extraVolumeMounts: []
-
-settingsFile:
-  # Inline content for a settings file (JSON or YAML, matching whatever
-  # SERVICE_CONFIG_PATH accepts) rendered into a chart-managed ConfigMap and
-  # mounted with SERVICE_CONFIG_PATH pointing at it. Empty string omits the
-  # env var/volume entirely.
-  content: ""
-  # config.ts picks its parser by extension (.json, .yaml, or .yml) - set
-  # this to match the format of `content` above.
-  filename: settings.json
 
 resources:
   requests:
