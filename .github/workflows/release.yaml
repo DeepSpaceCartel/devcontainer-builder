@@ -1,0 +1,93 @@
+name: release
+
+# Triggered by a real vX.Y.Z tag on main - one tag stamps the Docker image,
+# the Helm chart, and the npm/CLI package together (see the "Release
+# strategy" note in docs/home/index.md and CLAUDE.md): they're tightly
+# coupled enough (the chart's default image.tag should match the image
+# this same tag built, the CLI documents which config/API shape it speaks)
+# that versioning them separately would just invite "which chart version
+# needs which image version" questions.
+on:
+  push:
+    tags: ["v*.*.*"]
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - id: version
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+  image:
+    needs: version
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: service
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ghcr.io/deepspacecartel/devcontainer-builder:${{ needs.version.outputs.version }}
+            ghcr.io/deepspacecartel/devcontainer-builder:latest
+
+  chart:
+    needs: [version, image]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@v4
+      - run: helm lint charts/devcontainer-builder
+      - run: helm dependency update charts/devcontainer-builder
+      - run: |
+          helm registry login ghcr.io -u "${{ github.actor }}" --password-stdin <<< "${{ secrets.GITHUB_TOKEN }}"
+          helm package charts/devcontainer-builder \
+            --version "${{ needs.version.outputs.version }}" \
+            --app-version "${{ needs.version.outputs.version }}" \
+            --destination /tmp/chart-out
+          helm push "/tmp/chart-out/devcontainer-builder-${{ needs.version.outputs.version }}.tgz" \
+            oci://ghcr.io/deepspacecartel/charts
+
+  npm:
+    needs: version
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: service
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          registry-url: "https://registry.npmjs.org"
+      - run: npm install
+      - run: npm run build
+      - run: npm version --no-git-tag-version --allow-same-version "${{ needs.version.outputs.version }}"
+      - run: npm publish --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+  github-release:
+    needs: [version, image, chart, npm]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true

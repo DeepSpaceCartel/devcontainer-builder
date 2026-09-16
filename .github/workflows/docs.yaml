@@ -1,0 +1,68 @@
+name: docs
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "docs/**"
+      - "mkdocs.yml"
+      - "service/**"
+      - ".github/workflows/docs.yaml"
+  pull_request:
+    paths:
+      - "docs/**"
+      - "mkdocs.yml"
+      - "service/**"
+      - ".github/workflows/docs.yaml"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: service
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - run: npm install
+      - run: npm run build
+      # Generates docs/openapi.json (repo root) and its two rendered
+      # static pages (docs/api-reference.html, docs/api-swagger-ui/) for
+      # the Bundled API docs section (docs/reference/API.md) - the exact
+      # same document a running instance serves at GET
+      # /documentation/json, never hand-authored.
+      - run: OPENAPI_OUTPUT_PATH=../docs/openapi.json node scripts/export-openapi.mjs
+      - run: npx redocly build-docs ../docs/openapi.json -o ../docs/api-reference.html
+      - run: SWAGGER_UI_OUTPUT_DIR=../docs/api-swagger-ui node scripts/export-swagger-ui.mjs
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r ../docs/requirements.txt
+      - run: mkdocs build --strict
+        working-directory: .
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  deploy:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

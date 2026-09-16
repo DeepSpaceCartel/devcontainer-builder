@@ -136,9 +136,11 @@ Feature: devcontainer.json content validity, once it's been found
     Then the response status is 500:
       | SOURCE | CONDITION | VALUE              |
       | BODY   | contains  | exited with code 1 |
-    When I poll logs for Pod known as "<AppPod>" every "1s" for up to "10s" until:
-      | SOURCE | CONDITION | VALUE                                            | OUTCOME |
-      | STDOUT | contains  | No image information specified in devcontainer.json | pass    |
+    Given the value at "logId" from the last response is known as "<LogId>"
+    When I send a GET request to Endpoint known as "<AppApi>" path "/logs/<LogId>"
+    Then the response status is 200:
+      | SOURCE | CONDITION | VALUE                                                |
+      | BODY   | contains  | No image information specified in devcontainer.json |
 
     When I remove Docker Buildx Builder known as "<Builder>"
     Then the command exited with 0
@@ -161,10 +163,12 @@ Feature: devcontainer.json content validity, once it's been found
     Then the response status is 500:
       | SOURCE | CONDITION | VALUE              |
       | BODY   | contains  | exited with code 1 |
-    When I poll logs for Pod known as "<AppPod>" every "1s" for up to "10s" until:
-      | SOURCE | CONDITION | VALUE                       | OUTCOME |
-      | STDOUT | contains  | no such file or directory   | pass    |
-      | STDOUT | contains  | Dockerfile                  | pass    |
+    Given the value at "logId" from the last response is known as "<LogId>"
+    When I send a GET request to Endpoint known as "<AppApi>" path "/logs/<LogId>"
+    Then the response status is 200:
+      | SOURCE | CONDITION | VALUE                     |
+      | BODY   | contains  | no such file or directory |
+      | BODY   | contains  | Dockerfile                 |
 
     When I remove Docker Buildx Builder known as "<Builder>"
     Then the command exited with 0

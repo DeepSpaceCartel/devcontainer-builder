@@ -1,12 +1,17 @@
 #!/usr/bin/env bash
-# Idempotent Go toolchain installer for building provider/ (the Terraform
-# provider wrapping devcontainer-builder's service). Only job: make `go`
-# available at a minimum version. No other side effects.
+# Idempotent Go toolchain installer for building the sibling
+# terraform-provider-devcontainer-builder repo (the Terraform provider
+# wrapping this service - it lives in its own repo, not provider/ here,
+# see CLAUDE.md). Only job: make `go` available at a minimum version. No
+# other side effects.
 set -euo pipefail
 
-GO_VERSION="1.22.7"
+GO_VERSION="1.27.1"
 MIN_MAJOR=1
-MIN_MINOR=22
+# terraform-plugin-framework (terraform-provider-devcontainer-builder's own
+# dependency) requires >= 1.25 as of v1.19.0 - bump this if that dependency
+# ever requires more.
+MIN_MINOR=25
 
 log() { echo "[install.sh] $*" >&2; }
 

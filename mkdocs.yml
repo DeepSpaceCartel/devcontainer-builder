@@ -1,26 +1,39 @@
 site_name: devcontainer-builder
 site_description: Builds a container image from a git repo's .devcontainer.json via a remote BuildKit builder, for Coder Workspace Templates on Kubernetes.
-site_url: https://alexander.ilyin.eu/devcontainer-builder/
+site_url: https://deepspacecartel.github.io/devcontainer-builder/
 repo_url: https://github.com/DeepSpaceCartel/devcontainer-builder
 repo_name: DeepSpaceCartel/devcontainer-builder
 edit_uri: edit/main/docs/
+
+# docs/claude/{plans,notes} are internal planning/investigation records,
+# deliberately real content that isn't part of this published site - not an
+# oversight (see project/installing.md). not_in_nav (not just omitting them
+# from nav: above) is what actually silences mkdocs build's own "exists but
+# not in nav" INFO line for these paths.
+not_in_nav: |
+  claude/**
 
 nav:
   - Home:
     - Welcome: home/index.md
     - Quickstart: home/quickstart.md
-  - Concepts:
+  - Guides:
+      - Coder Workspace Template: guides/coder-workspace-template.md
+  - Application:
       - Architecture: concepts/architecture.md
       - Credential handling: concepts/credential-handling.md
-      - Testing philosophy: concepts/testing.md
-  - Reference:
-      - HTTP API: reference/API.md
       - Configuration: reference/CONFIGURATION.md
-      - Helm chart: reference/HELM.md
-      - Terraform module: reference/TERRAFORM.md
+      - HTTP API (Redoc): api-reference.html
+      - HTTP API (Swagger UI): api-swagger-ui/index.html
+  - Helm Chart:
+      - Reference: reference/HELM.md
+  - Terraform:
+      - Module: reference/TERRAFORM.md
+      - Provider: reference/TERRAFORM-PROVIDER.md
   - Project:
       - Installing: project/installing.md
       - Running the tests: project/testing.md
+      - Testing philosophy: concepts/testing.md
       - CI: project/ci.md
   - Decisions:
       - Decision log: decisions/index.md
@@ -32,6 +45,8 @@ nav:
       - 0006. A reusable chart owns every test namespace, not --create-namespace: decisions/0006-privileged-test-namespace-via-chart.md
       - 0007. Structured registry auth, and an auto-rendered settings file: decisions/0007-structured-registry-auth-and-auto-rendered-settings.md
       - 0008. GET/DELETE /image for existence checks and best-effort deletion: decisions/0008-image-existence-and-deletion-endpoints.md
+      - 0009. Event-oriented structured logging, and log/trace correlation via OpenTelemetry: decisions/0009-event-oriented-structured-logging.md
+      - 0010. Capture git/docker subprocess output to files instead of stdout: decisions/0010-command-output-capture.md
 
 theme:
   name: material

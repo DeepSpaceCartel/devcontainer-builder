@@ -17,7 +17,7 @@ helm template charts/devcontainer-builder -f my-values.yaml
 
 | Key | Default | Notes |
 |---|---|---|
-| `image.repository` | `ghcr.io/example/devcontainer-builder` | Placeholder — set to a real, pushed image. |
+| `image.repository` | `ghcr.io/deepspacecartel/devcontainer-builder` | The real, published image — see `.github/workflows/release.yaml`. |
 | `image.tag` | `"0.1.0"` | |
 | `image.pullPolicy` | `IfNotPresent` | |
 
@@ -27,17 +27,44 @@ helm template charts/devcontainer-builder -f my-values.yaml
 |---|---|---|
 | `service.port` | `8080` | Also becomes the container's `PORT` env var. |
 
+## `environment`
+
+| Key | Default | Notes |
+|---|---|---|
+| `environment` | `""` | Deployment environment name (e.g. `dev`/`staging`/`production`), passed through as the container's `DEPLOYMENT_ENVIRONMENT` env var — see [Configuration](CONFIGURATION.md#fields). Empty means unset, and the service falls back to its own `development` default. There's no equivalent chart value for the service's own *name* — the chart always sets `SERVICE_NAME` unconditionally from `.Chart.Name`, the same value the `app.kubernetes.io/name` label already uses everywhere else in this chart, so the two can never drift apart. |
+
 ## `buildkit`
 
 | Key | Default | Notes |
 |---|---|---|
-| `buildkit.endpoint` | `""` | e.g. `tcp://buildkit-buildkit-service.buildkit.svc.cluster.local:1234`. Unset means readiness never passes — see [`/health/ready`](API.md#get-healthready). |
+| `buildkit.endpoint` | `""` | e.g. `tcp://buildkit-buildkit-service.buildkit.svc.cluster.local:1234`. Unset means readiness never passes — see [`/health/ready`](../api-reference.html){:target="_blank" rel="noopener"}. Ignored when `buildkit.deploy.enabled` is `true`. |
+| `buildkit.deploy.enabled` | `false` | Deploys a bundled BuildKit instance ([`andrcuns/buildkit-service`](https://github.com/andrcuns/charts/tree/main/charts/buildkit-service), the `buildkitBundled` dependency in `Chart.yaml`) alongside devcontainer-builder itself, and computes `buildkit.endpoint` automatically from it — zero pre-existing BuildKit infra needed for a first install. |
+
+```yaml
+buildkit:
+  deploy:
+    enabled: true
+```
+
+!!! warning "Don't pass `--create-namespace` when enabling this"
+    BuildKit's default mode is genuinely privileged (inherent to how it
+    does OCI builds) — enabling this makes the chart label its own release
+    namespace `pod-security.kubernetes.io/enforce: privileged` (owning the
+    `Namespace` resource itself, the same pattern
+    [`charts/test-namespace`](https://github.com/DeepSpaceCartel/devcontainer-builder/tree/main/charts/test-namespace)
+    uses per [ADR-0006](../decisions/0006-privileged-test-namespace-via-chart.md)),
+    which conflicts with Helm's own unlabeled `--create-namespace` if both
+    try to create the same namespace. `helm install ... -n <namespace>`
+    alone (no `--create-namespace`) lets the chart create *and* label it on
+    first install. "Privileged" is the most permissive PodSecurity tier —
+    it only widens what the namespace *allows*, so devcontainer-builder's
+    own ordinary (non-privileged) pod in the same namespace is unaffected.
 
 ## `build`
 
 Server-wide defaults for platform selection and BuildKit build options,
 used whenever a `/build` request doesn't specify its own `platforms` or
-`buildOptions` — see [API](API.md#post-build) for the per-request fields.
+`buildOptions` — see [API](../api-reference.html){:target="_blank" rel="noopener"} for the per-request fields.
 
 | Key | Default | Notes |
 |---|---|---|
@@ -127,6 +154,24 @@ duplicate of sensitive material in a less-guarded ConfigMap.
 | `extraArgs` | `[]` | Appended to the container's entrypoint args, e.g. `["--ssh-host-key-policy", "pinned"]`. |
 | `extraEnv` | `[]` | Appended after the chart's own env entries — a plain `[{name: ..., value: ...}]` list. |
 | `extraVolumes` / `extraVolumeMounts` | `[]` | Appended after the chart's own volumes/mounts — e.g. mounting a caller-provided ConfigMap holding a CA cert, paired with `extraEnv` pointing `GIT_SSL_CAINFO` at it. |
+
+`extraEnv` is also how the service's remaining optional observability
+integrations get configured — no dedicated chart values for these, since
+they're just environment variables the service already reads directly
+(unlike `SERVICE_NAME`/`DEPLOYMENT_ENVIRONMENT` above, which *are*
+first-class chart values, since every deployment should set an
+environment name, not just the ones opting into Sentry/OTel):
+
+```yaml
+extraEnv:
+  - name: SENTRY_DSN # GlitchTip (Sentry-protocol-compatible) works too
+    value: "https://<key>@errors.example.com/1"
+  - name: OTEL_EXPORTER_OTLP_ENDPOINT # this cluster's Alloy OTLP/HTTP receiver
+    value: "http://alloy.observability.svc.cluster.local:4318"
+```
+
+See [Architecture](../concepts/architecture.md#observability) for what
+each actually does.
 
 ## `podSecurityContext`, `resources`, `scratchVolume`, `updateStrategy`, `replicaCount`
 

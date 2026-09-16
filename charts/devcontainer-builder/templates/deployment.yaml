@@ -53,6 +53,17 @@ spec:
           env:
             - name: PORT
               value: "8080"
+            # Always .Chart.Name, unconditionally - the same value the
+            # app.kubernetes.io/name label already uses (_helpers.tpl), so
+            # the service's own service.name log field can never drift
+            # from what Alloy already promotes to Loki's `app` label for
+            # this same pod.
+            - name: SERVICE_NAME
+              value: {{ .Chart.Name }}
+            {{- if .Values.environment }}
+            - name: DEPLOYMENT_ENVIRONMENT
+              value: {{ .Values.environment | quote }}
+            {{- end }}
             - name: DOCKER_CONFIG
               value: /home/builder/.docker
             {{- if .Values.gitCredentials.enabled }}
@@ -100,6 +111,16 @@ spec:
             {{- if .Values.extraVolumeMounts }}
             {{- toYaml .Values.extraVolumeMounts | nindent 12 }}
             {{- end }}
+          startupProbe:
+            httpGet:
+              path: /health/startup
+              port: http
+            # Generous total budget (30 * 5s = 150s) for pod
+            # scheduling/image pull - liveness/readiness only start once
+            # this passes, so this being slow is never itself a restart
+            # trigger the way a too-tight livenessProbe would be.
+            periodSeconds: 5
+            failureThreshold: 30
           readinessProbe:
             httpGet:
               path: /health/ready

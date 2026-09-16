@@ -3,12 +3,16 @@
 # Terraform module
 
 [`terraform/devcontainer-build`](https://github.com/DeepSpaceCartel/devcontainer-builder/tree/main/terraform/devcontainer-build)
-calls an already-running devcontainer-builder instance's
-[`POST /build`](API.md#post-build) and exposes the pushed image
-reference as an output — the module deploys nothing itself. It's a
-pre-publish working copy of a future Coder Registry module; see
-[0005](../decisions/0005-bdd-suite-on-thomas.md)'s neighboring status
-note in the [index](../home/index.md) for what "pre-publish" means today.
+calls an already-running devcontainer-builder instance and exposes the
+pushed image reference as an output — the module deploys nothing itself.
+Internally it wraps the [Terraform provider](TERRAFORM-PROVIDER.md)'s
+`devcontainerbuilder_build` resource (owning its own `provider
+"devcontainerbuilder"` configuration, sourced from `service_url`) rather
+than calling [`POST /build`](../api-reference.html){:target="_blank" rel="noopener"} directly via `data "http"`
+— the same variable/output interface either way, but a real build now only
+runs on `terraform apply`, and only for an actual diff, not on every single
+`terraform plan` (see [the provider reference](TERRAFORM-PROVIDER.md) for
+why that matters).
 
 ```hcl
 module "devcontainer_build" {
@@ -43,23 +47,23 @@ output "built_image" {
 |---|---|
 | `image` | The built and pushed image reference, e.g. `ghcr.io/org/repo-devcontainer:sha-abc1234`. |
 
-## A real Terraform quirk: `data "http"` always executes during `plan`
+## Why this wraps the provider instead of `data "http"`
 
-There's no way to defer a `data "http"` block — it makes the real
-`POST /build` call (a real clone + build + push, not a cheap read)
-every time Terraform runs `plan`, not just `apply`. This means
-`build.tftest.hcl` can't assert against `data.http.build`'s real result
-without either a live, reachable service or a `mock_provider "http"`
-block — tests are currently limited to variable-validation failures
-(the precondition below and the required-variable checks), not the real
-HTTP round trip.
+An earlier version of this module called `POST /build` directly via
+`data "http"` — a real quirk of that approach was the actual motivation for
+building the [Terraform provider](TERRAFORM-PROVIDER.md) in the first
+place: a `data "http"` block can't be deferred, so it made the real
+clone+build+push call on every single `terraform plan`, not just `apply`.
+Now that the provider exists, this module wraps its
+`devcontainerbuilder_build` resource internally instead — real builds only
+happen on `apply`, for an actual diff, and `build.tftest.hcl` can assert
+against a real (mocked, via Terraform's `mock_provider`) result without
+needing a live, reachable service at all. See that test file for the real
+contract test this enables.
 
-This exact limitation is the motivation for a companion **Terraform
-provider** — [`terraform-provider-devcontainer-builder`](https://github.com/DeepSpaceCartel/terraform-provider-devcontainer-builder),
-a `devcontainerbuilder_build` *resource* instead of a `data` source, so the
-build only runs on `apply`, and only when there's an actual diff. See that
-repo's [`README.md`](https://github.com/DeepSpaceCartel/terraform-provider-devcontainer-builder/blob/main/README.md).
-Both are meant to coexist for now — this module isn't being replaced.
+Both the module and the provider are meant to coexist — see
+[Module or provider?](TERRAFORM-PROVIDER.md#module-or-provider) for when to
+reach for which.
 
 ## The one real precondition
 

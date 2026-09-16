@@ -1,20 +1,10 @@
-# This module's only resource is `data "http" "build"`, and an `http` data
-# source always executes its request as part of building the plan - there is
-# no way to "plan" it without actually calling the service. So the tests
-# here are limited to variable-validation failures, which are checked before
-# the data source is ever touched. Exercising the request/response contract
-# for real needs either a live devcontainer-builder service or a
-# `mock_provider "http"` block (Terraform test mocking) - left as follow-up
-# once the service's request/response shape has settled.
-#
-# image_registry/image_name/image_tag no longer have `validation` blocks
-# (the service derives defaults for whichever are omitted), so there is no
-# longer a Terraform-only assertion to make about leaving them empty - that
-# always reaches the data source and needs a live service or
-# `mock_provider "http"`, same as every other non-validation-failure case.
-# What *is* still testable without either is the `lifecycle.precondition`
-# below, since a data resource's precondition is evaluated before the read
-# and short-circuits it on failure.
+# This module now wraps devcontainerbuilder_build (a real resource) instead
+# of `data "http"`, which was the whole point of the rewrite (see
+# terraform-provider-devcontainer-builder's own README): a resource's Create
+# only runs on `terraform apply`, and only for a real diff - not on every
+# single `terraform plan`. That makes real contract testing possible without
+# a live service for the first time, via `mock_provider` (Terraform test
+# mocking, stable since Terraform 1.8) - no more "left as follow-up".
 
 variables {
   service_url    = "http://devcontainer-builder.example.svc.cluster.local:8080"
@@ -61,6 +51,31 @@ run "rejects_registry_credentials_without_registry" {
   }
 
   expect_failures = [
-    data.http.build,
+    devcontainerbuilder_build.this,
   ]
+}
+
+mock_provider "devcontainerbuilder" {
+  mock_resource "devcontainerbuilder_build" {
+    defaults = {
+      id                = "ghcr.io/example/example-devcontainer:sha-abc1234"
+      image             = "ghcr.io/example/example-devcontainer:sha-abc1234"
+      resolved_registry = "ghcr.io/example"
+      resolved_name     = "example-devcontainer"
+      resolved_tag      = "sha-abc1234"
+    }
+  }
+}
+
+run "resolves_image_output_from_the_build_resource" {
+  command = apply
+
+  providers = {
+    devcontainerbuilder = devcontainerbuilder
+  }
+
+  assert {
+    condition     = output.image == "ghcr.io/example/example-devcontainer:sha-abc1234"
+    error_message = "the image output did not resolve from devcontainerbuilder_build.this.image"
+  }
 }

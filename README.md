@@ -3,8 +3,11 @@
 Builds a container image from a git repository's `.devcontainer.json` using a
 remote [BuildKit](https://github.com/moby/buildkit) builder, and pushes it to
 a registry - so a [Coder](https://github.com/coder/coder) Workspace Template
-running on Kubernetes can boot a workspace straight from a repo URL, without
-a dedicated CI pipeline to pre-build the image.
+running on Kubernetes can boot a workspace straight from a repo URL. No
+rolling your own CI/CD pipeline to build and track every project's own image
+variant - point devcontainer-builder at the repo and it handles the rest.
+
+Full docs: <https://deepspacecartel.github.io/devcontainer-builder/>
 
 ## Why
 
@@ -25,6 +28,10 @@ out to Kubernetes to provision a PersistentVolumeClaim before the pod.
 - [`terraform/devcontainer-build/`](terraform/devcontainer-build) - a
   Terraform module that calls an already-running instance of the service and
   exposes the built image as an output, for use from a Workspace Template.
+- [`templates/coder-kubernetes/`](templates/coder-kubernetes) - a real Coder
+  Workspace Template that builds from a git URL a user types in when
+  creating a workspace. See the
+  [Coder Workspace Template guide](https://github.com/DeepSpaceCartel/devcontainer-builder/blob/main/docs/guides/coder-workspace-template.md).
 
 ## Documentation
 
@@ -64,14 +71,6 @@ out to Kubernetes to provision a PersistentVolumeClaim before the pod.
   fixtures, and disposable-Kubernetes-test-fixture pattern - loaded
   automatically by tools that support the convention.
 
-## Status
-
-Early scaffold. Not yet wired into any real infrastructure or published as a
-Coder Registry module - see the sequencing notes in each subdirectory's
-README/comments for what's still open (git-credential handling on private
-repos, request/response contract stability, end-to-end tests against a live
-BuildKit endpoint).
-
 ## License
 
-MIT (see [LICENSE](LICENSE)) - placeholder, change if you want something else.
+MIT (see [LICENSE](LICENSE)).

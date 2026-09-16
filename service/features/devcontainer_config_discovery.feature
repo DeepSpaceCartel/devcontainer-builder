@@ -185,20 +185,22 @@ Feature: devcontainer.json discovery after clone
     # (the /build request has no field for it). Three sub-folder names
     # prove this fails the same way regardless of which folder name is
     # used - it's not a naming mismatch, the location itself isn't checked.
-    # The real "not found" text only ever reaches the pod's own stdout
-    # (build.ts's run() uses stdio: "inherit"), never the HTTP response
-    # body (which only ever gets "... exited with code 1") - so this needs
-    # a real log check, not just a status/body assertion.
+    # The real "not found" text never reaches the HTTP response body
+    # (which only ever gets "... exited with code 1") - it's captured to a
+    # file instead (ADR-0010), fetched here via the failure response's own
+    # logId, not a pod-log poll.
     When I send a POST request to Endpoint known as "<AppApi>" path "/build" with:
       | TYPE | KEY | VALUE                                                                             |
       | BODY |     | {"repository":"<GitUrl>/location/<repo>.git","image":{"registry":"<RegistryUrl>"}} |
     Then the response status is 500:
       | SOURCE | CONDITION | VALUE               |
       | BODY   | contains  | exited with code 1  |
-    When I poll logs for Pod known as "<AppPod>" every "1s" for up to "10s" until:
-      | SOURCE | CONDITION | VALUE                 | OUTCOME |
-      | STDOUT | contains  | Dev container config  | pass    |
-      | STDOUT | contains  | not found             | pass    |
+    Given the value at "logId" from the last response is known as "<LogId>"
+    When I send a GET request to Endpoint known as "<AppApi>" path "/logs/<LogId>"
+    Then the response status is 200:
+      | SOURCE | CONDITION | VALUE                |
+      | BODY   | contains  | Dev container config |
+      | BODY   | contains  | not found             |
 
     When I remove Docker Buildx Builder known as "<Builder>"
     Then the command exited with 0
@@ -234,10 +236,12 @@ Feature: devcontainer.json discovery after clone
     Then the response status is 500:
       | SOURCE | CONDITION | VALUE              |
       | BODY   | contains  | exited with code 1 |
-    When I poll logs for Pod known as "<AppPod>" every "1s" for up to "10s" until:
-      | SOURCE | CONDITION | VALUE                | OUTCOME |
-      | STDOUT | contains  | Dev container config | pass    |
-      | STDOUT | contains  | not found             | pass    |
+    Given the value at "logId" from the last response is known as "<LogId>"
+    When I send a GET request to Endpoint known as "<AppApi>" path "/logs/<LogId>"
+    Then the response status is 200:
+      | SOURCE | CONDITION | VALUE                |
+      | BODY   | contains  | Dev container config |
+      | BODY   | contains  | not found             |
 
     When I remove Docker Buildx Builder known as "<Builder>"
     Then the command exited with 0

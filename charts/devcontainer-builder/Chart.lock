@@ -1,0 +1,6 @@
+dependencies:
+- name: buildkit-service
+  repository: https://andrcuns.github.io/charts
+  version: 1.8.0
+digest: sha256:2dfeb41b618512804a03ba48de272ca1d840be5acf53e319912298dd4a50c12f
+generated: "2026-09-15T12:12:44.189342797-07:00"

@@ -29,8 +29,8 @@ flowchart TD
 1. **Shape validation** (`server.ts`'s `isValidBuildRequest`) — a
    request missing `repository`, or with a wrong-typed optional field,
    is rejected before anything real happens. See the
-   [HTTP API reference](../reference/API.md) for the exact accepted
-   shape and every status code.
+   [HTTP API reference](../api-reference.html){:target="_blank" rel="noopener"} for
+   the exact accepted shape and every status code.
 2. **URL parsing** (`build.ts`'s `parseGitUrl`) — accepts
    `https://host/path`, `ssh://[user@]host[:port]/path`, and git's own
    SCP-style shorthand `[user@]host:path`. Anything else is a real
@@ -72,6 +72,11 @@ flowchart TD
 
 ## Health endpoints
 
+- **`GET /health/startup`** — always `200 {"status":"started"}` once the
+  process is up. Kubernetes `startupProbe`; identical check to `/health/live`
+  today (no separate async startup phase exists to distinguish them yet),
+  kept as its own route so the two probes can be tuned independently — see
+  [API reference](../api-reference.html){:target="_blank" rel="noopener"}.
 - **`GET /health/live`** — always `200 {"status":"ok"}` once the
   process is up. Used as the liveness probe; it deliberately checks
   nothing beyond "the HTTP server is answering."
@@ -81,6 +86,70 @@ flowchart TD
   is a **presence** check, not a live connectivity probe against
   BuildKit itself — a configured-but-unreachable endpoint still reports
   ready (and fails at build time instead, with a real error).
+
+## Observability
+
+- **Structured, event-oriented logs** — every log line is one JSON object
+  ([pino](https://getpino.io/), via a standalone instance in `logger.ts`
+  wired into Fastify through its `loggerInstance` option, not the inline
+  `logger:` options object an earlier version of this service used), with
+  a real string `level` (`"info"`, `"error"`, ...) rather than pino's own
+  default numeric level, so lines are directly filterable in whatever log
+  sink scrapes container stdout (e.g. Grafana Loki, whose `detected_level`
+  heuristic recognizes this exact field name) without a level-number
+  lookup table. Every business-logic log call carries an explicit
+  `event` name (`image.lookup.started`/`.completed`/`.failed`,
+  `image.delete.*`, `build.*`) plus domain fields (`image.registry`,
+  `image.name`, `image.tag`, ...) rather than a free-text sentence, and
+  every request gets exactly one `http.request.completed` access-log-style
+  event (an `onResponse` hook in `server.ts`, replacing Fastify's own
+  default per-request logging via `disableRequestLogging`) whose
+  `http.route` is always the *matched route template* (`/image`), never
+  the raw querystring — the query values themselves only ever appear as
+  their own named domain fields. `service.name`/`service.version`/
+  `deployment.environment.name` are baked into every line (`logger.ts`'s
+  `base` option), sourced from `config.ts`'s `serviceName`/`environment`
+  fields (`SERVICE_NAME`/`DEPLOYMENT_ENVIRONMENT` — see
+  [Configuration](../reference/CONFIGURATION.md#fields)) and this build's
+  own `package.json` version.
+- **`GET /metrics`** — Prometheus text-format metrics
+  ([`prom-client`](https://github.com/siimon/prom-client)), Node.js
+  process/runtime defaults plus real build/image-check/image-delete
+  counters and a build-duration histogram — see
+  [API reference](../api-reference.html){:target="_blank" rel="noopener"}.
+- **Error tracking** — optional
+  [Sentry](https://docs.sentry.io/platforms/javascript/guides/fastify/)
+  SDK integration (`@sentry/node`'s `fastifyIntegration` +
+  `setupFastifyErrorHandler`), entirely off unless `SENTRY_DSN` (or the
+  settings file's `sentry.dsn`) is set. [GlitchTip](https://glitchtip.com/)
+  works too, being Sentry-protocol-compatible — point `SENTRY_DSN` at it
+  the same way. Real unexpected failures (500s, uncaught errors) get
+  captured; documented 400s don't.
+- **Distributed tracing, correlated with logs** — optional
+  [OpenTelemetry](https://opentelemetry.io/) auto-instrumentation
+  (`@opentelemetry/auto-instrumentations-node`, covering the underlying
+  `node:http` server every request goes through), entirely off unless
+  `OTEL_EXPORTER_OTLP_ENDPOINT` (or the traces-specific
+  `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`) is set — the same standard env
+  vars any OTel SDK reads, so this composes with a Tempo/OTel Collector
+  endpoint already configured elsewhere in the cluster, not an
+  app-specific flag. Bootstrapped from `tracing.ts`, imported as the very
+  first thing `index.ts` does — auto-instrumentation works by
+  monkey-patching modules (`node:http`, etc.) at import time, so it has to
+  run before anything else (including Fastify itself) ever imports them.
+  The bundled `@opentelemetry/instrumentation-pino` (already part of
+  `auto-instrumentations-node`) injects the active span's context into
+  every log line emitted during that span — `tracing.ts` overrides its
+  default snake_case key names (`trace_id`/`span_id`) to `trace.id`/
+  `span.id`, matching this app's dotted field-naming convention
+  elsewhere. This is a distinct identifier from Fastify's own per-request
+  `reqId` (surfaced in every log line automatically as the request-scoped
+  child logger's own binding) — `reqId` identifies *this service's* one
+  HTTP request; `trace.id`/`span.id` identify the *distributed* operation
+  a request might be one leg of, present only while tracing is enabled.
+- **`GET /config`** — read-only, non-sensitive view of the service's own
+  loaded configuration, credential material always redacted — see
+  [API reference](../api-reference.html){:target="_blank" rel="noopener"}.
 
 ## Startup and shutdown
 

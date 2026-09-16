@@ -256,9 +256,11 @@ Feature: Registry push authentication
       | TYPE | KEY | VALUE                                                                                                 |
       | BODY |     | {"repository":"<GitUrl>/example/example-devcontainer.git","image":{"registry":"<AuthedRegistryUrl>"}} |
     Then the response status is 500
-    When I poll logs for Pod known as "<AppPod>" every "1s" for up to "10s" until:
-      | SOURCE | CONDITION | VALUE | OUTCOME |
-      | STDOUT | contains  | 401   | pass    |
+    Given the value at "logId" from the last response is known as "<LogId>"
+    When I send a GET request to Endpoint known as "<AppApi>" path "/logs/<LogId>"
+    Then the response status is 200:
+      | SOURCE | CONDITION | VALUE |
+      | BODY   | contains  | 401   |
 
     When I remove Docker Buildx Builder known as "<Builder>"
     Then the command exited with 0
@@ -350,9 +352,11 @@ Feature: Registry push authentication
       | TYPE | KEY | VALUE                                                                                                                                                                                           |
       | BODY |     | {"repository":"<GitUrl>/example/example-devcontainer.git","image":{"registry":"<AuthedRegistryUrl>"},"registryCredentials":{"registry":"<AuthedRegistryUrl>","username":"svc-bot","password":"wrong-password"}} |
     Then the response status is 500
-    When I poll logs for Pod known as "<AppPod>" every "1s" for up to "10s" until:
-      | SOURCE | CONDITION | VALUE | OUTCOME |
-      | STDOUT | contains  | 401   | pass    |
+    Given the value at "logId" from the last response is known as "<LogId>"
+    When I send a GET request to Endpoint known as "<AppApi>" path "/logs/<LogId>"
+    Then the response status is 200:
+      | SOURCE | CONDITION | VALUE |
+      | BODY   | contains  | 401   |
 
     When I remove Docker Buildx Builder known as "<Builder>"
     Then the command exited with 0
@@ -400,9 +404,11 @@ Feature: Registry push authentication
       | TYPE | KEY | VALUE                                                                                                                                                                          |
       | BODY |     | {"repository":"<GitUrl>/example/example-devcontainer.git","image":{"registry":"<AuthedRegistryUrl>"},"registryCredentials":{"registry":"<RegistryUrl>","username":"svc-bot","password":"hunter2"}} |
     Then the response status is 500
-    When I poll logs for Pod known as "<AppPod>" every "1s" for up to "10s" until:
-      | SOURCE | CONDITION | VALUE | OUTCOME |
-      | STDOUT | contains  | 401   | pass    |
+    Given the value at "logId" from the last response is known as "<LogId>"
+    When I send a GET request to Endpoint known as "<AppApi>" path "/logs/<LogId>"
+    Then the response status is 200:
+      | SOURCE | CONDITION | VALUE |
+      | BODY   | contains  | 401   |
 
     When I remove Docker Buildx Builder known as "<Builder>"
     Then the command exited with 0
