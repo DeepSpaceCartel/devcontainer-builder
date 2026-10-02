@@ -6,10 +6,6 @@
 # runtime at all). Idempotent: a no-op fast-path when the expected image is
 # in fact running and already has these.
 #
-# Then installs sandbox2/'s own npm dependencies (cucumber-js, TypeScript,
-# tsx, js-yaml, jmespath - see sandbox2/package.json) so its BDD sources are
-# runnable right after the workspace comes up.
-#
 # Sourced by postCreateCommand.sh (so this only needs to run once per
 # workspace, ahead of anything there that shells out to `npm`) and called by
 # install.sh (the non-Dev-Containers bootstrap path) - self-contained so
@@ -55,12 +51,4 @@ for rc in "$HOME/.bashrc" "$HOME/.zshrc"; do
   fi
 done
 
-# --- sandbox2/ npm dependencies --------------------------------------------
-script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-sandbox2_dir="$(cd "$script_dir/.." && pwd)/sandbox2"
-if [ -f "$sandbox2_dir/package.json" ] && [ ! -d "$sandbox2_dir/node_modules" ]; then
-  echo "Installing sandbox2/ npm dependencies..."
-  (cd "$sandbox2_dir" && npm install)
-fi
-
-echo "typescript-node.sh done: node, npm, git, sandbox2/ deps ready."
+echo "typescript-node.sh done: node, npm, git ready."
