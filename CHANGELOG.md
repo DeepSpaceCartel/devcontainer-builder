@@ -9,6 +9,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- **Breaking:** `templates/coder-kubernetes` now persists the workspace's
+  home *and* `/workspaces`. The `coder-<id>-home` PVC (mounted at
+  `/home/coder`, which wasn't the image user's home, so nothing actually
+  survived a restart) is replaced by one `coder-<id>-data` PVC, mounted via
+  subPaths at the remote user's home and at `/workspaces`. A new `seed-home`
+  init container copies the image's own home into the PVC on first start,
+  so the mount doesn't hide the image's dotfiles. The `home_disk_size`
+  parameter is renamed `disk_size`; a new, interim `remote_user` parameter
+  (default `node`) sets which home is mounted, until the template reads
+  `remoteUser` from `devcontainer.json`. code-server now installs under
+  `~/.cache/code-server` instead of `/tmp`. **Upgrading:** workspaces
+  created from the previous template version must be recreated.
+- `templates/coder-kubernetes` now clones the repository into
+  `/workspaces/<repo name>` on first start, using Coder's `git-clone`
+  registry module (it only clones into an empty folder, so the working copy
+  is never touched on later starts). code-server opens in that folder
+  (terminals still start in `$HOME`: `coder_agent.dir` is deprecated). code-server now comes from Coder's
+  `code-server` registry module instead of a hand-written startup script.
+  `GIT_AUTHOR_*`/`GIT_COMMITTER_*` are set from the workspace owner's
+  name and email.
+
 - `.github/workflows/release.yaml`'s `image` job now caches Docker layers
   via BuildKit's GitHub Actions cache backend (`cache-from`/`cache-to:
   type=gha`, `mode=max`) — `runtime-base`'s apt-get install (git,

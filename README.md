@@ -1,5 +1,7 @@
 # devcontainer-builder
 
+[![Open in Coder](https://coder.deepspacecartel.com/open-in-coder.svg)](https://coder.deepspacecartel.com/templates/coder/kubernetes-devcontainer-dsc/workspace?mode=manual&param.repository=https%3A%2F%2Fgithub.com%2FDeepSpaceCartel%2Fdevcontainer-builder.git&param.branch=main)
+
 Builds a container image from a git repository's `.devcontainer.json` using a
 remote [BuildKit](https://github.com/moby/buildkit) builder, and pushes it to
 a registry - so a [Coder](https://github.com/coder/coder) Workspace Template

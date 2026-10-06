@@ -9,6 +9,12 @@ registry template. The one real change: instead of a fixed/parameterized
 resource, which turns it into a real, pushed image before the Deployment
 ever starts.
 
+The workspace's home and `/workspaces` persist on one PVC
+(`coder-<id>-data`); a `seed-home` init container copies the image's own
+home into it on first start. See the guide's *Persistence* section — and
+note the interim **Remote user** parameter, which must match the image's
+`remoteUser`.
+
 See [the full walkthrough](https://github.com/DeepSpaceCartel/devcontainer-builder/blob/main/docs/guides/coder-workspace-template.md)
 (or `docs/guides/coder-workspace-template.md` in this repo) for
 prerequisites, the platform-infrastructure setup this template itself does

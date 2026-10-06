@@ -127,6 +127,62 @@ coder create my-workspace --template devcontainer-kubernetes \
 platform infrastructure from step 1), then boots
 `kubernetes_deployment_v1.main` from the image it returns.
 
+## Persistence
+
+Each workspace gets one PVC, `coder-<workspace-id>-data` (sized by the
+**Disk size** parameter), mounted twice via subPaths:
+
+| PVC path      | Mounted at                                   |
+| ------------- | -------------------------------------------- |
+| `home/`       | the remote user's home (`/home/<user>`, or `/root`) |
+| `workspaces/` | `/workspaces`                                |
+
+Everything else (the image's root filesystem) is fresh on every pod start,
+so anything installed outside those two paths has to come from the image.
+
+A mount hides whatever the image had at that path, so a `seed-home` init
+container runs first, with the same image: on the workspace's **first**
+start only, it copies the image's own home (`.bashrc`, nvm, oh-my-zsh, …)
+into the PVC. After that the home is the user's — later image rebuilds
+don't re-seed it, and a dotfile deleted by the user stays deleted.
+
+## The repository clone
+
+On a workspace's first start, Coder's
+[`git-clone`](https://registry.coder.com/modules/coder/git-clone) module
+clones the **Git repository**'s **Branch** into `/workspaces/<repo name>`,
+and login waits until it's done. code-server opens in that folder;
+terminals and SSH sessions start in `$HOME` (the agent's `dir` setting is
+deprecated and would break Coder Desktop file sync). On later starts the folder isn't empty, so the
+clone is skipped and the working copy is left exactly as it was.
+
+The image build and this clone authenticate separately: devcontainer-builder
+clones with its own server-side credentials, which never reach the
+workspace. For a private repository, the clone inside the workspace needs
+one of:
+
+- **HTTPS:** a GitHub (or GitLab) [external auth provider](https://coder.com/docs/admin/external-auth)
+  configured on Coder, so the agent's `GIT_ASKPASS` can supply a token.
+- **SSH** (`git@…` or `ssh://` URLs): the owner's Coder SSH public key
+  (`coder publickey`) added to their GitHub account. The agent's
+  `coder gitssh` uses it.
+
+If the clone fails, the folder is left empty and the workspace still
+starts; the error is in the "Git Clone" script's log in the dashboard.
+
+!!! note "Remote user is a parameter, for now"
+    The home path must be known when Terraform plans the pod, but the
+    template doesn't read `devcontainer.json` yet. Until it does, the
+    **Remote user** workspace parameter (default `node`) must match the
+    image's `remoteUser`, with uid 1000. `seed-home` checks it against the
+    image's `/etc/passwd` and fails the pod with a clear message if it
+    doesn't match.
+
+!!! warning "Upgrading from the first template version"
+    Workspaces created before this layout used a `coder-<id>-home` PVC
+    mounted at `/home/coder`. They must be **recreated**; copy anything
+    worth keeping out first.
+
 ## Real gotchas worth knowing before you hit them
 
 - **A private registry needs `image_pull_secret_name`.** devcontainer-builder
