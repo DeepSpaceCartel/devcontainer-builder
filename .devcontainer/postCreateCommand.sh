@@ -2,7 +2,7 @@
 # Installs the CLI tools the base devcontainer image doesn't already provide:
 # Bun (bun/bunx), Starship, Helm, Terraform, GitHub CLI, 1Password CLI,
 # kubectl, k9s, Docker CLI + buildx plugin + devcontainers CLI, Claude Code
-# CLI, and the `helm tui` plugin. No
+# CLI, Go, Coder CLI, and the `helm tui` plugin. No
 # Dev Container
 # Features are used here (they aren't usable yet in this repo's Coder/K8s
 # setup) - everything goes through plain shell so this script also works
@@ -21,7 +21,7 @@ fi
 
 arch="$(dpkg --print-architecture)"
 
-# --- Node 20 + npm + git + sandbox2/ deps ---------------------------------
+# --- Node 20 + npm + git --------------------------------------------------
 # devcontainer.json's `image` is supposed to already provide these
 # (mcr.microsoft.com/devcontainers/typescript-node:1-20-bookworm) - this
 # call is a fast no-op there. It only does real work when the workspace
@@ -158,6 +158,44 @@ if ! command -v gh >/dev/null 2>&1; then
   $SUDO apt-get install -y --no-install-recommends gh
 fi
 
+# --- Go (official tarball into /usr/local/go, per https://go.dev/doc/install)
+#     For the Terraform provider repo (DeepSpaceCartel/terraform-provider-devcontainer-builder),
+#     which is a separate Go module worked on alongside this one. ------------
+if ! command -v go >/dev/null 2>&1 && [ ! -x /usr/local/go/bin/go ]; then
+  go_version="$(curl -fsSL 'https://go.dev/VERSION?m=text' | head -n1)"
+  echo "Installing ${go_version}..."
+  tmp_go="$(mktemp)"
+  curl -fsSL -o "$tmp_go" "https://go.dev/dl/${go_version}.linux-${arch}.tar.gz"
+  $SUDO rm -rf /usr/local/go
+  $SUDO tar -C /usr/local -xzf "$tmp_go"
+  rm -f "$tmp_go"
+fi
+
+export PATH="/usr/local/go/bin:$HOME/go/bin:$PATH"
+for rc in "$HOME/.bashrc" "$HOME/.zshrc"; do
+  if [ -f "$rc" ] && ! grep -qF '/usr/local/go/bin' "$rc"; then
+    echo 'export PATH="/usr/local/go/bin:$HOME/go/bin:$PATH"' >> "$rc"
+  fi
+done
+
+# --- Coder CLI --------------------------------------------------------------
+# Inside a Coder workspace, download the binary the deployment itself serves
+# (/bin/coder-linux-<arch>) so the CLI always matches the server version.
+# Elsewhere (install.sh on a plain machine), fall back to Coder's installer.
+# Log in separately: `coder login <url>`, or export CODER_URL and
+# CODER_SESSION_TOKEN.
+if ! command -v coder >/dev/null 2>&1; then
+  echo "Installing Coder CLI..."
+  if [ -n "${CODER_AGENT_URL:-}" ]; then
+    tmp_coder="$(mktemp)"
+    curl -fsSL -o "$tmp_coder" "${CODER_AGENT_URL%/}/bin/coder-linux-${arch}"
+    $SUDO install -m 0755 "$tmp_coder" /usr/local/bin/coder
+    rm -f "$tmp_coder"
+  else
+    curl -fsSL https://coder.com/install.sh | sh
+  fi
+fi
+
 # --- 1Password CLI (apt repo + debsig package verification, per
 #     https://developer.1password.com/docs/cli/get-started/#install) ------
 if ! command -v op >/dev/null 2>&1; then
@@ -273,4 +311,4 @@ if command -v helm >/dev/null 2>&1 && ! helm plugin list 2>/dev/null | grep -qw 
   helm plugin install https://github.com/pidanou/helm-tui
 fi
 
-echo "postCreateCommand.sh done: node, bun/bunx, timezone, starship, helm, terraform, gh, 1Password CLI, kubectl, krew (kubectl-tree), k9s, docker cli, devcontainers cli, claude code cli, MkDocs Material, helm tui plugin ready."
+echo "postCreateCommand.sh done: node, bun/bunx, timezone, starship, helm, terraform, gh, 1Password CLI, kubectl, krew (kubectl-tree), k9s, docker cli, devcontainers cli, claude code cli, go, coder cli, MkDocs Material, helm tui plugin ready."
