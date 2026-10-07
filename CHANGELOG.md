@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- Docs: **Repositories and registries** tutorials, each verified end to end: public repositories
+  and GHCR; private repositories with each user's GitHub account (Coder external auth); private
+  repositories over SSH with a read-only deploy key and a pinned host key.
 - Chart values for the service's new settings: `build.cloneTimeoutSeconds`, `build.timeoutSeconds`,
   `build.maxConcurrent` and `git.allowInsecureProtocols` (they were only reachable through
   `extraEnv`).
