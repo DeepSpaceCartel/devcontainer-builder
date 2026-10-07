@@ -68,9 +68,9 @@ against a real (mocked, via Terraform's `mock_provider`) result without
 needing a live, reachable service at all. See that test file for the real
 contract test this enables.
 
-Both the module and the provider are meant to coexist — see
-[Module or provider?](TERRAFORM-PROVIDER.md#module-or-provider) for when to
-reach for which.
+The module is deprecated in favor of the provider — see
+[The module is deprecated](TERRAFORM-PROVIDER.md#the-module-is-deprecated)
+for how to move to it.
 
 ## The one real precondition
 
