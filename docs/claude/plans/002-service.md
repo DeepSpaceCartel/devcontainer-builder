@@ -5,6 +5,13 @@ created: 2026-09-05
 
 # Hybrid credentials, git protocol conversion, and registry auto-resolution
 
+## Status: historical
+
+Done. Kept as a record of the starting point; the current design lives in
+[Credential handling](../../concepts/credential-handling.md),
+[ADR-0002](../../decisions/0002-credentials-never-touch-argv-or-urls.md) and
+[ADR-0003](../../decisions/0003-registry-resolution-via-mapping-rules.md).
+
 ## Context
 
 The scaffold already implements the core pipeline (clone → configure remote

@@ -22,7 +22,7 @@ Feature: Image name, tag, and registry resolution
   a second, independent fixture round-trip. Scenarios with a fully literal
   expected tag (no sha involved) compare with `equals` instead. Both use
   the new `the value known as ... {condition} ...` comparison (see
-  docs/reference/REST.md) to compare the response's real resolved image
+  Thomas's own docs/reference/REST.md) to compare the response's real resolved image
   against an expected value composed from <RegistryUrl>/<AuthedRegistryUrl>
   (namespace-dependent, so not writable as a fixed literal).
 

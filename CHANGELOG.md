@@ -7,22 +7,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-### Fixed
-
-- **Template: VS Code in the browser and the forwarded-port apps on deployments without a wildcard
-  access URL.** They were always subdomain apps, which Coder can't serve without
-  `CODER_WILDCARD_ACCESS_URL`. The new template variable `subdomain_apps` (default `true`) serves
-  them on paths of the main Coder URL when set to `false`.
-- **Template: workspace parameters in a sensible order.** Git repository and Branch come first,
-  then CPU, Memory, Disk size, Dev Container variables and Rebuild, instead of alphabetical.
-
-### Deprecated
-
-- The Terraform module `terraform/devcontainer-build`. It's removed in 2.0. Use the
-  `deepspacecartel/devcontainer-builder` provider's `devcontainerbuilder_build` resource directly:
-  the module only wraps it, and the provider is the Terraform surface 1.x keeps stable. Plans that
-  use the module now show a deprecation warning.
-
 ### Added
 
 - The VS Code extension is also published to **Open VSX** as `deepspacecartel.devcontainer-builder`,
@@ -33,10 +17,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   token is sent with the build request, so devcontainer-builder needs no `gitCredentials` of its
   own. A refreshed token doesn't trigger a rebuild. **Coder: Clone Repository in Workspace…** opens
   the link page and waits for it, instead of failing on create.
+- Docs: [Security model](docs/concepts/security.md), [Troubleshooting](docs/guides/troubleshooting.md)
+  and [Uninstall](docs/guides/uninstall.md) pages, and the Terraform provider's
+  `devcontainerbuilder_devcontainer` data source and `commit` attribute in its reference.
 
 ### Changed
 
-- **Template: `hostRequirements` are minimums**, as in the Dev Container spec, instead of overriding
+- **Breaking:** **Template: `hostRequirements` are minimums**, as in the Dev Container spec, instead of overriding
   the CPU/Memory/Disk parameters:
   - `cpus` and `memory` are **reserved** (pod requests), so a workspace lands on a node that has them,
     or stays Pending with a scheduling reason instead of being OOM-killed later;
@@ -46,6 +33,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   New template variables `max_cpu` (default 8) and `max_memory` (GiB, default 32) cap the
   reservation, with a build-log warning above them. The workspace page shows **Resources (reserved /
   limit)**. Without `hostRequirements` nothing changes (requests 250m CPU / 512Mi).
+
+  See [ADR-0014](docs/decisions/0014-host-requirements-are-minimums.md).
+- Release workflow: a pre-release tag (`vX.Y.Z-rc.N`) publishes the npm package under the `next`
+  dist-tag, doesn't move the `latest` image tag, skips the VS Code Marketplace and Open VSX, and
+  creates a GitHub pre-release. A release only moves `latest` when it's the highest version.
+
+### Deprecated
+
+- The Terraform module `terraform/devcontainer-build`. It's removed in 2.0. Use the
+  `deepspacecartel/devcontainer-builder` provider's `devcontainerbuilder_build` resource directly:
+  the module only wraps it, and the provider is the Terraform surface 1.x keeps stable. Plans that
+  use the module now show a deprecation warning.
+
+### Fixed
+
+- **Template: VS Code in the browser and the forwarded-port apps on deployments without a wildcard
+  access URL.** They were always subdomain apps, which Coder can't serve without
+  `CODER_WILDCARD_ACCESS_URL`. The new template variable `subdomain_apps` (default `true`) serves
+  them on paths of the main Coder URL when set to `false`.
+- **Template: workspace parameters in a sensible order.** Git repository and Branch come first,
+  then CPU, Memory, Disk size, Dev Container variables and Rebuild, instead of alphabetical.
 
 ## [0.5.0] - 2026-10-07
 
@@ -386,12 +394,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   script running after navigation at all.
 
 [Unreleased]: https://github.com/DeepSpaceCartel/devcontainer-builder/compare/v0.5.0...HEAD
-[0.5.0]: https://github.com/DeepSpaceCartel/devcontainer-builder/releases/tag/v0.5.0
-[0.4.0]: https://github.com/DeepSpaceCartel/devcontainer-builder/releases/tag/v0.4.0
-[0.3.0]: https://github.com/DeepSpaceCartel/devcontainer-builder/releases/tag/v0.3.0
-[0.2.0]: https://github.com/DeepSpaceCartel/devcontainer-builder/releases/tag/v0.2.0
-[0.1.5]: https://github.com/DeepSpaceCartel/devcontainer-builder/releases/tag/v0.1.5
-[0.1.4]: https://github.com/DeepSpaceCartel/devcontainer-builder/releases/tag/v0.1.4
-[0.1.3]: https://github.com/DeepSpaceCartel/devcontainer-builder/releases/tag/v0.1.3
-[0.1.2]: https://github.com/DeepSpaceCartel/devcontainer-builder/releases/tag/v0.1.2
+[0.5.0]: https://github.com/DeepSpaceCartel/devcontainer-builder/compare/v0.4.0...v0.5.0
+[0.4.0]: https://github.com/DeepSpaceCartel/devcontainer-builder/compare/v0.3.0...v0.4.0
+[0.3.0]: https://github.com/DeepSpaceCartel/devcontainer-builder/compare/v0.2.0...v0.3.0
+[0.2.0]: https://github.com/DeepSpaceCartel/devcontainer-builder/compare/v0.1.5...v0.2.0
+[0.1.5]: https://github.com/DeepSpaceCartel/devcontainer-builder/compare/v0.1.4...v0.1.5
+[0.1.4]: https://github.com/DeepSpaceCartel/devcontainer-builder/compare/v0.1.3...v0.1.4
+[0.1.3]: https://github.com/DeepSpaceCartel/devcontainer-builder/compare/v0.1.2...v0.1.3
+[0.1.2]: https://github.com/DeepSpaceCartel/devcontainer-builder/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/DeepSpaceCartel/devcontainer-builder/releases/tag/v0.1.1

@@ -4,7 +4,7 @@ dist/
 site/
 .venv-docs/
 # Generated before mkdocs build - regenerated, not source (see
-# docs/reference/API.md#bundled-api-docs and docs/project/installing.md).
+# docs/project/installing.md#this-documentation-site and .github/workflows/docs.yaml).
 docs/openapi.json
 docs/api-reference.html
 docs/api-swagger-ui/
