@@ -167,9 +167,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
     its paths are passed to git as literal paths, not globs or pathspec magic.
   - A git command that times out is killed with the processes it started; background fetches stop
     waiting on `GIT_ASKPASS` once it has hung, until a **Check for Rebuild** succeeds.
-
-### Security
-
 - **VS Code extension: the stored Coder session token is kept per deployment** and only ever sent
   to the deployment it was issued by. It was one token, sent to whatever `devcontainerBuilder.coderUrl`
   said, and a repository's `.vscode/settings.json` could set that. The existing token is moved to
