@@ -18,6 +18,9 @@ jobs:
           node-version: "20"
       - run: npm install
       - run: npm run build
+      # Fast, cluster-free tests of the pure logic - the BDD suite
+      # (npm test) needs a real cluster and runs separately.
+      - run: npm run test:unit
 
   chart:
     runs-on: ubuntu-latest

@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { mkdtemp, rm, writeFile, chmod, cp, readFile } from "node:fs/promises";
+import { mkdtemp, mkdir, rm, writeFile, chmod, cp, readFile } from "node:fs/promises";
 import { tmpdir, homedir } from "node:os";
 import { join } from "node:path";
 import { trace, SpanStatusCode } from "@opentelemetry/api";
@@ -7,6 +7,18 @@ import type { BuildRequest, BuildResponse, RegistryCredentials } from "./types.j
 import { serviceConfig, type GitCredentialEntry, type RegistryMappingRule, type SshHostKeyPolicy } from "./config.js";
 import { logger } from "./logger.js";
 import { openCommandLog, closeCommandLog, type CommandLogKind } from "./command-log.js";
+import { CONFIG_LABEL, configLabelValue } from "./devcontainer-metadata.js";
+
+async function readFirstExisting(paths: string[]): Promise<string | undefined> {
+  for (const path of paths) {
+    try {
+      return await readFile(path, "utf8");
+    } catch {
+      // try the next location
+    }
+  }
+  return undefined;
+}
 
 // git clone and `devcontainer build --push` are both plain child_process
 // subprocesses (see `run`/`runCapture` below) - OTel's auto-instrumentation
@@ -385,6 +397,20 @@ export async function buildDevcontainer(req: BuildRequest): Promise<BuildRespons
     const cacheTo = req.buildOptions?.cacheTo ?? serviceConfig.defaultBuildOptions.cacheTo;
     const mode = req.buildOptions?.mode ?? serviceConfig.defaultBuildOptions.mode;
 
+    // devcontainer.json properties the CLI's own devcontainer.metadata label
+    // leaves out (workspaceFolder, runArgs, initializeCommand), recorded in
+    // the image too - see CONFIG_LABEL / ADR-0012. Same discovery order as
+    // the CLI; an unparseable file gets no label (the CLI reports the real
+    // error itself). Added by a second, layer-less build on top of the
+    // pushed image rather than `devcontainer build --label`: the CLI only
+    // forwards --label on its image+Features path, never for a
+    // build.dockerfile config (checked in 0.89.0).
+    const configText = await readFirstExisting([
+      join(repoDir, ".devcontainer", "devcontainer.json"),
+      join(repoDir, ".devcontainer.json"),
+    ]);
+    const configLabel = configText !== undefined ? configLabelValue(configText) : undefined;
+
     const runBuild = async (env: NodeJS.ProcessEnv, logStream: NodeJS.WritableStream) => {
       await ensureRemoteBuilder(env, logStream);
       const args = ["build", "--workspace-folder", repoDir, "--image-name", image, "--push"];
@@ -394,6 +420,16 @@ export async function buildDevcontainer(req: BuildRequest): Promise<BuildRespons
       if (cacheTo) args.push("--cache-to", cacheTo);
       if (mode) args.push("--buildkit", mode);
       await run("devcontainer", args, env, logStream);
+
+      if (configLabel !== undefined) {
+        const labelDir = join(workDir, "config-label");
+        await mkdir(labelDir, { recursive: true });
+        await writeFile(join(labelDir, "Dockerfile"), `FROM ${image}\n`);
+        const labelArgs = ["buildx", "build", "--push", "--label", `${CONFIG_LABEL}=${configLabel}`, "-t", image];
+        if (platforms.length > 0) labelArgs.push("--platform", platforms.join(","));
+        labelArgs.push(labelDir);
+        await run("docker", labelArgs, env, logStream);
+      }
     };
 
     const { logId: imageBuildLogId } = await withSpan(
@@ -407,7 +443,7 @@ export async function buildDevcontainer(req: BuildRequest): Promise<BuildRespons
         ),
     );
 
-    return { image, registry, name, tag, gitCloneLogId, imageBuildLogId };
+    return { image, registry, name, tag, commit: headSha.trim(), gitCloneLogId, imageBuildLogId };
   } finally {
     await rm(workDir, { recursive: true, force: true });
   }

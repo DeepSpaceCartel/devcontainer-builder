@@ -9,7 +9,49 @@
 // additions on top, for callers (a Coder template) that can't easily merge
 // editor customizations or run the CLI's command semantics themselves.
 
+import { parse as parseJsonc, type ParseError } from "jsonc-parser";
+import { buildRuntime, parseRunArgs, renderEnvScript, type Runtime } from "./devcontainer-runtime.js";
+import { detectVariables, hasReferences, rewriteForShellString, shellWord, type DetectedVariable } from "./devcontainer-variables.js";
+
 export const METADATA_LABEL = "devcontainer.metadata";
+
+// Written by POST /build (service >= 0.3.0) next to the CLI's own label:
+// devcontainer.json properties the CLI never copies into the image because
+// it re-reads them from the repo when *creating* a container - which a
+// workspace planned from the image alone can't do. See ADR-0012.
+export const CONFIG_LABEL = "com.deepspacecartel.devcontainer-builder.config";
+const CONFIG_LABEL_PROPERTIES = ["workspaceFolder", "runArgs", "initializeCommand"] as const;
+
+// The config label's value for a repo's devcontainer.json text (JSONC):
+// just the properties above, raw - variables are rewritten on read, like
+// everything else. undefined if the file doesn't parse as an object.
+export function configLabelValue(devcontainerJson: string): string | undefined {
+  const errors: ParseError[] = [];
+  const parsed = parseJsonc(devcontainerJson, errors, { allowTrailingComma: true });
+  if (errors.length || typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) return undefined;
+  const picked: Record<string, unknown> = {};
+  for (const key of CONFIG_LABEL_PROPERTIES) {
+    if (parsed[key] !== undefined) picked[key] = parsed[key];
+  }
+  return JSON.stringify(picked);
+}
+
+function parseConfigLabel(raw: string | undefined, warnings: string[]): Record<string, unknown> | undefined {
+  if (raw === undefined) {
+    warnings.push(
+      `no ${CONFIG_LABEL} label (image built before devcontainer-builder 0.3.0) - workspaceFolder, runArgs and initializeCommand are unknown; rebuild the image to include them`,
+    );
+    return undefined;
+  }
+  try {
+    const parsed = JSON.parse(raw);
+    if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)) return parsed;
+  } catch {
+    // fall through
+  }
+  warnings.push(`${CONFIG_LABEL} label is not a JSON object - ignored`);
+  return undefined;
+}
 
 export const LIFECYCLE_HOOKS = [
   "onCreateCommand",
@@ -250,23 +292,16 @@ function isArgv(value: unknown): value is string[] {
 }
 
 // One runnable shell line for a single string/array command, or undefined
-// for an empty one (the CLI skips those too).
+// for an empty one (the CLI skips those too). devcontainer.json variables
+// become shell variable references, expanded when the script runs: inside
+// the `sh -c` string for the string form, as double-quoted words (literal
+// text escaped) for the argv form - which otherwise never sees a shell.
 function commandLine(command: unknown): string | undefined {
-  if (typeof command === "string") return command.trim() ? `/bin/sh -c ${shQuote(command)}` : undefined;
-  if (isArgv(command)) return command.length ? command.map(shQuote).join(" ") : undefined;
+  if (typeof command === "string") return command.trim() ? `/bin/sh -c ${shQuote(rewriteForShellString(command))}` : undefined;
+  if (isArgv(command)) {
+    return command.length ? command.map((arg) => (hasReferences(arg) ? shellWord(arg) : shQuote(arg))).join(" ") : undefined;
+  }
   return undefined;
-}
-
-// Matches the devcontainer.json variables the CLI would substitute; this
-// service runs nothing and has no workspace, so they're left as-is.
-const VARIABLE_PATTERN =
-  /\$\{(?:(?:localEnv|containerEnv):[^}]*|localWorkspaceFolder|containerWorkspaceFolder|localWorkspaceFolderBasename|containerWorkspaceFolderBasename|devcontainerId)\}/;
-
-function commandStrings(command: unknown): string[] {
-  if (typeof command === "string") return [command];
-  if (isArgv(command)) return command;
-  if (isPlainObject(command)) return Object.values(command).flatMap(commandStrings);
-  return [];
 }
 
 // Renders every entry's command for one hook into a single POSIX sh
@@ -290,10 +325,6 @@ export function renderLifecycleScript(hook: LifecycleHook, entries: Entry[]): { 
     // `dc_rc` must already hold the failing exit code - capture it before
     // anything else (even the echo) overwrites `$?`.
     const fail = `echo ${shQuote(`devcontainer: ${label} failed with exit code `)}"$dc_rc" >&2; exit "$dc_rc"`;
-
-    if (commandStrings(command).some((c) => VARIABLE_PATTERN.test(c))) {
-      warnings.push(`${label} uses a devcontainer.json variable (e.g. \${containerWorkspaceFolder}), which is not substituted`);
-    }
 
     const single = commandLine(command);
     if (single) {
@@ -325,28 +356,86 @@ export function renderLifecycleScript(hook: LifecycleHook, entries: Entry[]): { 
   return { script: `#!/bin/sh\n${blocks.join("\n")}\n`, warnings };
 }
 
+export type ScriptHook = LifecycleHook | "initializeCommand";
+
 export interface DevcontainerMetadata {
   configuration: Record<string, unknown>;
-  lifecycleScripts: Record<LifecycleHook, string | null>;
+  lifecycleScripts: Record<ScriptHook, string | null>;
+  envScripts: { containerEnv: string | null; remoteEnv: string | null };
+  runtime: Runtime;
+  variables: DetectedVariable[];
   vscode: { extensions: string[]; settings: Record<string, unknown> };
   warnings: string[];
   metadata: Entry[];
 }
 
-export function buildDevcontainerMetadata(label: string): DevcontainerMetadata {
+// The default the Dev Containers CLI uses when devcontainer.json sets none.
+const DEFAULT_WORKSPACE_FOLDER = "/workspaces/${localWorkspaceFolderBasename}";
+
+export function buildDevcontainerMetadata(
+  label: string,
+  options: { configLabel?: string; imageUser?: string } = {},
+): DevcontainerMetadata {
   const { entries, raw } = parseMetadataLabel(label);
   const warnings: string[] = [];
-  const lifecycleScripts = {} as Record<LifecycleHook, string | null>;
+  const config = parseConfigLabel(options.configLabel, warnings) ?? {};
+
+  const lifecycleScripts = {} as Record<ScriptHook, string | null>;
+  // initializeCommand only ever comes from devcontainer.json itself (it
+  // runs on the host in Dev Containers); here it's the first hook to run.
+  const initialize = renderLifecycleScript("initializeCommand" as LifecycleHook, [{ initializeCommand: config.initializeCommand }]);
+  lifecycleScripts.initializeCommand = initialize.script;
+  warnings.push(...initialize.warnings);
   for (const hook of LIFECYCLE_HOOKS) {
     const rendered = renderLifecycleScript(hook, entries);
     lifecycleScripts[hook] = rendered.script;
     warnings.push(...rendered.warnings);
   }
+
+  const configuration: Record<string, unknown> = {
+    ...mergeConfiguration(entries),
+    workspaceFolder: typeof config.workspaceFolder === "string" ? config.workspaceFolder : DEFAULT_WORKSPACE_FOLDER,
+    ...(config.runArgs !== undefined ? { runArgs: config.runArgs } : {}),
+    ...(config.initializeCommand !== undefined ? { initializeCommand: config.initializeCommand } : {}),
+  };
+
+  const runArgs = parseRunArgs(config.runArgs, warnings);
+  const runtime = buildRuntime(configuration, runArgs, options.imageUser, warnings);
+
+  const containerEnv: [string, unknown][] = [
+    ...runArgs.env,
+    ...Object.entries((configuration.containerEnv as Record<string, unknown> | undefined) ?? {}),
+  ];
+  const remoteEnv = Object.entries((configuration.remoteEnv as Record<string, unknown> | undefined) ?? {});
+
   return {
-    configuration: mergeConfiguration(entries),
+    configuration,
     lifecycleScripts,
+    envScripts: {
+      containerEnv: renderEnvScript(containerEnv, warnings, "containerEnv"),
+      remoteEnv: renderEnvScript(remoteEnv, warnings, "remoteEnv"),
+    },
+    runtime,
+    variables: detectVariables([
+      ...raw.map((entry, i) => ({ path: `metadata[${i}]`, value: entry })),
+      { path: "config", value: config },
+    ]).map((v) => ({ ...v, usedIn: v.usedIn.map(friendlyPath(raw)) })),
     vscode: mergeVscode(entries),
     warnings,
     metadata: raw,
+  };
+}
+
+// `metadata[3].remoteEnv.TOKEN` -> `remoteEnv.TOKEN (devcontainer.json)` /
+// `(ghcr.io/devcontainers/features/node:1)` - where a person would look.
+function friendlyPath(raw: Entry[]): (path: string) => string {
+  return (path) => {
+    const config = /^config\.(.*)$/.exec(path);
+    if (config) return `${config[1]} (devcontainer.json)`;
+    const match = /^metadata\[(\d+)\]\.(.*)$/.exec(path);
+    if (!match) return path;
+    const entry = raw[parseInt(match[1], 10)];
+    const origin = typeof entry?.id === "string" ? entry.id : "devcontainer.json";
+    return `${match[2]} (${origin})`;
   };
 }
