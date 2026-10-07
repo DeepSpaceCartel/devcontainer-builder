@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- `templates/coder-kubernetes` now follows the repo's `devcontainer.json`
+  beyond the image, via the provider's new `devcontainerbuilder_devcontainer`
+  data source (provider and service `>= 0.2.0`): the image's `remoteUser`
+  decides whose home is persisted (the interim **Remote user** parameter is
+  gone); `onCreateCommand`/`updateContentCommand`/`postCreateCommand`/
+  `postStartCommand` run from a login-blocking script on **every** start
+  (so they must be idempotent), `postAttachCommand` from a non-blocking one;
+  and `customizations.vscode` extensions/settings are installed into
+  `~/.vscode-server` from the Microsoft Marketplace for VS Code Desktop,
+  which gets a button opening the cloned repo.
+
 ## [0.2.0] - 2026-10-07
 
 ### Added

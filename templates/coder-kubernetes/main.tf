@@ -15,6 +15,15 @@
 # /workspaces - so both survive a pod restart. A `seed-home` init container
 # copies the image's own home into the PVC on first start, so the mount
 # doesn't hide the image's dotfiles (.bashrc, nvm, oh-my-zsh, ...).
+#
+# Dev Container behavior: a `devcontainerbuilder_devcontainer` data source
+# reads the built image's merged devcontainer.json (base image + Features +
+# the repo's own config). Its `remoteUser` decides whose home is persisted;
+# its lifecycle commands (onCreate/updateContent/postCreate/postStart) run
+# from a login-blocking script on every start - a pod's root filesystem is
+# fresh each time, so they must be idempotent; and its
+# customizations.vscode extensions/settings are installed into
+# ~/.vscode-server, where VS Code Desktop picks them up.
 terraform {
   required_providers {
     coder = {
@@ -25,6 +34,9 @@ terraform {
     }
     devcontainerbuilder = {
       source = "deepspacecartel/devcontainer-builder"
+      # >= 0.2.0 for the devcontainerbuilder_devcontainer data source (and
+      # devcontainer-builder service >= 0.2.0 behind it).
+      version = ">= 0.2.0"
     }
   }
 }
@@ -153,19 +165,6 @@ data "coder_parameter" "memory" {
   }
 }
 
-# Interim: the remote user (and so the home path the PVC is mounted at) has
-# to be known at plan time, but the template doesn't read devcontainer.json
-# yet. Until it does, this must match the image's `remoteUser` - the
-# seed-home init container fails the pod with a clear message if it doesn't.
-data "coder_parameter" "remote_user" {
-  name         = "remote_user"
-  display_name = "Remote user"
-  description  = "The image's non-root user, i.e. devcontainer.json's `remoteUser` (must have uid 1000). Its home directory is persisted."
-  default      = "node"
-  icon         = "/icon/terminal.svg"
-  mutable      = false
-}
-
 data "coder_parameter" "disk_size" {
   name         = "disk_size"
   display_name = "Disk size"
@@ -193,14 +192,25 @@ data "coder_workspace" "me" {}
 data "coder_workspace_owner" "me" {}
 
 locals {
-  remote_user = data.coder_parameter.remote_user.value # F0: local.dc.remoteUser
+  # Only read while the workspace is starting (count = start_count below),
+  # so stopping a workspace never depends on devcontainer-builder being up.
+  dc = one(data.devcontainerbuilder_devcontainer.workspace[*])
+
+  # The image's remoteUser (falling back to containerUser): whose home is
+  # persisted. Pods still run as uid 1000 - seed-home fails with a clear
+  # message if this user isn't uid 1000 in the image.
+  remote_user = try(coalesce(local.dc.remote_user, local.dc.container_user), "root")
   home_dir    = local.remote_user == "root" ? "/root" : "/home/${local.remote_user}"
+
+  lifecycle_scripts = try(local.dc.lifecycle_scripts, {})
+  vscode_extensions = try(local.dc.extensions, [])
+  vscode_settings   = try(local.dc.settings_json, "{}")
 
   # Dev Containers' "Clone Repository in Container Volume" convention:
   # /workspaces/<repo name>, on the PVC. Passed to git-clone as folder_name
   # explicitly so this is known even when the module has count = 0.
   repo_name        = trimsuffix(basename(trimsuffix(data.coder_parameter.repository.value, "/")), ".git")
-  workspace_folder = "/workspaces/${local.repo_name}" # F0: local.dc.workspaceFolder
+  workspace_folder = "/workspaces/${local.repo_name}" # never in the image's metadata label
 }
 
 # --- The actual build ----------------------------------------------------
@@ -226,11 +236,28 @@ resource "devcontainerbuilder_build" "workspace" {
   } : null
 }
 
+# The built image's Dev Container metadata - GET /devcontainer on
+# devcontainer-builder, read straight from the registry.
+data "devcontainerbuilder_devcontainer" "workspace" {
+  count    = data.coder_workspace.me.start_count
+  registry = devcontainerbuilder_build.workspace.resolved_registry
+  name     = devcontainerbuilder_build.workspace.resolved_name
+  tag      = devcontainerbuilder_build.workspace.resolved_tag
+}
+
 resource "coder_agent" "main" {
   os   = "linux"
   arch = "amd64"
   # No `dir`: it's deprecated, and anything but $HOME breaks Coder Desktop
-  # file sync - so terminals/SSH start in $HOME. code-server opens the repo.
+  # file sync - so terminals/SSH start in $HOME. code-server and
+  # vscode_desktop open the repo.
+
+  # The built-in VS Code Desktop button takes its folder from `dir`, so
+  # without it VS Code opens in $HOME with no folder - module.vscode_desktop
+  # replaces it. Unset display_apps fields keep their defaults.
+  display_apps {
+    vscode = false
+  }
 
   metadata {
     display_name = "CPU Usage"
@@ -310,6 +337,154 @@ module "code_server" {
   agent_id       = coder_agent.main.id
   folder         = local.workspace_folder
   install_prefix = "$HOME/.cache/code-server"
+}
+
+# VS Code Desktop, opened on the cloned repo (in place of the agent's
+# built-in button - see coder_agent.main's display_apps).
+module "vscode_desktop" {
+  count    = data.coder_workspace.me.start_count
+  source   = "registry.coder.com/coder/vscode-desktop/coder"
+  version  = "1.3.0"
+  agent_id = coder_agent.main.id
+  folder   = local.workspace_folder
+}
+
+# devcontainer.json's lifecycle commands, from the image's merged metadata:
+# each hook is one script devcontainer-builder already rendered with the
+# Dev Containers CLI's semantics (base image, then Features, then
+# devcontainer.json; string/array/object forms; stop at the first failure).
+# Runs them in the spec's order from the repo folder, after git_clone has
+# cloned it, before login. In Dev Containers the first three run once per
+# container; here every start is a fresh root filesystem, so all four run
+# on every start and must be idempotent. Output is in the agent's startup
+# logs.
+resource "coder_script" "devcontainer_lifecycle" {
+  count              = data.coder_workspace.me.start_count
+  agent_id           = coder_agent.main.id
+  display_name       = "Dev Container lifecycle"
+  icon               = "/icon/docker.svg"
+  run_on_start       = true
+  start_blocks_login = true
+  script             = <<-EOT
+    #!/bin/sh
+    set -u
+    workspace_folder='${local.workspace_folder}'
+    dir="$HOME/.cache/devcontainer-lifecycle"
+    mkdir -p "$dir"
+
+    # git_clone runs alongside this script; the hooks need the working copy.
+    i=0
+    until [ -d "$workspace_folder/.git" ]; do
+      i=$((i + 1))
+      if [ "$i" -gt 300 ]; then
+        echo "devcontainer: $workspace_folder was not cloned within 10 minutes, skipping lifecycle commands" >&2
+        exit 1
+      fi
+      sleep 2
+    done
+
+    run_hook() {
+      [ -n "$2" ] || return 0
+      echo "$2" | base64 -d > "$dir/$1.sh" || return 1
+      (cd "$workspace_folder" && sh "$dir/$1.sh")
+    }
+
+    run_hook onCreateCommand '${base64encode(lookup(local.lifecycle_scripts, "onCreateCommand", ""))}' || exit $?
+    run_hook updateContentCommand '${base64encode(lookup(local.lifecycle_scripts, "updateContentCommand", ""))}' || exit $?
+    run_hook postCreateCommand '${base64encode(lookup(local.lifecycle_scripts, "postCreateCommand", ""))}' || exit $?
+    run_hook postStartCommand '${base64encode(lookup(local.lifecycle_scripts, "postStartCommand", ""))}' || exit $?
+  EOT
+}
+
+# postAttachCommand runs each time a tool attaches in Dev Containers. There
+# is no attach event here, so it runs once per start - without blocking
+# login, after the clone.
+resource "coder_script" "devcontainer_post_attach" {
+  count              = lookup(local.lifecycle_scripts, "postAttachCommand", "") != "" ? data.coder_workspace.me.start_count : 0
+  agent_id           = coder_agent.main.id
+  display_name       = "Dev Container postAttachCommand"
+  icon               = "/icon/docker.svg"
+  run_on_start       = true
+  start_blocks_login = false
+  script             = <<-EOT
+    #!/bin/sh
+    set -u
+    workspace_folder='${local.workspace_folder}'
+    until [ -d "$workspace_folder/.git" ]; do sleep 2; done
+    script="$HOME/.cache/devcontainer-lifecycle/postAttachCommand.sh"
+    mkdir -p "$(dirname "$script")"
+    echo '${base64encode(lookup(local.lifecycle_scripts, "postAttachCommand", ""))}' | base64 -d > "$script"
+    cd "$workspace_folder" && sh "$script"
+  EOT
+}
+
+# customizations.vscode from the image's merged metadata, for VS Code
+# Desktop: extensions are installed - from the Microsoft Marketplace - into
+# ~/.vscode-server/extensions and settings merged into its Machine
+# settings, the same folder Desktop's own remote server uses (home is
+# persisted). The installer is Desktop's own server if it has connected
+# before, else Microsoft's latest VS Code Server, downloaded once into
+# ~/.cache - the same server Desktop downloads on first connect, used here
+# only as an installer, never served. Doesn't block login: a Desktop
+# window that attaches mid-install sees the rest after a reload.
+resource "coder_script" "devcontainer_vscode" {
+  count              = length(local.vscode_extensions) > 0 || local.vscode_settings != "{}" ? data.coder_workspace.me.start_count : 0
+  agent_id           = coder_agent.main.id
+  display_name       = "Dev Container VS Code extensions"
+  icon               = "/icon/code.svg"
+  run_on_start       = true
+  start_blocks_login = false
+  script             = <<-EOT
+    #!/bin/sh
+    set -u
+    extensions='${join(" ", local.vscode_extensions)}'
+    settings_b64='${base64encode(local.vscode_settings)}'
+    data_dir="$HOME/.vscode-server"
+
+    server=$(ls -td "$data_dir"/cli/servers/Stable-*/server 2>/dev/null | head -n 1)
+    if [ -z "$server" ] || [ ! -x "$server/bin/code-server" ]; then
+      server="$HOME/.cache/vscode-server-installer"
+      if [ ! -x "$server/bin/code-server" ]; then
+        case "$(uname -m)" in
+          x86_64) arch=x64 ;;
+          aarch64 | arm64) arch=arm64 ;;
+          *) echo "devcontainer: no VS Code Server for $(uname -m), skipping extensions" >&2; exit 0 ;;
+        esac
+        url="https://update.code.visualstudio.com/latest/server-linux-$arch/stable"
+        rm -rf "$server" && mkdir -p "$server"
+        if command -v curl >/dev/null 2>&1; then fetch="curl -fsSL"; else fetch="wget -qO-"; fi
+        if ! $fetch "$url" | tar -xz -C "$server" --strip-components 1; then
+          echo "devcontainer: could not download VS Code Server, skipping extensions" >&2
+          rm -rf "$server"
+          exit 0
+        fi
+      fi
+    fi
+
+    for extension in $extensions; do
+      out=$("$server/bin/code-server" --extensions-dir "$data_dir/extensions" --install-extension "$extension" 2>&1)
+      case "$out" in
+        *"Failed Installing"* | *"not found"*) echo "devcontainer: could not install $extension: $out" >&2 ;;
+        *) echo "devcontainer: $extension ready" ;;
+      esac
+    done
+
+    if [ "$settings_b64" != "${base64encode("{}")}" ]; then
+      mkdir -p "$data_dir/data/Machine"
+      echo "$settings_b64" | base64 -d > "$HOME/.cache/devcontainer-vscode-settings.json"
+      "$server/node" -e '
+        const fs = require("fs");
+        const [target, incoming] = process.argv.slice(1);
+        let current = {};
+        if (fs.existsSync(target)) {
+          try { current = JSON.parse(fs.readFileSync(target, "utf8")); }
+          catch (e) { console.error("devcontainer: " + target + " is not plain JSON, leaving it unchanged"); process.exit(0); }
+        }
+        fs.writeFileSync(target, JSON.stringify(Object.assign(current, JSON.parse(fs.readFileSync(incoming, "utf8"))), null, 2) + require("os").EOL);
+        console.log("devcontainer: merged VS Code settings into " + target);
+      ' "$data_dir/data/Machine/settings.json" "$HOME/.cache/devcontainer-vscode-settings.json"
+    fi
+  EOT
 }
 
 # Commits made in the workspace are attributed to its owner.
@@ -450,17 +625,17 @@ resource "kubernetes_deployment_v1" "main" {
             set -eu
             entry=$(getent passwd "$REMOTE_USER" || true)
             if [ -z "$entry" ]; then
-              echo "seed-home: user '$REMOTE_USER' (the remote_user parameter) does not exist in this image" >&2
+              echo "seed-home: user '$REMOTE_USER' (the image's remoteUser) does not exist in this image" >&2
               exit 1
             fi
             uid=$(echo "$entry" | cut -d: -f3)
             home=$(echo "$entry" | cut -d: -f6)
             if [ "$home" != "$HOME_DIR" ]; then
-              echo "seed-home: '$REMOTE_USER' has home $home in this image, but the template mounts $HOME_DIR - check the remote_user parameter" >&2
+              echo "seed-home: '$REMOTE_USER' has home $home in this image, but the template mounts $HOME_DIR" >&2
               exit 1
             fi
             if [ "$uid" != "1000" ]; then
-              echo "seed-home: '$REMOTE_USER' has uid $uid in this image, but workspace pods run as uid 1000 - check the remote_user parameter" >&2
+              echo "seed-home: '$REMOTE_USER' (the image's remoteUser) has uid $uid in this image, but workspace pods run as uid 1000" >&2
               exit 1
             fi
             mkdir -p /mnt/data/home /mnt/data/workspaces
