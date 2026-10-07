@@ -5,7 +5,20 @@ created: 2026-10-06
 
 # List support: `/build` returns a list of images → one Coder agent per image
 
-## Status (2026-10-06): planned
+## Status (2026-10-07): abandoned
+
+Dropped before 1.0 by the maintainer. The service side (#60, ADR-0016) was
+merged and then reverted, so `images[]`, `instances` and `dryRun` never ship
+in a release and aren't part of the 1.x API. The template refactor (#65) and
+the provider's `images`/`instances` (provider #11) were closed unmerged.
+
+The blocker that settled it: Coder names an agent after its Terraform
+resource name (`ConvertState` in `provisioner/terraform/resources.go` fails
+with `duplicate agent name`), so a `for_each` over `coder_agent` can't give
+one agent per image.
+
+A repository whose only configs are in `.devcontainer/<folder>/` behaves as
+in 0.5.0: it falls back to `fallbackImage`, or fails.
 
 ## Context
 
