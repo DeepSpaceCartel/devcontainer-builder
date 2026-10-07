@@ -109,6 +109,18 @@ variable "external_auth_id" {
   default     = ""
 }
 
+variable "max_cpu" {
+  type        = number
+  description = "Most CPU cores a repository's hostRequirements.cpus can reserve (requests) - above it, the workspace gets this many and a warning."
+  default     = 8
+}
+
+variable "max_memory" {
+  type        = number
+  description = "Most memory, in GiB, a repository's hostRequirements.memory can reserve (requests) - above it, the workspace gets this much and a warning."
+  default     = 32
+}
+
 variable "git_credentials_username" {
   type        = string
   description = "Optional HTTPS git username, used for every workspace built from this template. Leave empty for public repositories only - devcontainer-builder's own server-side gitCredentials (configured once on the service itself) is the better place for per-host credentials that should apply regardless of which template/caller is asking."
@@ -309,12 +321,38 @@ locals {
 
   ports = try(local.dc.forward_ports, [])
 
-  # hostRequirements override the CPU/Memory/Disk parameters when the
-  # image sets them (parameters can't take defaults from the image).
-  cpu_limit    = try(local.host_requirements.cpus, null) != null ? tostring(local.host_requirements.cpus) : data.coder_parameter.cpu.value
-  memory_limit = try(local.host_requirements.memory_bytes, null) != null ? tostring(local.host_requirements.memory_bytes) : "${data.coder_parameter.memory.value}Gi"
-  disk_size    = try(local.host_requirements.storage_bytes, null) != null ? tostring(local.host_requirements.storage_bytes) : "${data.coder_parameter.disk_size.value}Gi"
-  gpu_json     = try(local.host_requirements.gpu_json, null)
+  # hostRequirements are minimums, as in the spec: the scheduler reserves
+  # them (requests, capped by var.max_cpu/max_memory), and the limits are
+  # the larger of them and the CPU/Memory parameters. Storage is the larger
+  # of it and the Disk parameter, so the PVC never shrinks. Where the
+  # parameter wins, values stay "<n>Gi" as before (no spurious diffs).
+  gib            = 1073741824
+  param_cpu      = tonumber(data.coder_parameter.cpu.value)
+  param_memory   = tonumber(data.coder_parameter.memory.value) * local.gib
+  param_disk     = tonumber(data.coder_parameter.disk_size.value) * local.gib
+  required_cpu   = try(local.host_requirements.cpus, null)
+  required_mem   = try(local.host_requirements.memory_bytes, null)
+  required_disk  = try(local.host_requirements.storage_bytes, null)
+  reserved_cpu   = local.required_cpu != null ? min(local.required_cpu, var.max_cpu) : null
+  reserved_mem   = local.required_mem != null ? floor(min(local.required_mem, var.max_memory * local.gib)) : null
+  cpu_request    = local.reserved_cpu != null ? tostring(local.reserved_cpu) : "250m"
+  memory_request = local.reserved_mem != null ? tostring(local.reserved_mem) : "512Mi"
+  cpu_limit      = local.reserved_cpu != null && try(local.reserved_cpu > local.param_cpu, false) ? tostring(local.reserved_cpu) : data.coder_parameter.cpu.value
+  memory_limit   = local.reserved_mem != null && try(local.reserved_mem > local.param_memory, false) ? tostring(local.reserved_mem) : "${data.coder_parameter.memory.value}Gi"
+  disk_size      = local.required_disk != null && try(local.required_disk > local.param_disk, false) ? tostring(floor(local.required_disk)) : "${data.coder_parameter.disk_size.value}Gi"
+  resource_warnings = concat(
+    local.required_cpu != null && try(local.required_cpu > var.max_cpu, false) ? ["hostRequirements.cpus ${local.required_cpu} is more than this template allows (max_cpu ${var.max_cpu}) - reserving ${var.max_cpu}"] : [],
+    local.required_mem != null && try(local.required_mem > var.max_memory * local.gib, false) ? ["hostRequirements.memory ${format("%.1f", local.required_mem / local.gib)} GiB is more than this template allows (max_memory ${var.max_memory} GiB) - reserving ${var.max_memory} GiB"] : [],
+  )
+  # What the workspace got, for the agent metadata: reserved/limit, and
+  # whether devcontainer.json's hostRequirements set the reservation.
+  resources_summary = join(" · ", [
+    "CPU ${local.cpu_request} / ${local.cpu_limit}",
+    "memory ${local.memory_request} / ${local.memory_limit}",
+    "disk ${local.disk_size}",
+    local.required_cpu != null || local.required_mem != null || local.required_disk != null ? "from hostRequirements" : "from the parameters",
+  ])
+  gpu_json = try(local.host_requirements.gpu_json, null)
   # gpu: true or {cores, memory} -> one GPU; "optional" or unset -> none.
   gpu_limit = local.gpu_json != null && local.gpu_json != "\"optional\"" && local.gpu_json != "false" ? { "nvidia.com/gpu" = "1" } : {}
 
@@ -325,7 +363,7 @@ locals {
   requested_capabilities = try(local.runtime.cap_add, [])
   capabilities           = var.allow_privileged ? local.requested_capabilities : [for c in local.requested_capabilities : c if contains(local.baseline_capabilities, c)]
   skipped_capabilities   = var.allow_privileged ? [] : [for c in local.requested_capabilities : c if !contains(local.baseline_capabilities, c)]
-  all_warnings = concat(local.warnings, length(local.skipped_capabilities) > 0 ? [
+  all_warnings = concat(local.warnings, local.resource_warnings, length(local.skipped_capabilities) > 0 ? [
     "capAdd ${join(", ", local.skipped_capabilities)} not added - Pod Security baseline forbids it (template variable allow_privileged enables it)"
     ] : [], local.dc != null && local.recorded_uid == null ? [
     "the image doesn't record its remote user's uid/gid (built by devcontainer-builder older than 0.3.0) - running as uid/gid 1000; bump the Rebuild parameter to rebuild it"
@@ -440,6 +478,14 @@ resource "coder_agent" "main" {
       if [ -n "$missing" ]; then echo "unset:$missing"; else echo "all set"; fi
     EOT
     interval     = 60
+    timeout      = 1
+  }
+
+  metadata {
+    display_name = "Resources (reserved / limit)"
+    key          = "9_resources"
+    script       = "echo '${local.resources_summary}'"
+    interval     = 3600
     timeout      = 1
   }
 
@@ -1074,8 +1120,8 @@ resource "kubernetes_deployment_v1" "main" {
           }
           resources {
             requests = {
-              "cpu"    = "250m"
-              "memory" = "512Mi"
+              "cpu"    = local.cpu_request
+              "memory" = local.memory_request
             }
             limits = merge({
               "cpu"    = local.cpu_limit

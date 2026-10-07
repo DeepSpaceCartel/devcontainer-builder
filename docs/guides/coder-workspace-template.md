@@ -106,7 +106,7 @@ coder templates push devcontainer-kubernetes \
 
 `namespace` and `devcontainer_builder_endpoint` are **template-level**
 variables — set once here, not per-workspace. `image_pull_secret_name`,
-`git_credentials_username`/`git_credentials_token`, `external_auth_id`, `vscode_extension`
+`git_credentials_username`/`git_credentials_token`, `external_auth_id`, `max_cpu`/`max_memory`, `vscode_extension`
 and the others below are optional template
 variables too (see the template's own `variable` blocks for what each
 does); leave them unset to start.
@@ -173,7 +173,7 @@ once it's there, and Rebuild moves the workspace onto the new image.
 ## Persistence
 
 Each workspace gets one PVC, `coder-<workspace-id>-data` (sized by the
-**Disk size** parameter, or by `hostRequirements.storage` — see below),
+**Disk size** parameter, or `hostRequirements.storage` if that is larger — see below),
 mounted via subPaths:
 
 | PVC path            | Mounted at                                                  |
@@ -317,7 +317,7 @@ the Dev Containers CLI merges them, plus a translation into pod terms
 | `--shm-size` | `/dev/shm` as an in-memory `emptyDir` of that size (default 64 Mi) |
 | `--add-host`, `--hostname` | pod `hostAliases`, `hostname` |
 | `privileged`, `securityOpt: seccomp=unconfined` | only with `allow_privileged` |
-| `hostRequirements` (`cpus`, `memory`, `storage`, `gpu`), `--cpus`, `--memory` | **override** the CPU/Memory/Disk parameters; `gpu` → `nvidia.com/gpu: 1` |
+| `hostRequirements` (`cpus`, `memory`, `storage`, `gpu`), `--cpus`, `--memory` | **minimums**, as in the spec: `cpus`/`memory` are **reserved** (pod requests, capped by the template variables `max_cpu`/`max_memory`, with a warning above them), and the limits are the larger of them and the CPU/Memory parameters; `storage` → the larger of it and the Disk parameter; `gpu` → `nvidia.com/gpu: 1` (needs the NVIDIA device plugin). Without them, requests are 250m CPU / 512Mi. The workspace page shows what it got under **Resources (reserved / limit)** |
 | `customizations.vscode` | extensions (Microsoft Marketplace) and settings for VS Code Desktop and in the browser (below) |
 | bind mounts, `--network`, `--device`, `--gpus`, `host:port` forwards | ❌ no pod equivalent — reported as warnings |
 | `dockerComposeFile`, `shutdownAction`, `updateRemoteUserUID` | ❌ not supported |
