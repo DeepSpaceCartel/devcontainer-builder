@@ -13,11 +13,29 @@
       "skillPath": "skills/cloudevents/SKILL.md",
       "computedHash": "872febe347e007f78860165906d634f7450999ebac0cee66c007b3c08dadd7a7"
     },
+    "container-images": {
+      "source": "DeepSpaceCartel/skills",
+      "sourceType": "github",
+      "skillPath": "skills/container-images/SKILL.md",
+      "computedHash": "0c9309975f168f4896f941f12e213908062965b9981996083029b27cdfbbcd5a"
+    },
     "conventionalcommits": {
       "source": "DeepSpaceCartel/skills",
       "sourceType": "github",
       "skillPath": "skills/conventionalcommits/SKILL.md",
       "computedHash": "fbc18135bd69bff73fd12065a9cb9170316d9a2802e995dc13ba364d67b5dd38"
+    },
+    "core-principles": {
+      "source": "DeepSpaceCartel/skills",
+      "sourceType": "github",
+      "skillPath": "skills/core-principles/SKILL.md",
+      "computedHash": "970517d7272a7b2d62b542664d462ba2effc1c8ab6a0db704a82a2d0aa268ecd"
+    },
+    "devcontainer": {
+      "source": "DeepSpaceCartel/skills",
+      "sourceType": "github",
+      "skillPath": "skills/devcontainer/SKILL.md",
+      "computedHash": "20091451f92e6bd0908946216849fcc95ae2bc5b84e867fc189745a8ead74f41"
     },
     "docs": {
       "source": "DeepSpaceCartel/skills",
@@ -25,11 +43,29 @@
       "skillPath": "skills/docs/SKILL.md",
       "computedHash": "4b57fafa2c14376743bc0e9d7c94b09a11138ef4ba06a52769f6a95c29dcad5c"
     },
+    "engineering-practices": {
+      "source": "DeepSpaceCartel/skills",
+      "sourceType": "github",
+      "skillPath": "skills/engineering-practices/SKILL.md",
+      "computedHash": "f13c50e913e573ecb268d0d06309f9effbef12af960860f0a02e6456f3c5a49d"
+    },
     "gherkin": {
       "source": "DeepSpaceCartel/skills",
       "sourceType": "github",
       "skillPath": "skills/gherkin/SKILL.md",
       "computedHash": "044b8bb345bc307f9101167875803bb614864347865e79b34399df605a906ace"
+    },
+    "github-actions": {
+      "source": "DeepSpaceCartel/skills",
+      "sourceType": "github",
+      "skillPath": "skills/github-actions/SKILL.md",
+      "computedHash": "d6e100acbe0818638b1d0b6f639da969b7af04a697c4dae541de1a315f8af00e"
+    },
+    "helm-charts": {
+      "source": "DeepSpaceCartel/skills",
+      "sourceType": "github",
+      "skillPath": "skills/helm-charts/SKILL.md",
+      "computedHash": "d506b4a9dc8cb5f9da28a30fe09d2eef295acf57df0409535cbcbd05a3033d67"
     },
     "json-schema": {
       "source": "DeepSpaceCartel/skills",
@@ -55,6 +91,12 @@
       "skillPath": "skills/mkdocs/SKILL.md",
       "computedHash": "46edad290d4c27721374a8f99058aaff7b0adfa7866b37d4912cf691529a26fa"
     },
+    "openapi": {
+      "source": "DeepSpaceCartel/skills",
+      "sourceType": "github",
+      "skillPath": "skills/openapi/SKILL.md",
+      "computedHash": "2a704d317a8c6516b2f66c35441788200840ab9caf5e195ed749cdf358e768f6"
+    },
     "owasp-asvs": {
       "source": "DeepSpaceCartel/skills",
       "sourceType": "github",
@@ -78,6 +120,18 @@
       "sourceType": "github",
       "skillPath": "skills/skill/SKILL.md",
       "computedHash": "a70b97441cf9b29dfd9e7d1e6be7dd05ffae38fa6fa60cc9af6b34a5fc9aeb0c"
+    },
+    "structured-logging": {
+      "source": "DeepSpaceCartel/skills",
+      "sourceType": "github",
+      "skillPath": "skills/structured-logging/SKILL.md",
+      "computedHash": "0a441fca6f42420cefe5158162255dd445d6d6238f33b52c75d7c4ab555bbb2e"
+    },
+    "terraform-provider": {
+      "source": "DeepSpaceCartel/skills",
+      "sourceType": "github",
+      "skillPath": "skills/terraform-provider/SKILL.md",
+      "computedHash": "78bf660d8514191a8a9fa9272e2c2cc837a2a91c127682b0a97b6db27e85aa35"
     }
   }
 }
