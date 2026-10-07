@@ -116,6 +116,18 @@ export const BuildRequestSchema = Type.Object(
       }),
     ),
     buildOptions: Type.Optional(BuildOptionsSchema),
+    instances: Type.Optional(
+      Type.Union([Type.Null(), Type.Array(Type.String({ minLength: 1 }), { minItems: 1 })], {
+        description:
+          "Build only these items of the repository's `images` list, by `id` (`main` for the root devcontainer.json, else the sub-folder's id). Omitted or null: every devcontainer.json found. Non-empty if given. An id the repository doesn't have is rejected with 400, listing the ids it does have. The response lists the selected items in discovery order, not in this order.",
+      }),
+    ),
+    dryRun: Type.Optional(
+      Type.Boolean({
+        description:
+          "Clone, find the devcontainer.json files and resolve every item's image reference, but build and push nothing - the response has the same shape, without `imageBuildLogId`. For a caller that needs the list (e.g. Terraform at plan time) before building it. The same 400s apply.",
+      }),
+    ),
   },
   {
     description:
@@ -145,9 +157,32 @@ export const BuildRequestSchema = Type.Object(
 );
 export type BuildRequestBody = Static<typeof BuildRequestSchema>;
 
+export const BuildImageSchema = Type.Object({
+  id: Type.String({
+    description:
+      "`main` for the root config (`.devcontainer/devcontainer.json`, else `.devcontainer.json`, the Dev Containers CLI's order); for `.devcontainer/<folder>/devcontainer.json`, the folder name lower-cased, every character outside `[a-z0-9-]` replaced by `-`, leading/trailing `-` dropped. Unique within a response.",
+  }),
+  configPath: Type.String({
+    description:
+      "The devcontainer.json this image is built from, relative to the repository root. `.devcontainer/devcontainer.json` for a fallback-image build (the repository has no config; that file exists only in the service's scratch clone).",
+  }),
+  image: Type.String({ description: "`<registry>/<name>:<tag>`." }),
+  registry: Type.String(),
+  name: Type.String({
+    description: "`main`: the request's `image.name`, else the derived default. Any other item: that same name with `-<id>` appended.",
+  }),
+  tag: Type.String({ description: "The same for every item." }),
+  imageBuildLogId: Type.Optional(
+    Type.String({ description: "This item's `devcontainer build --push` output, via `GET /logs/{id}`. Absent in a `dryRun`." }),
+  ),
+});
+
 export const BuildResponseSchema = Type.Object(
   {
-    image: Type.String({ description: "`<registry>/<name>:<tag>`, the same value pushed." }),
+    image: Type.String({
+      description:
+        "`<registry>/<name>:<tag>`, the same value pushed. This and `registry`/`name`/`tag`/`imageBuildLogId` describe `images[0]`: the `main` item when the repository has a root devcontainer.json (and `instances` didn't leave it out), else the first sub-folder item.",
+    }),
     registry: Type.String({ description: "Decomposed from `image` - kept separate since re-parsing it generically is ambiguous (registry ports, default-registry conventions, tag-vs-digest forms)." }),
     name: Type.String(),
     tag: Type.String(),
@@ -155,10 +190,51 @@ export const BuildResponseSchema = Type.Object(
     commit: Type.String({ description: "Full SHA of the commit the image was built from - check this out to get the working copy that matches the image." }),
     gitCloneLogId: Type.Optional(Type.String({ description: "Fetch the full `git clone` output via `GET /logs/{id}`." })),
     imageBuildLogId: Type.Optional(
-      Type.String({ description: "Fetch the full `devcontainer build --push` output (and remote builder setup) via `GET /logs/{id}`." }),
+      Type.String({
+        description: "Fetch the full `devcontainer build --push` output (and remote builder setup) via `GET /logs/{id}`. Absent in a `dryRun`.",
+      }),
     ),
+    images: Type.Array(BuildImageSchema, {
+      minItems: 1,
+      description:
+        "Every image this request built (or, with `dryRun`, would build): one per devcontainer.json found, filtered by `instances` - `main` first, then the sub-folder items sorted by `id`. Built one after another; if one fails, the request fails (500) and its error names the images already pushed. See [ADR-0016](https://github.com/DeepSpaceCartel/devcontainer-builder/blob/main/docs/decisions/0016-one-image-per-devcontainer-json.md).",
+    }),
   },
-  { description: "The clone and build+push both succeeded." },
+  {
+    description: "The clone and every build+push succeeded (with `dryRun`: the clone and name resolution did).",
+    examples: [
+      {
+        image: "ghcr.io/deepspacecartel/devcontainer-builder-examples:sha-a1b2c3d",
+        registry: "ghcr.io/deepspacecartel",
+        name: "devcontainer-builder-examples",
+        tag: "sha-a1b2c3d",
+        branch: "main",
+        commit: "a1b2c3d4e5f60718293a4b5c6d7e8f9012345678",
+        gitCloneLogId: "git-0b0e4d2c-6f1a-4c55-9a4e-3f2b1c0d9e8f",
+        imageBuildLogId: "docker-5d6e7f80-1a2b-4c3d-8e9f-0a1b2c3d4e5f",
+        images: [
+          {
+            id: "main",
+            configPath: ".devcontainer/devcontainer.json",
+            image: "ghcr.io/deepspacecartel/devcontainer-builder-examples:sha-a1b2c3d",
+            registry: "ghcr.io/deepspacecartel",
+            name: "devcontainer-builder-examples",
+            tag: "sha-a1b2c3d",
+            imageBuildLogId: "docker-5d6e7f80-1a2b-4c3d-8e9f-0a1b2c3d4e5f",
+          },
+          {
+            id: "backend",
+            configPath: ".devcontainer/backend/devcontainer.json",
+            image: "ghcr.io/deepspacecartel/devcontainer-builder-examples-backend:sha-a1b2c3d",
+            registry: "ghcr.io/deepspacecartel",
+            name: "devcontainer-builder-examples-backend",
+            tag: "sha-a1b2c3d",
+            imageBuildLogId: "docker-9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d",
+          },
+        ],
+      },
+    ],
+  },
 );
 
 // Fastify lower-cases header names before schema validation, so these keys

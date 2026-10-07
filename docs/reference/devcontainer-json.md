@@ -58,6 +58,13 @@ variables**.
 ## Where the configuration is found
 
 `.devcontainer/devcontainer.json`, then `.devcontainer.json`, at the root of
-the repository, as the Dev Containers CLI looks for them. Configurations in
-sub-folders (`.devcontainer/<name>/devcontainer.json`) aren't picked up; such
-a repository gets the fallback image.
+the repository, as the Dev Containers CLI looks for them. That's the `main`
+image. Each configuration in a sub-folder
+(`.devcontainer/<name>/devcontainer.json`) is built as an image of its own,
+named `<image name>-<name>`, and `POST /build` lists them all in `images`
+([ADR-0016](../decisions/0016-one-image-per-devcontainer-json.md)). Only a
+repository with no configuration anywhere gets the fallback image.
+
+The Coder template still starts one workspace container, from the response's
+top-level `image`: `main`, or the first sub-folder image when there is no
+root configuration. One agent per image is planned.

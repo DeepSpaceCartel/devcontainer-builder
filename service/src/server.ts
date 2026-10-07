@@ -337,7 +337,7 @@ export async function buildApp(): Promise<FastifyInstance> {
           "Prometheus text-format metrics (`Content-Type: text/plain`), for a `ServiceMonitor`/node-exporter-style scrape.",
           "Node.js process/runtime defaults (`prom-client`'s `collectDefaultMetrics`) plus:",
           "",
-          "- **`devcontainer_builder_builds_total`** (counter, label `status`: `success`|`failure`|`invalid_request`|`busy`) - every `POST /build` attempt.",
+          "- **`devcontainer_builder_builds_total`** (counter, label `status`: `success`|`dry_run`|`failure`|`invalid_request`|`busy`) - every `POST /build` attempt (`dry_run`: a successful `dryRun: true` request).",
           "- **`devcontainer_builder_build_duration_seconds`** (histogram, label `status`) - real build wall-clock time, bucketed toward minutes (not the sub-second defaults), since a build is a clone + image build + push.",
           "- **`devcontainer_builder_image_checks_total`** (counter, label `result`: `exists`|`absent`|`error`) - every `GET /image` call.",
           "- **`devcontainer_builder_image_deletes_total`** (counter, label `result`: `deleted`|`unsupported`|`error`) - every `DELETE /image` call.",
@@ -368,6 +368,11 @@ export async function buildApp(): Promise<FastifyInstance> {
           '- `{"error": "unable to derive an image name from repository path ...: provide image.name"}`.',
           '- `{"error": "no registry resolved for repository <repository>: provide image.registry or configure a matching registry mapping rule"}` - no `image.registry` given and no registry mapping rule matched.',
           '- `{"error": "SSH host key policy is \\"pinned\\" but no pinned key configured for host <host>"}` - the resolved SSH credential has no `pinnedHostKey` under `sshHostKeyPolicy: pinned`.',
+          '- `{"error": "no devcontainer.json found in repository <repository> (...)"}` - the clone has no devcontainer.json at any location the spec allows, and the server has no `fallbackImage`.',
+          '- `{"error": "unknown instance id(s) \\"<id>\\" - this repository has: \\"main\\", \\"<id>\\", ..."}` - `instances` names an item the repository doesn\'t have.',
+          '- `{"error": "devcontainer.json locations map to the same instance id: ..."}` (or `"... leave no usable id ..."`) - two sub-folders (or a sub-folder named `main` and the root config) give the same `id`, or a sub-folder name has no `[a-z0-9]` in it.',
+          "",
+          "A repository can have several devcontainer.json files: the root one (`main`) and one per `.devcontainer/<folder>/`. Each becomes its own image, built one after another and listed in `images` - see [ADR-0016](https://github.com/DeepSpaceCartel/devcontainer-builder/blob/main/docs/decisions/0016-one-image-per-devcontainer-json.md). `dryRun: true` returns that list without building it.",
           "",
           "",
           "`429` means the instance is already running `build.maxConcurrent` builds; retry after `Retry-After` seconds.",
@@ -399,19 +404,24 @@ export async function buildApp(): Promise<FastifyInstance> {
         "image.registry": request.body.image?.registry,
         "image.name": request.body.image?.name,
         "image.tag": request.body.image?.tag,
+        instances: request.body.instances ?? undefined,
+        dryRun: request.body.dryRun,
       });
 
       const stopTimer = buildDurationSeconds.startTimer();
       activeBuilds++;
       try {
         const result = await buildDevcontainer(request.body);
-        buildsTotal.inc({ status: "success" });
-        stopTimer({ status: "success" });
+        const status = request.body.dryRun ? "dry_run" : "success";
+        buildsTotal.inc({ status });
+        stopTimer({ status });
         request.log.info({
           event: "build.completed",
           "image.registry": result.registry,
           "image.name": result.name,
           "image.tag": result.tag,
+          instances: result.images.map((i) => i.id),
+          dryRun: request.body.dryRun,
           branch: result.branch,
         });
         return result;

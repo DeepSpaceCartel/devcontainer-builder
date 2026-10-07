@@ -6,7 +6,48 @@ import { execFileSync } from "node:child_process";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { clonedBranch, gitCloneArgs, onceUntilFailure } from "./build.js";
+import { clonedBranch, devcontainerBuildArgs, gitCloneArgs, onceUntilFailure } from "./build.js";
+
+const noBuildOptions = { platforms: [], noCache: false, cacheFrom: undefined, cacheTo: undefined, mode: undefined };
+
+test("devcontainer build args: a root config keeps today's argv, no --config", () => {
+  for (const configPath of [".devcontainer/devcontainer.json", ".devcontainer.json"]) {
+    assert.deepEqual(devcontainerBuildArgs("/w/repo", configPath, "r/x:t", noBuildOptions), [
+      "build",
+      "--workspace-folder",
+      "/w/repo",
+      "--image-name",
+      "r/x:t",
+      "--push",
+    ]);
+  }
+});
+
+test("devcontainer build args: a sub-folder config is passed with --config", () => {
+  assert.deepEqual(
+    devcontainerBuildArgs("/w/repo", ".devcontainer/backend/devcontainer.json", "r/x-backend:t", {
+      ...noBuildOptions,
+      platforms: ["linux/amd64", "linux/arm64"],
+      noCache: true,
+      mode: "never",
+    }),
+    [
+      "build",
+      "--workspace-folder",
+      "/w/repo",
+      "--config",
+      "/w/repo/.devcontainer/backend/devcontainer.json",
+      "--image-name",
+      "r/x-backend:t",
+      "--push",
+      "--platform",
+      "linux/amd64,linux/arm64",
+      "--no-cache",
+      "--buildkit",
+      "never",
+    ],
+  );
+});
 
 test("onceUntilFailure shares one in-flight attempt and remembers success", async () => {
   let calls = 0;

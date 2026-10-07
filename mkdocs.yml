@@ -67,6 +67,7 @@ nav:
       - "0013. Fallback image for repositories without a config": decisions/0013-fallback-config-for-repos-without-one.md
       - "0014. hostRequirements are minimums": decisions/0014-host-requirements-are-minimums.md
       - "0015. customizations.kubernetes for pod resources and node placement": decisions/0015-kubernetes-customizations.md
+      - "0016. One image per devcontainer.json": decisions/0016-one-image-per-devcontainer-json.md
 
 theme:
   name: material

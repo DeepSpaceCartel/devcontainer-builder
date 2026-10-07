@@ -55,6 +55,11 @@ spec:
               {{- else }}
               mkdir -p "/work/{{ .name }}/$(dirname "{{ $configPath }}")"
               cp "/seed/{{ .name }}.json" "/work/{{ .name }}/{{ $configPath }}"
+              {{- /* The same devcontainer.json at more locations, for repos with several configs (one image each, ADR-0015). */}}
+              {{- range .extraConfigPaths }}
+              mkdir -p "/work/{{ $repo.name }}/$(dirname "{{ . }}")"
+              cp "/seed/{{ $repo.name }}.json" "/work/{{ $repo.name }}/{{ . }}"
+              {{- end }}
               {{- if .dockerfile }}
               {{- /* A real Dockerfile alongside devcontainer.json, for repos whose config uses "build": {"dockerfile": ...} instead of a plain "image" reference - the CLI resolves a relative dockerfile path against the config's own directory. */}}
               cp "/seed/{{ .name }}.Dockerfile" "/work/{{ .name }}/$(dirname "{{ $configPath }}")/Dockerfile"

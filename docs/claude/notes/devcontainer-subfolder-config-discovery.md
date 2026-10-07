@@ -5,6 +5,13 @@ created: 2026-09-06
 
 # The sub-folder devcontainer.json location isn't auto-discoverable
 
+> **Superseded (2026-10-07)** by
+> [ADR-0016](../../decisions/0016-one-image-per-devcontainer-json.md). The
+> service now finds every sub-folder config itself, builds one image per
+> config with `--config`, and lists them in `POST /build`'s `images`. The
+> human choice moved to the caller (the `instances` filter), so no separate
+> discovery service is needed. The rest of this note is kept as history.
+
 ## What happened
 
 While building `devcontainer_config_discovery.feature`, `test-git-server`
