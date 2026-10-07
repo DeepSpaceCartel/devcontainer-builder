@@ -96,6 +96,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   `deepspacecartel/devcontainer-builder` provider's `devcontainerbuilder_build` resource directly:
   the module only wraps it, and the provider is the Terraform surface 1.x keeps stable. Plans that
   use the module now show a deprecation warning.
+- The Terraform module `terraform/devcontainer-build`. It's removed in 2.0. Use the
+  `deepspacecartel/devcontainer-builder` provider's `devcontainerbuilder_build` resource directly:
+  the module only wraps it, and the provider is the Terraform surface 1.x keeps stable. Plans that
+  use the module now show a deprecation warning.
 
 ### Fixed
 
@@ -133,16 +137,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - Release workflow: a pre-release tag (`vX.Y.Z-rc.N`) publishes the npm package under the `next`
   dist-tag, doesn't move the `latest` image tag, skips the VS Code Marketplace and Open VSX, and
   creates a GitHub pre-release. A release only moves `latest` when it's the highest version.
-
-### Deprecated
-
-- The Terraform module `terraform/devcontainer-build`. It's removed in 2.0. Use the
-  `deepspacecartel/devcontainer-builder` provider's `devcontainerbuilder_build` resource directly:
-  the module only wraps it, and the provider is the Terraform surface 1.x keeps stable. Plans that
-  use the module now show a deprecation warning.
-
-### Fixed
-
 - **Docs: the Helm chart reference's `image.tag` default** is `""` (the chart's `appVersion`), not
   `"0.1.0"`; it now also lists `build.fallbackImage`, `buildkitBundled.*` and every new value. The
   `extraArgs` comment in `values.yaml` names the real entrypoint, `dist/index.js`.
