@@ -237,7 +237,7 @@ async function pickTemplate(api: CoderApi): Promise<Template | undefined> {
   return (
     await vscode.window.showQuickPick(
       templates.map((t) => ({ label: t.display_name || t.name, description: t.name, detail: t.description, template: t })),
-      { title: "Coder template" },
+      { title: "Coder template", matchOnDescription: true, matchOnDetail: true },
     )
   )?.template;
 }
