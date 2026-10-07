@@ -28,7 +28,8 @@
         "Google.geminicodeassist",
         "sst-dev.opencode",
         "Anthropic.claude-code",
-        "coder.coder-remote"
+        "coder.coder-remote",
+        "deepspacecartel.devcontainer-builder"
       ]
     }
   }
