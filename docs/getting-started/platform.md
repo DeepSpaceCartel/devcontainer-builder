@@ -126,6 +126,13 @@ repository** and **Branch**. The first build of a repository takes a minute
 or two. The workspace page shows progress, then the apps: VS Code Desktop,
 VS Code in the browser, and any forwarded ports.
 
+![A workspace in the Coder dashboard: VS Code Desktop and Web, a forwarded port, and the Dev Container items](../assets/screenshots/coder-workspace-page.png)
+
+!!! note "No wildcard access URL?"
+    VS Code in the browser and the port apps are subdomain apps by default,
+    which need Coder's [wildcard access URL](https://coder.com/docs/admin/networking/wildcard-access-url).
+    Without one, push the template with `--var subdomain_apps=false`.
+
 ## 6. Tell your developers
 
 They need nothing but VS Code and the extension. Point them to

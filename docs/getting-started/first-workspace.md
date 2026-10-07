@@ -42,9 +42,17 @@ to open it instead, starting it if it's stopped.
 !!! tip "Without VS Code"
     The Coder dashboard's **Create workspace** asks for the same **Git
     repository** and **Branch**, and its workspace page has **VS Code
-    Desktop** and **VS Code** (in the browser) buttons.
+    Desktop** and **VS Code Web** buttons.
+
+    ![The Coder create-workspace page: Git repository and Branch first](../assets/screenshots/coder-create-workspace.png)
 
 ## 3. Look around
+
+When VS Code asks whether you trust the authors of the folder, **trust it**:
+it's your repository, and VS Code doesn't run the extension in Restricted
+Mode.
+
+![VS Code in a workspace: the status bar shows the image's commit, up to date with the branch](../assets/screenshots/vscode-up-to-date.png)
 
 - The **status bar** shows the commit the workspace's image was built from,
   e.g. `a1b2c3d`.
@@ -62,9 +70,15 @@ Edit `.devcontainer/devcontainer.json`, for example by adding a Feature.
 
 1. The status bar shows **Push Dev Container changes**: a rebuild always
    builds what's on the branch's remote, so local edits don't count yet.
+
+    ![A local, unpushed change: Push Dev Container changes](../assets/screenshots/vscode-push-changes.png)
+
 2. Commit and push.
 3. The status bar shows **Rebuild available**, with a notification:
    **Rebuild**, **Later** or **Ignore This Commit**.
+
+    ![A pushed change: Rebuild available, with Rebuild, Later and Ignore This Commit](../assets/screenshots/vscode-rebuild-available.png)
+
 4. **Rebuild.** The workspace restarts on an image built from the pushed
    configuration. Your home and the repository folder are kept, including
    uncommitted work.
@@ -80,6 +94,8 @@ workspace, on a generic Ubuntu image. The status bar shows **Add Dev
 Container config**, which opens the Dev Containers extension's own **Add Dev
 Container Configuration Files…**: pick a template and Features, then commit,
 push and rebuild as above.
+
+![A repository without devcontainer.json: Add Dev Container config](../assets/screenshots/vscode-add-config.png)
 
 ## Next
 

@@ -1,0 +1,12 @@
+{
+  "name": "devcontainer-builder-screenshots",
+  "private": true,
+  "description": "Captures the docs' screenshots from a real Coder deployment (see README.md).",
+  "type": "module",
+  "scripts": {
+    "capture": "node capture.mjs"
+  },
+  "devDependencies": {
+    "playwright": "^1.48.0"
+  }
+}

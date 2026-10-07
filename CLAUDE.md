@@ -126,6 +126,10 @@ TypeScript compiles; ask the user to verify or run it themselves.
   (including `project/versioning.md`, the 1.x stability promise; update it
   when adding or deprecating a public surface). CI builds with
   `mkdocs build --strict`.
+- Screenshots in `docs/assets/screenshots/` come from
+  `tools/screenshots/capture.mjs` (Playwright against a real Coder, see its
+  README) - re-run it rather than editing images by hand; Desktop-only shots
+  are listed in `tools/screenshots/DESKTOP-SHOTS.md`.
 
 - The Terraform module (deprecated) keeps the Coder Registry's
   variable/output conventions until it's removed: variable block field order `description → type → default →
