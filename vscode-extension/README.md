@@ -30,8 +30,10 @@ Settings:
 - `devcontainerBuilder.coderUrl` picks the deployment;
 - `devcontainerBuilder.template` picks the template when several ask for a repository.
 
-Install it locally from the Extensions view (**Dev Containers for Coder in K8S**). Inside
-workspaces, the template installs it for you.
+Install it locally from the Extensions view (**Dev Containers for Coder in K8S**). It's on the
+[VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=deepspacecartel.devcontainer-builder)
+and on [Open VSX](https://open-vsx.org/extension/deepspacecartel/devcontainer-builder) (VSCodium,
+Cursor and other editors). Inside workspaces, the template installs it for you.
 
 ## Rebuild available (in a workspace)
 

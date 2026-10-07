@@ -161,8 +161,7 @@ jobs:
   # the Coder template installs by ID. Its own job, not a step of the one
   # above: a Marketplace outage or an expired VSCE_PAT (an Azure DevOps PAT
   # with Marketplace > Manage, for a member of the publisher) mustn't hold
-  # back the GitHub Release. Open VSX would be a second step here
-  # (`npx ovsx publish` with an OVSX_PAT).
+  # back the GitHub Release.
   vscode-marketplace:
     needs: vscode-extension
     runs-on: ubuntu-latest
@@ -176,6 +175,25 @@ jobs:
       - run: npx --yes @vscode/vsce@3 publish --packagePath devcontainer-builder.vsix
         env:
           VSCE_PAT: ${{ secrets.VSCE_PAT }}
+
+  # The same VSIX on Open VSX (open-vsx.org/extension/deepspacecartel/devcontainer-builder),
+  # for VSCodium, Cursor, code-server and other editors that don't use
+  # Microsoft's Marketplace. Independent of vscode-marketplace for the same
+  # reason. OVSX_PAT: an Open VSX access token of a member of the
+  # deepspacecartel namespace.
+  vscode-openvsx:
+    needs: vscode-extension
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - uses: actions/download-artifact@v4
+        with:
+          name: vscode-extension
+      - run: npx --yes ovsx@0 publish devcontainer-builder.vsix
+        env:
+          OVSX_PAT: ${{ secrets.OVSX_PAT }}
 
   github-release:
     needs: [version, image, chart, npm, vscode-extension]

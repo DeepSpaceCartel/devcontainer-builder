@@ -133,7 +133,8 @@ platform infrastructure from step 1), then boots
 The same extension that runs the [rebuild prompt](#the-repository-clone)
 inside workspaces also works in a **local** VS Code window. Install the
 extension once on your machine: search the Extensions view for **Dev
-Containers for Coder in K8S** (`deepspacecartel.devcontainer-builder`).
+Containers for Coder in K8S** (`deepspacecartel.devcontainer-builder`, on the
+VS Code Marketplace and on Open VSX for VSCodium, Cursor and others).
 Then **Coder: Clone Repository in
 Workspace…** works like Dev Containers' *Clone Repository in
 Container Volume…*:
