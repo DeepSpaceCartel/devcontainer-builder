@@ -23,7 +23,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   Docker-only settings without a pod equivalent produce warnings.
 - `POST /build` writes a second image label, `com.deepspacecartel.devcontainer-builder.config`,
   with the `devcontainer.json` properties the CLI's own label leaves out
-  (`workspaceFolder`, `runArgs`, `initializeCommand`), and reports the built `commit` (full SHA).
+  (`workspaceFolder`, `runArgs`, `initializeCommand`) plus the remote user's uid/gid/home (read
+  from the image's `/etc/passwd` by a BuildKit stage, returned as `runtime.remoteUserUid`/`Gid`/`Home`),
+  and reports the built `commit` (full SHA).
 - `npm run test:unit`: fast, cluster-free tests of `GET /devcontainer`'s logic, also run in CI.
 
 ### Changed

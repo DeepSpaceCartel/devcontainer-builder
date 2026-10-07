@@ -6,7 +6,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { buildDevcontainerMetadata, configLabelValue, mergeVscode } from "./devcontainer-metadata.js";
+import { buildDevcontainerMetadata, configLabelValue, mergeVscode, parsePasswdEntry, remoteUserFor } from "./devcontainer-metadata.js";
 import { detectVariables, rewriteForShellString, shellWord } from "./devcontainer-variables.js";
 import { parseByteSize, parseRunArgs } from "./devcontainer-runtime.js";
 
@@ -117,6 +117,19 @@ test("images built before 0.3.0 (no config label) still work, with a warning", (
   const out = buildDevcontainerMetadata(JSON.stringify([{ remoteUser: "node" }]));
   assert.equal(out.configuration.workspaceFolder, "/workspaces/${localWorkspaceFolderBasename}");
   assert.match(out.warnings.join("\n"), /built before devcontainer-builder 0\.3\.0/);
+});
+
+test("the build-time account record is used only for the same remote user", () => {
+  assert.deepEqual(parsePasswdEntry("dev:x:1001:1002::/home/dev:/bin/bash\n"), { name: "dev", uid: 1001, gid: 1002, home: "/home/dev" });
+  assert.equal(parsePasswdEntry(""), undefined);
+  assert.equal(remoteUserFor(JSON.stringify([{ remoteUser: "dev" }]), "root"), "dev");
+  assert.equal(remoteUserFor(JSON.stringify([{}]), "node:node"), "node");
+
+  const account = { name: "dev", uid: 1001, gid: 1002, home: "/home/dev" };
+  const matching = buildDevcontainerMetadata(JSON.stringify([{ remoteUser: "dev" }]), { configLabel: JSON.stringify({ remoteUserAccount: account }) });
+  assert.deepEqual([matching.runtime.remoteUserUid, matching.runtime.remoteUserGid, matching.runtime.remoteUserHome], [1001, 1002, "/home/dev"]);
+  const other = buildDevcontainerMetadata(JSON.stringify([{ remoteUser: "node" }]), { configLabel: JSON.stringify({ remoteUserAccount: account }) });
+  assert.equal(other.runtime.remoteUserUid, null);
 });
 
 // Keep the sh used above honest: a POSIX shell must exist for these tests.

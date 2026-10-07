@@ -10,7 +10,7 @@
 // editor customizations or run the CLI's command semantics themselves.
 
 import { parse as parseJsonc, type ParseError } from "jsonc-parser";
-import { buildRuntime, parseRunArgs, renderEnvScript, type Runtime } from "./devcontainer-runtime.js";
+import { buildRuntime, parseRunArgs, renderEnvScript, resolveRemoteUser, type Runtime, type UserAccount } from "./devcontainer-runtime.js";
 import { detectVariables, hasReferences, rewriteForShellString, shellWord, type DetectedVariable } from "./devcontainer-variables.js";
 
 export const METADATA_LABEL = "devcontainer.metadata";
@@ -34,6 +34,20 @@ export function configLabelValue(devcontainerJson: string): string | undefined {
     if (parsed[key] !== undefined) picked[key] = parsed[key];
   }
   return JSON.stringify(picked);
+}
+
+// The user GET /devcontainer will report as runtime.remoteUser for this
+// image - what POST /build probes /etc/passwd for (see build.ts).
+export function remoteUserFor(metadataLabel: string, imageUser: string | undefined): string {
+  const { entries } = parseMetadataLabel(metadataLabel);
+  return resolveRemoteUser(mergeConfiguration(entries), imageUser, []);
+}
+
+// One /etc/passwd line -> the account, or undefined if it doesn't parse.
+export function parsePasswdEntry(line: string): UserAccount | undefined {
+  const fields = line.trim().split("\n")[0].split(":");
+  if (fields.length < 7 || !/^\d+$/.test(fields[2]) || !/^\d+$/.test(fields[3])) return undefined;
+  return { name: fields[0], uid: parseInt(fields[2], 10), gid: parseInt(fields[3], 10), home: fields[5] };
 }
 
 function parseConfigLabel(raw: string | undefined, warnings: string[]): Record<string, unknown> | undefined {
@@ -400,7 +414,7 @@ export function buildDevcontainerMetadata(
   };
 
   const runArgs = parseRunArgs(config.runArgs, warnings);
-  const runtime = buildRuntime(configuration, runArgs, options.imageUser, warnings);
+  const runtime = buildRuntime(configuration, runArgs, options.imageUser, warnings, config.remoteUserAccount);
 
   const containerEnv: [string, unknown][] = [
     ...runArgs.env,

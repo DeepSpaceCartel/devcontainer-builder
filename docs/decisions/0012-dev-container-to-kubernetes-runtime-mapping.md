@@ -46,6 +46,16 @@ the CLI's image+Features path, not for `build.dockerfile` configs (CLI
 0.89.0). Images built before this change have no such label; they still
 work, with defaults and a warning.
 
+The same label records the **remote user's account** (`remoteUserAccount`:
+name, uid, gid, home). Kubernetes needs a numeric uid
+(`securityContext.runAsUser`), but devcontainer.json names a user, and the
+mapping lives in the image's `/etc/passwd`. A throwaway BuildKit stage
+(`FROM <image>`, `getent passwd <user>`, exported as one file) reads it at
+build time, so a pod can run as that user from the start
+(`runAsUser`/`runAsGroup`/`fsGroup`): no root start and no user switching
+inside the container. It's best effort: an image without a shell gets no
+account, and `runtime.remoteUserUid` is null.
+
 **`GET /devcontainer` stays a function of the image alone, with no query
 parameters.** Variables are **detected and rewritten, never substituted.**
 In every script the service renders, a reference becomes a shell variable
@@ -70,6 +80,7 @@ keep their placeholders for the template to fill in.
 
 **`runtime`: the translation into pod terms.**
 - `remoteUser`: remoteUser, then containerUser, then the image's `USER`, then root.
+  Also `remoteUserUid`/`remoteUserGid`/`remoteUserHome` from the recorded account.
 - `containerUser`.
 - `ports`: numeric `forwardPorts` with their `portsAttributes`.
 - `mounts`: volume and tmpfs.

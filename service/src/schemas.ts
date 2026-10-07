@@ -264,6 +264,12 @@ export const DevcontainerResponseSchema = Type.Object(
     runtime: Type.Object(
       {
         remoteUser: Type.String({ description: "remoteUser, else containerUser, else the image's USER, else root." }),
+        remoteUserUid: Type.Union([Type.Number(), Type.Null()], {
+          description:
+            "remoteUser's uid, gid and home in the image's /etc/passwd, recorded at build time (devcontainer-builder >= 0.3.0) - enough to run a pod as that user directly (runAsUser/runAsGroup/fsGroup). Null when unknown (older image, or no shell in it).",
+        }),
+        remoteUserGid: Type.Union([Type.Number(), Type.Null()]),
+        remoteUserHome: Type.Union([Type.String(), Type.Null()]),
         containerUser: Type.Union([Type.String(), Type.Null()]),
         ports: Type.Array(
           Type.Object({

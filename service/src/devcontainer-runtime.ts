@@ -25,8 +25,21 @@ export interface HostAlias {
   hostnames: string[];
 }
 
+// The remote user's account in the image's /etc/passwd, recorded by the
+// build (see build.ts) - what lets a pod run as that user directly
+// (runAsUser/runAsGroup/fsGroup) instead of starting as root to find out.
+export interface UserAccount {
+  name: string;
+  uid: number;
+  gid: number;
+  home: string;
+}
+
 export interface Runtime {
   remoteUser: string;
+  remoteUserUid: number | null;
+  remoteUserGid: number | null;
+  remoteUserHome: string | null;
   containerUser: string | null;
   ports: PortSpec[];
   mounts: MountSpec[];
@@ -253,7 +266,13 @@ export function resolveRemoteUser(configuration: Config, imageUser: string | und
   return user;
 }
 
-export function buildRuntime(configuration: Config, runArgs: ParsedRunArgs, imageUser: string | undefined, warnings: string[]): Runtime {
+export function buildRuntime(
+  configuration: Config,
+  runArgs: ParsedRunArgs,
+  imageUser: string | undefined,
+  warnings: string[],
+  recordedAccount?: unknown,
+): Runtime {
   const mounts: MountSpec[] = [];
   const configMounts = Array.isArray(configuration.mounts) ? configuration.mounts : [];
   for (const mount of configMounts) {
@@ -284,8 +303,23 @@ export function buildRuntime(configuration: Config, runArgs: ParsedRunArgs, imag
     (c): c is string => typeof c === "string",
   );
 
+  const remoteUser = resolveRemoteUser(configuration, imageUser, warnings);
+  // Only trust the build's record if it's for the same user (a numeric
+  // remoteUser matches by uid).
+  const account =
+    isPlainObject(recordedAccount) &&
+    typeof recordedAccount.uid === "number" &&
+    typeof recordedAccount.gid === "number" &&
+    typeof recordedAccount.home === "string" &&
+    (recordedAccount.name === remoteUser || String(recordedAccount.uid) === remoteUser)
+      ? (recordedAccount as unknown as UserAccount)
+      : undefined;
+
   return {
-    remoteUser: resolveRemoteUser(configuration, imageUser, warnings),
+    remoteUser,
+    remoteUserUid: account?.uid ?? null,
+    remoteUserGid: account?.gid ?? null,
+    remoteUserHome: account?.home ?? null,
     containerUser: (typeof configuration.containerUser === "string" && configuration.containerUser) || (imageUser ? imageUser.split(":")[0] : null),
     ports: portsFrom(configuration, warnings),
     mounts,

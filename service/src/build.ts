@@ -7,7 +7,8 @@ import type { BuildRequest, BuildResponse, RegistryCredentials } from "./types.j
 import { serviceConfig, type GitCredentialEntry, type RegistryMappingRule, type SshHostKeyPolicy } from "./config.js";
 import { logger } from "./logger.js";
 import { openCommandLog, closeCommandLog, type CommandLogKind } from "./command-log.js";
-import { CONFIG_LABEL, configLabelValue } from "./devcontainer-metadata.js";
+import { CONFIG_LABEL, METADATA_LABEL, configLabelValue, parsePasswdEntry, remoteUserFor } from "./devcontainer-metadata.js";
+import { readImageConfig } from "./registry-client.js";
 
 async function readFirstExisting(paths: string[]): Promise<string | undefined> {
   for (const path of paths) {
@@ -411,6 +412,46 @@ export async function buildDevcontainer(req: BuildRequest): Promise<BuildRespons
     ]);
     const configLabel = configText !== undefined ? configLabelValue(configText) : undefined;
 
+    // The remote user's uid/gid/home, read from the pushed image's own
+    // /etc/passwd by a throwaway BuildKit stage (`getent`, else a grep for
+    // images without it) and exported as a single file - no layers come
+    // back to this service. Recorded in the config label so a pod can run
+    // as that user from the start (ADR-0012). Best effort: an image without
+    // a shell, or a user missing from /etc/passwd, just gets no account.
+    const probeRemoteUserAccount = async (env: NodeJS.ProcessEnv, logStream: NodeJS.WritableStream) => {
+      try {
+        const platform = platforms[0] ?? "linux/amd64";
+        const auth = req.registryCredentials ? { username: req.registryCredentials.username, password: req.registryCredentials.password } : undefined;
+        const pushed = await readImageConfig(registry, name, tag, platform, auth);
+        const metadata = pushed.found ? pushed.labels[METADATA_LABEL] : undefined;
+        if (!pushed.found || metadata === undefined) return {};
+        const user = remoteUserFor(metadata, pushed.user);
+
+        const probeDir = join(workDir, "user-probe");
+        const outDir = join(probeDir, "out");
+        await mkdir(outDir, { recursive: true });
+        await writeFile(
+          join(probeDir, "Dockerfile"),
+          [
+            `FROM ${image} AS probe`,
+            `ARG DEVCONTAINER_USER`,
+            `RUN (getent passwd "$DEVCONTAINER_USER" || grep -E "^$DEVCONTAINER_USER:|^[^:]*:[^:]*:$DEVCONTAINER_USER:" /etc/passwd) | head -n 1 > /devcontainer-user`,
+            `FROM scratch`,
+            `COPY --from=probe /devcontainer-user /`,
+            ``,
+          ].join("\n"),
+        );
+        const probeArgs = ["buildx", "build", "--build-arg", `DEVCONTAINER_USER=${user}`, "--platform", platform];
+        probeArgs.push("--output", `type=local,dest=${outDir}`, probeDir);
+        await run("docker", probeArgs, env, logStream);
+        const account = parsePasswdEntry(await readFile(join(outDir, "devcontainer-user"), "utf8"));
+        return account ? { remoteUserAccount: account } : {};
+      } catch (err) {
+        logStream.write(`remote user probe failed, continuing without it: ${err instanceof Error ? err.message : err}\n`);
+        return {};
+      }
+    };
+
     const runBuild = async (env: NodeJS.ProcessEnv, logStream: NodeJS.WritableStream) => {
       await ensureRemoteBuilder(env, logStream);
       const args = ["build", "--workspace-folder", repoDir, "--image-name", image, "--push"];
@@ -422,10 +463,11 @@ export async function buildDevcontainer(req: BuildRequest): Promise<BuildRespons
       await run("devcontainer", args, env, logStream);
 
       if (configLabel !== undefined) {
+        const label = { ...JSON.parse(configLabel), ...(await probeRemoteUserAccount(env, logStream)) };
         const labelDir = join(workDir, "config-label");
         await mkdir(labelDir, { recursive: true });
         await writeFile(join(labelDir, "Dockerfile"), `FROM ${image}\n`);
-        const labelArgs = ["buildx", "build", "--push", "--label", `${CONFIG_LABEL}=${configLabel}`, "-t", image];
+        const labelArgs = ["buildx", "build", "--push", "--label", `${CONFIG_LABEL}=${JSON.stringify(label)}`, "-t", image];
         if (platforms.length > 0) labelArgs.push("--platform", platforms.join(","));
         labelArgs.push(labelDir);
         await run("docker", labelArgs, env, logStream);
