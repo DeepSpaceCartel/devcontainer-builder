@@ -195,11 +195,93 @@ Feature: Dev Container metadata of a built image
     Given the value at "type(lifecycleScripts.postAttachCommand)" from the last response is known as "<PostAttachType>"
     Then the value known as "<PostAttachType>" equals "null"
 
-    # ${containerWorkspaceFolder} is left as-is, and said so.
+    # ${containerWorkspaceFolder} becomes a shell variable the workspace
+    # sets at runtime - detected, not substituted, and no longer a warning.
     Given the value at "length(warnings)" from the last response is known as "<WarningCount>"
-    Then the value known as "<WarningCount>" equals "1"
-    Given the value at "warnings[0]" from the last response is known as "<Warning>"
-    Then the value known as "<Warning>" contains "onCreateCommand from devcontainer.json"
+    Then the value known as "<WarningCount>" equals "0"
+    Given the value at "lifecycleScripts.onCreateCommand" from the last response is known as "<OnCreateScript>"
+    Then the value known as "<OnCreateScript>" contains "${DEVCONTAINER_WORKSPACE_FOLDER}"
+    Given the value at "length(variables[?name == 'containerWorkspaceFolder'])" from the last response is known as "<WorkspaceVariable>"
+    Then the value known as "<WorkspaceVariable>" equals "1"
+
+    When I remove Docker Buildx Builder known as "<Builder>"
+    Then the command exited with 0
+    When I uninstall Helm Release known as "<Release>"
+    Then the command exited with 0
+    When I uninstall Helm Release known as "<TestBuildkitRelease>"
+    Then the command exited with 0
+    When I uninstall Helm Release known as "<TestRegistryAuthedRelease>"
+    Then the command exited with 0
+    When I uninstall Helm Release known as "<TestRegistryRelease>"
+    Then the command exited with 0
+    When I uninstall Helm Release "<NamespaceRelease>" with --wait --timeout 120s
+    Then the command exited with 0
+
+  Scenario: A Dockerfile-based config's runtime settings translate for Kubernetes
+    # runtime-and-env builds from a Dockerfile - the path where the Dev
+    # Containers CLI ignores `devcontainer build --label`, so this also
+    # proves the build's own config label (workspaceFolder, runArgs,
+    # initializeCommand) still lands in the image.
+    When I send a POST request to Endpoint known as "<AppApi>" path "/build" with:
+      | TYPE | KEY | VALUE                                                                                                              |
+      | BODY |     | {"repository":"<ExamplesRepo>","branch":"runtime-and-env","image":{"registry":"<RegistryUrl>","name":"runtime-and-env"}} |
+    Then the response status is 200
+    Given the value at "tag" from the last response is known as "<Tag>"
+    Given the value at "length(commit)" from the last response is known as "<CommitLength>"
+    Then the value known as "<CommitLength>" equals "40"
+
+    When I send a GET request to Endpoint known as "<AppApi>" path "/devcontainer" with:
+      | TYPE  | KEY      | VALUE           |
+      | QUERY | registry | <RegistryUrl>   |
+      | QUERY | name     | runtime-and-env |
+      | QUERY | tag      | <Tag>           |
+    Then the response status is 200
+
+    # From the build's config label.
+    Given the value at "configuration.workspaceFolder" from the last response is known as "<WorkspaceFolder>"
+    Then the value known as "<WorkspaceFolder>" equals "/workspaces/${localWorkspaceFolderBasename}-app"
+    Given the value at "lifecycleScripts.initializeCommand" from the last response is known as "<InitializeScript>"
+    Then the value known as "<InitializeScript>" contains "/bin/sh -c 'cp -n .env.example .env'"
+
+    # runtime: users, runArgs, ports, mounts, resources.
+    Given the value at "runtime.remoteUser" from the last response is known as "<RemoteUser>"
+    Then the value known as "<RemoteUser>" equals "dev"
+    # Probed from the image's /etc/passwd at build time (the Dockerfile
+    # creates dev with uid 1001).
+    Given the value at "runtime.remoteUserUid" from the last response is known as "<RemoteUserUid>"
+    Then the value known as "<RemoteUserUid>" equals "1001"
+    Given the value at "runtime.remoteUserHome" from the last response is known as "<RemoteUserHome>"
+    Then the value known as "<RemoteUserHome>" equals "/home/dev"
+    Given the value at "contains(runtime.capAdd, 'SYS_PTRACE')" from the last response is known as "<HasPtrace>"
+    Then the value known as "<HasPtrace>" equals "true"
+    Given the value at "runtime.init" from the last response is known as "<Init>"
+    Then the value known as "<Init>" equals "true"
+    Given the value at "runtime.shmSizeBytes" from the last response is known as "<ShmSize>"
+    Then the value known as "<ShmSize>" equals "268435456"
+    Given the value at "runtime.hostAliases[0].hostnames[0]" from the last response is known as "<HostAlias>"
+    Then the value known as "<HostAlias>" equals "fixture.internal"
+    Given the value at "length(runtime.ports)" from the last response is known as "<PortCount>"
+    Then the value known as "<PortCount>" equals "1"
+    Given the value at "runtime.ports[0].label" from the last response is known as "<PortLabel>"
+    Then the value known as "<PortLabel>" equals "Fixture web"
+    Given the value at "runtime.mounts[0].target" from the last response is known as "<MountTarget>"
+    Then the value known as "<MountTarget>" equals "${containerWorkspaceFolder}/node_modules"
+    Given the value at "runtime.resources.cpus" from the last response is known as "<Cpus>"
+    Then the value known as "<Cpus>" equals "2"
+
+    # Variables and env scripts: rewritten for the shell, nothing substituted.
+    Given the value at "length(variables[?kind == 'localEnv'])" from the last response is known as "<LocalEnvCount>"
+    Then the value known as "<LocalEnvCount>" equals "3"
+    Given the value at "variables[?name == 'FIXTURE_ORG'] | [0].default" from the last response is known as "<OrgDefault>"
+    Then the value known as "<OrgDefault>" equals "DeepSpaceCartel"
+    Given the value at "envScripts.containerEnv" from the last response is known as "<ContainerEnvScript>"
+    Then the value known as "<ContainerEnvScript>" contains "export PATH=\"${PATH}:/opt/fixture/bin\""
+    Given the value at "envScripts.remoteEnv" from the last response is known as "<RemoteEnvScript>"
+    Then the value known as "<RemoteEnvScript>" contains "export FIXTURE_ORG=\"${DEVCONTAINER_LOCALENV_FIXTURE_ORG:-DeepSpaceCartel}\""
+
+    # Docker-only settings without a pod equivalent are reported.
+    Given the value at "length(warnings)" from the last response is known as "<WarningCount>"
+    Then the value known as "<WarningCount>" equals "3"
 
     When I remove Docker Buildx Builder known as "<Builder>"
     Then the command exited with 0

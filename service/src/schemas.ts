@@ -144,6 +144,7 @@ export const BuildResponseSchema = Type.Object(
     registry: Type.String({ description: "Decomposed from `image` - kept separate since re-parsing it generically is ambiguous (registry ports, default-registry conventions, tag-vs-digest forms)." }),
     name: Type.String(),
     tag: Type.String(),
+    commit: Type.String({ description: "Full SHA of the commit the image was built from - check this out to get the working copy that matches the image." }),
     gitCloneLogId: Type.Optional(Type.String({ description: "Fetch the full `git clone` output via `GET /logs/{id}`." })),
     imageBuildLogId: Type.Optional(
       Type.String({ description: "Fetch the full `devcontainer build --push` output (and remote builder setup) via `GET /logs/{id}`." }),
@@ -238,6 +239,7 @@ export const DevcontainerResponseSchema = Type.Object(
     ),
     lifecycleScripts: Type.Object(
       {
+        initializeCommand: LifecycleScriptSchema,
         onCreateCommand: LifecycleScriptSchema,
         updateContentCommand: LifecycleScriptSchema,
         postCreateCommand: LifecycleScriptSchema,
@@ -246,7 +248,76 @@ export const DevcontainerResponseSchema = Type.Object(
       },
       {
         description:
-          "Each hook's commands rendered as one POSIX `sh` script (`null` if no entry sets it), with the Dev Containers CLI's semantics: entries run in order (base image, Features, devcontainer.json), a string runs via `/bin/sh -c`, an array as argv without a shell, an object's named commands in parallel; the first failure stops the script with that exit code. The caller chooses cwd (the workspace folder), user, and when to run each hook.",
+          "Each hook's commands rendered as one POSIX `sh` script (`null` if no entry sets it), with the Dev Containers CLI's semantics: entries run in order (base image, Features, devcontainer.json), a string runs via `/bin/sh -c`, an array as argv without a shell, an object's named commands in parallel; the first failure stops the script with that exit code. `initializeCommand` (from devcontainer.json; it runs on the host in Dev Containers) is meant to run first. devcontainer.json variables are shell references (see `variables`), expanded when the script runs. The caller chooses cwd (the workspace folder), user, and when to run each hook.",
+      },
+    ),
+    envScripts: Type.Object(
+      {
+        containerEnv: LifecycleScriptSchema,
+        remoteEnv: LifecycleScriptSchema,
+      },
+      {
+        description:
+          "`containerEnv` (runArgs `-e` first) and `remoteEnv` as POSIX `sh` `export K=\"...\"` lines, `null` when empty. Source containerEnv, then remoteEnv, before starting anything: values like `${PATH}:/opt/bin` expand against the container's real environment, the order the CLI resolves them in.",
+      },
+    ),
+    runtime: Type.Object(
+      {
+        remoteUser: Type.String({ description: "remoteUser, else containerUser, else the image's USER, else root." }),
+        remoteUserUid: Type.Union([Type.Number(), Type.Null()], {
+          description:
+            "remoteUser's uid, gid and home in the image's /etc/passwd, recorded at build time (devcontainer-builder >= 0.3.0) - enough to run a pod as that user directly (runAsUser/runAsGroup/fsGroup). Null when unknown (older image, or no shell in it).",
+        }),
+        remoteUserGid: Type.Union([Type.Number(), Type.Null()]),
+        remoteUserHome: Type.Union([Type.String(), Type.Null()]),
+        containerUser: Type.Union([Type.String(), Type.Null()]),
+        ports: Type.Array(
+          Type.Object({
+            port: Type.Number(),
+            label: Type.Optional(Type.String()),
+            protocol: Type.Optional(Type.String()),
+            onAutoForward: Type.Optional(Type.String()),
+          }),
+          { description: "Numeric forwardPorts with their portsAttributes; `host:port` entries are dropped with a warning." },
+        ),
+        mounts: Type.Array(
+          Type.Object({
+            kind: Type.Union([Type.Literal("volume"), Type.Literal("tmpfs")]),
+            source: Type.Optional(Type.String()),
+            target: Type.String(),
+            readOnly: Type.Boolean(),
+          }),
+          { description: "mounts plus runArgs --mount/-v/--tmpfs; bind mounts are dropped with a warning. `target` may contain workspace placeholders like ${containerWorkspaceFolder}." },
+        ),
+        capAdd: Type.Array(Type.String()),
+        privileged: Type.Boolean(),
+        init: Type.Boolean(),
+        seccompUnconfined: Type.Boolean(),
+        shmSizeBytes: Type.Union([Type.Number(), Type.Null()]),
+        hostname: Type.Union([Type.String(), Type.Null()]),
+        hostAliases: Type.Array(Type.Object({ ip: Type.String(), hostnames: Type.Array(Type.String()) })),
+        resources: Type.Object({
+          cpus: Type.Union([Type.Number(), Type.Null()]),
+          memoryBytes: Type.Union([Type.Number(), Type.Null()]),
+          storageBytes: Type.Union([Type.Number(), Type.Null()]),
+          gpu: Type.Unknown(),
+        }),
+      },
+      {
+        description:
+          "The merged configuration (plus the build's runArgs) translated into what a Kubernetes pod can express. Docker-only settings without a pod equivalent (--network, --device, bind mounts, ...) are dropped with a warning.",
+      },
+    ),
+    variables: Type.Array(
+      Type.Object({
+        kind: Type.Union([Type.Literal("localEnv"), Type.Literal("containerEnv"), Type.Literal("context")]),
+        name: Type.String(),
+        default: Type.Optional(Type.String()),
+        usedIn: Type.Array(Type.String()),
+      }),
+      {
+        description:
+          "Every devcontainer.json variable the image's labels use. Nothing is substituted here: in scripts, `${localEnv:X}` reads `$DEVCONTAINER_LOCALENV_X`, `${containerEnv:X}` reads `$X`, `${containerWorkspaceFolder}`/`${localWorkspaceFolder}` read `$DEVCONTAINER_WORKSPACE_FOLDER` (`…Basename` → `$DEVCONTAINER_WORKSPACE_FOLDER_BASENAME`), `${devcontainerId}` reads `$DEVCONTAINER_ID` - all set by the caller at runtime.",
       },
     ),
     vscode: Type.Object(

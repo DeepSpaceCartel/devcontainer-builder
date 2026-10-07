@@ -7,7 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- `GET /devcontainer` now returns everything a Kubernetes workspace needs
+  beyond lifecycle commands (see
+  [ADR-0012](docs/decisions/0012-dev-container-to-kubernetes-runtime-mapping.md)):
+  - `runtime`: remote/container user, forwarded ports, volume and tmpfs mounts, capabilities,
+    `privileged`, `init`, seccomp, `/dev/shm` size, hostname, host aliases and resources,
+    translated from the merged configuration plus `runArgs`;
+  - `envScripts`: `containerEnv`/`remoteEnv` as sourceable `export` scripts;
+  - `variables`: every `${localEnv:…}`, `${containerEnv:…}` and workspace variable, with defaults;
+  - `configuration.workspaceFolder`/`runArgs`/`initializeCommand` and
+    `lifecycleScripts.initializeCommand`.
+
+  Docker-only settings without a pod equivalent produce warnings.
+- `POST /build` writes a second image label, `com.deepspacecartel.devcontainer-builder.config`,
+  with the `devcontainer.json` properties the CLI's own label leaves out
+  (`workspaceFolder`, `runArgs`, `initializeCommand`) plus the remote user's uid/gid/home (read
+  from the image's `/etc/passwd` by a BuildKit stage, returned as `runtime.remoteUserUid`/`Gid`/`Home`),
+  and reports the built `commit` (full SHA).
+- `npm run test:unit`: fast, cluster-free tests of `GET /devcontainer`'s logic, also run in CI.
+
 ### Changed
+
+- **Variables are rewritten, not left as-is:** in rendered lifecycle scripts, `${…}` references
+  now become shell variables the caller sets at runtime (`${containerEnv:PATH}` → `${PATH}`,
+  `${localEnv:X}` → `${DEVCONTAINER_LOCALENV_X}`, …), instead of passing through unsubstituted
+  with a warning.
 
 - `templates/coder-kubernetes` now follows the repo's `devcontainer.json`
   beyond the image, via the provider's new `devcontainerbuilder_devcontainer`

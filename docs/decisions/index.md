@@ -30,3 +30,4 @@ change, never rewritten in place).
 | [0009](0009-event-oriented-structured-logging.md) | Event-oriented structured logging, and log/trace correlation via OpenTelemetry | accepted |
 | [0010](0010-command-output-capture.md) | Capture git/docker subprocess output to files instead of stdout | accepted |
 | [0011](0011-devcontainer-metadata-endpoint.md) | `GET /devcontainer`: merged Dev Container metadata, read from the image | accepted |
+| [0012](0012-dev-container-to-kubernetes-runtime-mapping.md) | Dev Container → Kubernetes runtime mapping | accepted |

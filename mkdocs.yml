@@ -48,6 +48,7 @@ nav:
       - 0009. Event-oriented structured logging, and log/trace correlation via OpenTelemetry: decisions/0009-event-oriented-structured-logging.md
       - 0010. Capture git/docker subprocess output to files instead of stdout: decisions/0010-command-output-capture.md
       - "0011. GET /devcontainer: merged Dev Container metadata, read from the image": decisions/0011-devcontainer-metadata-endpoint.md
+      - "0012. Dev Container → Kubernetes runtime mapping": decisions/0012-dev-container-to-kubernetes-runtime-mapping.md
 
 theme:
   name: material

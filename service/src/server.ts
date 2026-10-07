@@ -14,7 +14,7 @@ import {
   PlatformNotFoundError,
   type RegistryAuthOverride,
 } from "./registry-client.js";
-import { buildDevcontainerMetadata, InvalidMetadataLabelError, METADATA_LABEL } from "./devcontainer-metadata.js";
+import { buildDevcontainerMetadata, CONFIG_LABEL, InvalidMetadataLabelError, METADATA_LABEL } from "./devcontainer-metadata.js";
 import { readCommandLog, deleteCommandLog } from "./command-log.js";
 import {
   registry as metricsRegistry,
@@ -541,7 +541,7 @@ export async function buildApp(): Promise<FastifyInstance> {
           return { error: `${image} has no ${METADATA_LABEL} label - it wasn't built by the Dev Containers CLI` };
         }
 
-        const metadata = buildDevcontainerMetadata(label);
+        const metadata = buildDevcontainerMetadata(label, { configLabel: lookup.labels[CONFIG_LABEL], imageUser: lookup.user });
         devcontainerLookupsTotal.inc({ result: "found" });
         request.log.info({
           event: "devcontainer.lookup.completed",

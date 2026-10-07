@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { mkdtemp, rm, writeFile, chmod, cp, readFile } from "node:fs/promises";
+import { mkdtemp, mkdir, rm, writeFile, chmod, cp, readFile } from "node:fs/promises";
 import { tmpdir, homedir } from "node:os";
 import { join } from "node:path";
 import { trace, SpanStatusCode } from "@opentelemetry/api";
@@ -7,6 +7,19 @@ import type { BuildRequest, BuildResponse, RegistryCredentials } from "./types.j
 import { serviceConfig, type GitCredentialEntry, type RegistryMappingRule, type SshHostKeyPolicy } from "./config.js";
 import { logger } from "./logger.js";
 import { openCommandLog, closeCommandLog, type CommandLogKind } from "./command-log.js";
+import { CONFIG_LABEL, METADATA_LABEL, configLabelValue, parsePasswdEntry, remoteUserFor } from "./devcontainer-metadata.js";
+import { readImageConfig } from "./registry-client.js";
+
+async function readFirstExisting(paths: string[]): Promise<string | undefined> {
+  for (const path of paths) {
+    try {
+      return await readFile(path, "utf8");
+    } catch {
+      // try the next location
+    }
+  }
+  return undefined;
+}
 
 // git clone and `devcontainer build --push` are both plain child_process
 // subprocesses (see `run`/`runCapture` below) - OTel's auto-instrumentation
@@ -385,6 +398,60 @@ export async function buildDevcontainer(req: BuildRequest): Promise<BuildRespons
     const cacheTo = req.buildOptions?.cacheTo ?? serviceConfig.defaultBuildOptions.cacheTo;
     const mode = req.buildOptions?.mode ?? serviceConfig.defaultBuildOptions.mode;
 
+    // devcontainer.json properties the CLI's own devcontainer.metadata label
+    // leaves out (workspaceFolder, runArgs, initializeCommand), recorded in
+    // the image too - see CONFIG_LABEL / ADR-0012. Same discovery order as
+    // the CLI; an unparseable file gets no label (the CLI reports the real
+    // error itself). Added by a second, layer-less build on top of the
+    // pushed image rather than `devcontainer build --label`: the CLI only
+    // forwards --label on its image+Features path, never for a
+    // build.dockerfile config (checked in 0.89.0).
+    const configText = await readFirstExisting([
+      join(repoDir, ".devcontainer", "devcontainer.json"),
+      join(repoDir, ".devcontainer.json"),
+    ]);
+    const configLabel = configText !== undefined ? configLabelValue(configText) : undefined;
+
+    // The remote user's uid/gid/home, read from the pushed image's own
+    // /etc/passwd by a throwaway BuildKit stage (`getent`, else a grep for
+    // images without it) and exported as a single file - no layers come
+    // back to this service. Recorded in the config label so a pod can run
+    // as that user from the start (ADR-0012). Best effort: an image without
+    // a shell, or a user missing from /etc/passwd, just gets no account.
+    const probeRemoteUserAccount = async (env: NodeJS.ProcessEnv, logStream: NodeJS.WritableStream) => {
+      try {
+        const platform = platforms[0] ?? "linux/amd64";
+        const auth = req.registryCredentials ? { username: req.registryCredentials.username, password: req.registryCredentials.password } : undefined;
+        const pushed = await readImageConfig(registry, name, tag, platform, auth);
+        const metadata = pushed.found ? pushed.labels[METADATA_LABEL] : undefined;
+        if (!pushed.found || metadata === undefined) return {};
+        const user = remoteUserFor(metadata, pushed.user);
+
+        const probeDir = join(workDir, "user-probe");
+        const outDir = join(probeDir, "out");
+        await mkdir(outDir, { recursive: true });
+        await writeFile(
+          join(probeDir, "Dockerfile"),
+          [
+            `FROM ${image} AS probe`,
+            `ARG DEVCONTAINER_USER`,
+            `RUN (getent passwd "$DEVCONTAINER_USER" || grep -E "^$DEVCONTAINER_USER:|^[^:]*:[^:]*:$DEVCONTAINER_USER:" /etc/passwd) | head -n 1 > /devcontainer-user`,
+            `FROM scratch`,
+            `COPY --from=probe /devcontainer-user /`,
+            ``,
+          ].join("\n"),
+        );
+        const probeArgs = ["buildx", "build", "--build-arg", `DEVCONTAINER_USER=${user}`, "--platform", platform];
+        probeArgs.push("--output", `type=local,dest=${outDir}`, probeDir);
+        await run("docker", probeArgs, env, logStream);
+        const account = parsePasswdEntry(await readFile(join(outDir, "devcontainer-user"), "utf8"));
+        return account ? { remoteUserAccount: account } : {};
+      } catch (err) {
+        logStream.write(`remote user probe failed, continuing without it: ${err instanceof Error ? err.message : err}\n`);
+        return {};
+      }
+    };
+
     const runBuild = async (env: NodeJS.ProcessEnv, logStream: NodeJS.WritableStream) => {
       await ensureRemoteBuilder(env, logStream);
       const args = ["build", "--workspace-folder", repoDir, "--image-name", image, "--push"];
@@ -394,6 +461,17 @@ export async function buildDevcontainer(req: BuildRequest): Promise<BuildRespons
       if (cacheTo) args.push("--cache-to", cacheTo);
       if (mode) args.push("--buildkit", mode);
       await run("devcontainer", args, env, logStream);
+
+      if (configLabel !== undefined) {
+        const label = { ...JSON.parse(configLabel), ...(await probeRemoteUserAccount(env, logStream)) };
+        const labelDir = join(workDir, "config-label");
+        await mkdir(labelDir, { recursive: true });
+        await writeFile(join(labelDir, "Dockerfile"), `FROM ${image}\n`);
+        const labelArgs = ["buildx", "build", "--push", "--label", `${CONFIG_LABEL}=${JSON.stringify(label)}`, "-t", image];
+        if (platforms.length > 0) labelArgs.push("--platform", platforms.join(","));
+        labelArgs.push(labelDir);
+        await run("docker", labelArgs, env, logStream);
+      }
     };
 
     const { logId: imageBuildLogId } = await withSpan(
@@ -407,7 +485,7 @@ export async function buildDevcontainer(req: BuildRequest): Promise<BuildRespons
         ),
     );
 
-    return { image, registry, name, tag, gitCloneLogId, imageBuildLogId };
+    return { image, registry, name, tag, commit: headSha.trim(), gitCloneLogId, imageBuildLogId };
   } finally {
     await rm(workDir, { recursive: true, force: true });
   }

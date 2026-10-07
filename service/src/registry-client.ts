@@ -276,7 +276,9 @@ function matchesPlatform(p: ManifestDescriptor["platform"], platform: string): b
   return p?.os === os && p?.architecture === architecture && (variant === undefined || p?.variant === variant);
 }
 
-export type ImageConfigLookup = { found: false } | { found: true; digest?: string; labels: Record<string, string> };
+export type ImageConfigLookup =
+  | { found: false }
+  | { found: true; digest?: string; labels: Record<string, string>; user?: string };
 
 // Reads an image's config (for its labels) straight from the registry:
 // manifest by tag -> if it's a multi-platform index, the entry for
@@ -329,6 +331,7 @@ export async function readImageConfig(
   }
   const imageConfig = await readJson(blobRes, registry, `image config ${configDigest}`);
   const rawLabels = (imageConfig.config as { Labels?: unknown } | undefined)?.Labels;
+  const rawUser = (imageConfig.config as { User?: unknown } | undefined)?.User;
 
   const labels: Record<string, string> = {};
   if (typeof rawLabels === "object" && rawLabels !== null) {
@@ -336,5 +339,5 @@ export async function readImageConfig(
       if (typeof value === "string") labels[key] = value;
     }
   }
-  return { found: true, digest, labels };
+  return { found: true, digest, labels, ...(typeof rawUser === "string" && rawUser ? { user: rawUser } : {}) };
 }
