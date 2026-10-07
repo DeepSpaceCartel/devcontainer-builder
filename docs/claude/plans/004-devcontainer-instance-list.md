@@ -5,34 +5,7 @@ created: 2026-10-06
 
 # List support: `/build` returns a list of images → one Coder agent per image
 
-## Status (2026-10-07): Phase B step 1 (service) implemented; provider, module and template still open
-
-The service side is on `feat/multi-config-builds`, recorded in
-[ADR-0016](../../decisions/0016-one-image-per-devcontainer-json.md) (0013 was
-already taken). It differs from this plan in these ways:
-
-- **Additive, not breaking.** The 1.x API is stable
-  ([Versioning](../../project/versioning.md)), so the response keeps
-  `image`/`registry`/`name`/`tag`/`imageBuildLogId` and adds `images[]`. The
-  top-level fields describe `images[0]`: `main` when there is a root config,
-  else the first sub-folder item.
-- **400, not 422,** for an unknown `instances` id, an id collision, or an
-  empty id. The "no configs" case is also a 400, and only when there's no
-  `fallbackImage`. With one, the fallback is a single `main` item, used only
-  when no config exists at any of the three locations.
-- **ids** also drop leading and trailing `-`, so they stay valid in image
-  names and as DNS labels. Symlinked sub-folders are skipped.
-- **`instances: []`** fails the shape check. Use `null` or omit it for "all".
-- **Dry runs** count as `status="dry_run"` in `devcontainer_builder_builds_total`.
-- **New code:** discovery is in `service/src/config-discovery.ts`, and
-  `buildInstance()`/`devcontainerBuildArgs()` are in `build.ts`. BDD coverage
-  is in `devcontainer_config_discovery.feature`, with new seed repos
-  `devcontainer-json-{two-folders,root-and-folder,colliding-folders}`. Not run
-  yet, because it needs the cluster.
-
-Next: the provider's `images`/`instances`/dry run in `ModifyPlan` (step 2),
-then the module (step 3), the template (step 4), and the guide and README
-(step 5). Phase A (the template's list-of-one refactor) is still open.
+## Status (2026-10-06): planned
 
 ## Context
 

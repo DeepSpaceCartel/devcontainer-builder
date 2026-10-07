@@ -7,19 +7,15 @@ Feature: devcontainer.json discovery after clone
   recognizes three locations, in precedence order: .devcontainer/
   devcontainer.json, .devcontainer.json, and .devcontainer/<folder>/
   devcontainer.json (one sub-folder deep, <folder>'s name unspecified).
-  The service builds one image per config it finds (ADR-0016): the root
-  one as "main", each sub-folder one as an item named after its folder,
-  listed in the response's `images`. test-git-server seeds one real repo
-  per location, plus repos with several configs (see
-  charts/test-git-server/values.yaml's devcontainer-json-* entries) -
-  these are real builds, so "success" means the devcontainer CLI actually
-  found and used the config, not an inferred signal. Every seed repo in
-  this feature shares byte-identical devcontainer.json content - only its
-  location differs - so what matters is the list of items and their
-  names (image *content* correctness is image_resolution.feature's own,
-  separate concern). The service runs without a fallbackImage here, so a
-  repository with no config at all is an error rather than a fallback
-  build - except in the one scenario that turns it on.
+  test-git-server seeds one real repo per location (see
+  charts/test-git-server/values.yaml's devcontainer-json-* entries) - these
+  are real builds, so "success" means the devcontainer CLI actually found
+  and used the config, not an inferred signal. Every seed repo in this
+  feature shares byte-identical devcontainer.json content - only its
+  location differs - so the resulting image reference carries no
+  information this feature cares about; a 200 alone is already the full,
+  direct proof discovery found and used the config (image *content*
+  correctness is image_resolution.feature's own, separate concern).
 
   This deploys its own dedicated, trust-configured BuildKit instance
   (test-buildkit) and its own disposable in-cluster registry
@@ -139,7 +135,6 @@ Feature: devcontainer.json discovery after clone
       | --set              | buildkit.endpoint=<BuildkitEndpoint>                               |
       | --set              | extraEnv[0].name=ALLOW_INSECURE_GIT_PROTOCOLS                      |
       | --set-string       | extraEnv[0].value=true                                             |
-      | --set-string       | build.fallbackImage=                                               |
       | --wait             | True                                                               |
       | --timeout          | 120s                                                               |
     Then the command exited with 0
@@ -155,22 +150,11 @@ Feature: devcontainer.json discovery after clone
     And "<AppPod>" label "app.kubernetes.io/instance" is "devcontainer-builder"
 
   @client-request
-  Scenario Outline: A devcontainer.json at the root or the standard .devcontainer/ location is the main image
+  Scenario Outline: A devcontainer.json at the root or the standard .devcontainer/ location is found automatically
     When I send a POST request to Endpoint known as "<AppApi>" path "/build" with:
       | TYPE | KEY | VALUE                                                                             |
       | BODY |     | {"repository":"<GitUrl>/location/<repo>.git","image":{"registry":"<RegistryUrl>"}} |
     Then the response status is 200
-    Given the value at "join(',', images[*].id)" from the last response is known as "<Ids>"
-    Then the value known as "<Ids>" equals "main"
-    Given the value at "images[0].configPath" from the last response is known as "<ConfigPath>"
-    Then the value known as "<ConfigPath>" equals "<configPath>"
-    # The single-image fields every 1.x caller reads are images[0], named
-    # exactly as before this list existed.
-    Given the value at "name" from the last response is known as "<Name>"
-    Then the value known as "<Name>" equals "<repo>"
-    Given the value at "images[0].image" from the last response is known as "<ItemImage>"
-    Given the value at "image" from the last response is known as "<TopImage>"
-    Then the value known as "<TopImage>" equals "<ItemImage>"
 
     When I remove Docker Buildx Builder known as "<Builder>"
     Then the command exited with 0
@@ -186,168 +170,39 @@ Feature: devcontainer.json discovery after clone
     Then the command exited with 0
 
     Examples:
-      | repo                       | configPath                      |
-      | devcontainer-json-root     | .devcontainer.json              |
-      | devcontainer-json-standard | .devcontainer/devcontainer.json |
-
-  @client-request
-  Scenario Outline: A devcontainer.json in a sub-folder is built with --config, as an image named after the folder
-    # The devcontainer CLI only finds the root and standard locations on
-    # its own; a sub-folder config needs an explicit --config <path>,
-    # which the service passes for each one it finds (ADR-0016). Three
-    # folder names prove discovery isn't tied to a particular one. A
-    # sub-folder item's image name gets "-<id>" appended; with no root
-    # config, it's also the first item, so the single-image fields
-    # describe it.
-    When I send a POST request to Endpoint known as "<AppApi>" path "/build" with:
-      | TYPE | KEY | VALUE                                                                             |
-      | BODY |     | {"repository":"<GitUrl>/location/<repo>.git","image":{"registry":"<RegistryUrl>"}} |
-    Then the response status is 200
-    Given the value at "join(',', images[*].id)" from the last response is known as "<Ids>"
-    Then the value known as "<Ids>" equals "<folder>"
-    Given the value at "images[0].configPath" from the last response is known as "<ConfigPath>"
-    Then the value known as "<ConfigPath>" equals ".devcontainer/<folder>/devcontainer.json"
-    Given the value at "name" from the last response is known as "<Name>"
-    Then the value known as "<Name>" equals "<repo>-<folder>"
-
-    When I remove Docker Buildx Builder known as "<Builder>"
-    Then the command exited with 0
-    When I uninstall Helm Release known as "<Release>"
-    Then the command exited with 0
-    When I uninstall Helm Release known as "<GitServerRelease>"
-    Then the command exited with 0
-    When I uninstall Helm Release known as "<TestBuildkitRelease>"
-    Then the command exited with 0
-    When I uninstall Helm Release known as "<TestRegistryRelease>"
-    Then the command exited with 0
-    When I uninstall Helm Release "<NamespaceRelease>" with --wait --timeout 120s
-    Then the command exited with 0
-
-    Examples:
-      | repo                              | folder |
-      | devcontainer-json-subfolder-alpha | alpha  |
-      | devcontainer-json-subfolder-beta  | beta   |
-      | devcontainer-json-subfolder-gamma | gamma  |
-
-  @client-request
-  Scenario: Every devcontainer.json in a repository becomes its own pushed image
-    When I send a POST request to Endpoint known as "<AppApi>" path "/build" with:
-      | TYPE | KEY | VALUE                                                                                                      |
-      | BODY |     | {"repository":"<GitUrl>/location/devcontainer-json-root-and-folder.git","image":{"registry":"<RegistryUrl>"}} |
-    Then the response status is 200
-    Given the value at "join(',', images[*].id)" from the last response is known as "<Ids>"
-    Then the value known as "<Ids>" equals "main,tools"
-    Given the value at "name" from the last response is known as "<MainName>"
-    Then the value known as "<MainName>" equals "devcontainer-json-root-and-folder"
-    Given the value at "images[1].name" from the last response is known as "<ToolsName>"
-    Then the value known as "<ToolsName>" equals "devcontainer-json-root-and-folder-tools"
-    Given the value at "images[1].imageBuildLogId" from the last response is known as "<ToolsLogId>"
-    Given the value at "tag" from the last response is known as "<Tag>"
-
-    When I send a GET request to Endpoint known as "<AppApi>" path "/image" with:
-      | TYPE  | KEY      | VALUE                                   |
-      | QUERY | registry | <RegistryUrl>                           |
-      | QUERY | name     | devcontainer-json-root-and-folder-tools |
-      | QUERY | tag      | <Tag>                                   |
-    Then the response status is 200:
-      | SOURCE | CONDITION | VALUE           |
-      | BODY   | contains  | "exists":true   |
-    When I send a GET request to Endpoint known as "<AppApi>" path "/logs/<ToolsLogId>"
-    Then the response status is 200:
-      | SOURCE | CONDITION | VALUE                                                 |
-      | BODY   | contains  | building "tools" from .devcontainer/tools/devcontainer.json |
-
-    When I remove Docker Buildx Builder known as "<Builder>"
-    Then the command exited with 0
-    When I uninstall Helm Release known as "<Release>"
-    Then the command exited with 0
-    When I uninstall Helm Release known as "<GitServerRelease>"
-    Then the command exited with 0
-    When I uninstall Helm Release known as "<TestBuildkitRelease>"
-    Then the command exited with 0
-    When I uninstall Helm Release known as "<TestRegistryRelease>"
-    Then the command exited with 0
-    When I uninstall Helm Release "<NamespaceRelease>" with --wait --timeout 120s
-    Then the command exited with 0
-
-  @client-request
-  Scenario: Sub-folder items without a root config are sorted by id, and instances picks some
-    When I send a POST request to Endpoint known as "<AppApi>" path "/build" with:
-      | TYPE | KEY | VALUE                                                                                                                         |
-      | BODY |     | {"repository":"<GitUrl>/location/devcontainer-json-two-folders.git","image":{"registry":"<RegistryUrl>"},"instances":["frontend"]} |
-    Then the response status is 200
-    Given the value at "join(',', images[*].id)" from the last response is known as "<Ids>"
-    Then the value known as "<Ids>" equals "frontend"
-    Given the value at "name" from the last response is known as "<Name>"
-    Then the value known as "<Name>" equals "devcontainer-json-two-folders-frontend"
-
-    When I send a POST request to Endpoint known as "<AppApi>" path "/build" with:
-      | TYPE | KEY | VALUE                                                                                                          |
-      | BODY |     | {"repository":"<GitUrl>/location/devcontainer-json-two-folders.git","image":{"registry":"<RegistryUrl>"},"dryRun":true} |
-    Then the response status is 200
-    Given the value at "join(',', images[*].id)" from the last response is known as "<AllIds>"
-    Then the value known as "<AllIds>" equals "backend,frontend"
-
-    When I remove Docker Buildx Builder known as "<Builder>"
-    Then the command exited with 0
-    When I uninstall Helm Release known as "<Release>"
-    Then the command exited with 0
-    When I uninstall Helm Release known as "<GitServerRelease>"
-    Then the command exited with 0
-    When I uninstall Helm Release known as "<TestBuildkitRelease>"
-    Then the command exited with 0
-    When I uninstall Helm Release known as "<TestRegistryRelease>"
-    Then the command exited with 0
-    When I uninstall Helm Release "<NamespaceRelease>" with --wait --timeout 120s
-    Then the command exited with 0
-
-  @client-request
-  Scenario: A dry run returns the list with its image names, and pushes nothing
-    When I send a POST request to Endpoint known as "<AppApi>" path "/build" with:
-      | TYPE | KEY | VALUE                                                                                                                      |
-      | BODY |     | {"repository":"<GitUrl>/location/devcontainer-json-root-and-folder.git","image":{"registry":"<RegistryUrl>"},"dryRun":true} |
-    Then the response status is 200:
-      | SOURCE | CONDITION | VALUE           |
-      | BODY   | contains  | "id":"main"     |
-      | BODY   | contains  | "id":"tools"    |
-    Given the value at "images[1].image" from the last response is known as "<ToolsImage>"
-    Then the value known as "<ToolsImage>" contains "<RegistryUrl>/devcontainer-json-root-and-folder-tools:sha-"
-    Given the value at "tag" from the last response is known as "<Tag>"
-    Given the value at "imageBuildLogId || images[0].imageBuildLogId || images[1].imageBuildLogId || 'none'" from the last response is known as "<BuildLogId>"
-    Then the value known as "<BuildLogId>" equals "none"
-
-    When I send a GET request to Endpoint known as "<AppApi>" path "/image" with:
-      | TYPE  | KEY      | VALUE                                   |
-      | QUERY | registry | <RegistryUrl>                           |
-      | QUERY | name     | devcontainer-json-root-and-folder-tools |
-      | QUERY | tag      | <Tag>                                   |
-    Then the response status is 200:
-      | SOURCE | CONDITION | VALUE            |
-      | BODY   | contains  | "exists":false   |
-
-    When I remove Docker Buildx Builder known as "<Builder>"
-    Then the command exited with 0
-    When I uninstall Helm Release known as "<Release>"
-    Then the command exited with 0
-    When I uninstall Helm Release known as "<GitServerRelease>"
-    Then the command exited with 0
-    When I uninstall Helm Release known as "<TestBuildkitRelease>"
-    Then the command exited with 0
-    When I uninstall Helm Release known as "<TestRegistryRelease>"
-    Then the command exited with 0
-    When I uninstall Helm Release "<NamespaceRelease>" with --wait --timeout 120s
-    Then the command exited with 0
+      | repo                       |
+      | devcontainer-json-root     |
+      | devcontainer-json-standard |
 
   @negative @client-request
-  Scenario Outline: A list the service can't build is a 400 before anything is built
-    # The Background deploys without a fallbackImage, so a repository with
-    # no devcontainer.json anywhere is a request problem too.
+  Scenario Outline: A devcontainer.json in a sub-folder is not found automatically - a known gap, not this service's own logic
+    # The spec itself only says a sub-folder config MAY exist - it
+    # deliberately leaves <folder>'s name unspecified, since a tool can't
+    # know which of possibly several sub-folder configs to pick without
+    # being told explicitly (the spec: "consider providing a mechanism for
+    # users to select one when appropriate"). The devcontainer CLI reflects
+    # exactly that: it auto-discovers only the root and standard
+    # .devcontainer/devcontainer.json locations - a sub-folder config needs
+    # an explicit --config <path>, which build.ts does not currently pass
+    # (the /build request has no field for it). Three sub-folder names
+    # prove this fails the same way regardless of which folder name is
+    # used - it's not a naming mismatch, the location itself isn't checked.
+    # The real "not found" text never reaches the HTTP response body
+    # (which only ever gets "... exited with code 1") - it's captured to a
+    # file instead (ADR-0010), fetched here via the failure response's own
+    # logId, not a pod-log poll.
     When I send a POST request to Endpoint known as "<AppApi>" path "/build" with:
-      | TYPE | KEY | VALUE                                                                                       |
-      | BODY |     | {"repository":"<GitUrl>/location/<repo>.git","image":{"registry":"<RegistryUrl>"}<extra>} |
-    Then the response status is 400:
-      | SOURCE | CONDITION | VALUE   |
-      | BODY   | contains  | <error> |
+      | TYPE | KEY | VALUE                                                                             |
+      | BODY |     | {"repository":"<GitUrl>/location/<repo>.git","image":{"registry":"<RegistryUrl>"}} |
+    Then the response status is 500:
+      | SOURCE | CONDITION | VALUE               |
+      | BODY   | contains  | exited with code 1  |
+    Given the value at "logId" from the last response is known as "<LogId>"
+    When I send a GET request to Endpoint known as "<AppApi>" path "/logs/<LogId>"
+    Then the response status is 200:
+      | SOURCE | CONDITION | VALUE                |
+      | BODY   | contains  | Dev container config |
+      | BODY   | contains  | not found             |
 
     When I remove Docker Buildx Builder known as "<Builder>"
     Then the command exited with 0
@@ -363,28 +218,32 @@ Feature: devcontainer.json discovery after clone
     Then the command exited with 0
 
     Examples:
-      | repo                                | extra                 | error                                                                  |
-      | devcontainer-json-root-and-folder   | ,"instances":["nope"] | unknown instance id(s) \\"nope\\" - this repository has: \\"main\\", \\"tools\\" |
-      | devcontainer-json-colliding-folders |                       | map to the same instance id: \\"back-end\\"                              |
-      | devcontainer-json-missing           |                       | no devcontainer.json found in repository                               |
+      | repo                             |
+      | devcontainer-json-subfolder-alpha |
+      | devcontainer-json-subfolder-beta  |
+      | devcontainer-json-subfolder-gamma |
 
-  @client-request
-  Scenario: With a fallbackImage, a repository without any devcontainer.json is a single main item
-    When I upgrade Helm Release known as "<Release>" with:
-      | OPTION         | VALUE                                                         |
-      | --reuse-values | True                                                          |
-      | --set          | build.fallbackImage=mcr.microsoft.com/devcontainers/base:alpine-3.20 |
-      | --wait         | True                                                          |
-      | --timeout      | 120s                                                          |
-    Then the command exited with 0
+  @negative @client-request
+  Scenario: A repository with no devcontainer.json at any location fails clearly
+    # Distinct from the sub-folder cases above: this repo has no config at
+    # ANY of the three locations, not just an unchecked one - same CLI
+    # error text either way, since "checked here, found nothing" and
+    # "never checked here" are indistinguishable from the CLI's own output.
+    # The distinction that matters is at the fixture level (see
+    # devcontainer-json-missing in charts/test-git-server/values.yaml,
+    # noConfig: true), proving this failure mode is reachable at all.
     When I send a POST request to Endpoint known as "<AppApi>" path "/build" with:
-      | TYPE | KEY | VALUE                                                                                                              |
-      | BODY |     | {"repository":"<GitUrl>/location/devcontainer-json-missing.git","image":{"registry":"<RegistryUrl>"},"dryRun":true} |
-    Then the response status is 200
-    Given the value at "join(',', images[*].id)" from the last response is known as "<Ids>"
-    Then the value known as "<Ids>" equals "main"
-    Given the value at "images[0].configPath" from the last response is known as "<ConfigPath>"
-    Then the value known as "<ConfigPath>" equals ".devcontainer/devcontainer.json"
+      | TYPE | KEY | VALUE                                                                                                |
+      | BODY |     | {"repository":"<GitUrl>/location/devcontainer-json-missing.git","image":{"registry":"<RegistryUrl>"}} |
+    Then the response status is 500:
+      | SOURCE | CONDITION | VALUE              |
+      | BODY   | contains  | exited with code 1 |
+    Given the value at "logId" from the last response is known as "<LogId>"
+    When I send a GET request to Endpoint known as "<AppApi>" path "/logs/<LogId>"
+    Then the response status is 200:
+      | SOURCE | CONDITION | VALUE                |
+      | BODY   | contains  | Dev container config |
+      | BODY   | contains  | not found             |
 
     When I remove Docker Buildx Builder known as "<Builder>"
     Then the command exited with 0

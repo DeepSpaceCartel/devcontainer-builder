@@ -2,8 +2,7 @@ import { mkdtemp, mkdir, rm, writeFile, chmod, cp, readFile } from "node:fs/prom
 import { tmpdir, homedir } from "node:os";
 import { join } from "node:path";
 import { trace, SpanStatusCode } from "@opentelemetry/api";
-import type { BuildImage, BuildRequest, BuildResponse, RegistryCredentials } from "./types.js";
-import { MAIN_INSTANCE_ID, discoverConfigs, isRootConfigPath, instanceImageName, selectInstances } from "./config-discovery.js";
+import type { BuildRequest, BuildResponse, RegistryCredentials } from "./types.js";
 import { serviceConfig, type GitCredentialEntry, type RegistryMappingRule, type SshHostKeyPolicy } from "./config.js";
 import { logger } from "./logger.js";
 import { openCommandLog, closeCommandLog, type CommandLogKind } from "./command-log.js";
@@ -18,6 +17,17 @@ export { BuildRequestError };
 
 export function fallbackConfig(image: string): string {
   return JSON.stringify({ image }, null, 2) + "\n";
+}
+
+async function readFirstExisting(paths: string[]): Promise<string | undefined> {
+  for (const path of paths) {
+    try {
+      return await readFile(path, "utf8");
+    } catch {
+      // try the next location
+    }
+  }
+  return undefined;
 }
 
 // git clone and `devcontainer build --push` are both plain child_process
@@ -366,201 +376,119 @@ export async function buildDevcontainer(req: BuildRequest): Promise<BuildRespons
         `no registry resolved for repository ${repositoryForLogs}: provide image.registry or configure a matching registry mapping rule`,
       );
     }
+    const image = `${registry}/${name}:${tag}`;
 
-    // One image per devcontainer.json in the clone (ADR-0016): the root
-    // config as `main`, each `.devcontainer/<folder>/devcontainer.json` as
-    // an item of its own.
-    let discovered = await discoverConfigs(repoDir);
-    // No devcontainer.json anywhere: build the configured fallback image
+    const platforms = req.platforms ?? serviceConfig.defaultPlatforms;
+    const noCache = req.buildOptions?.noCache ?? serviceConfig.defaultBuildOptions.noCache;
+    const cacheFrom = req.buildOptions?.cacheFrom ?? serviceConfig.defaultBuildOptions.cacheFrom;
+    const cacheTo = req.buildOptions?.cacheTo ?? serviceConfig.defaultBuildOptions.cacheTo;
+    const mode = req.buildOptions?.mode ?? serviceConfig.defaultBuildOptions.mode;
+
+    // devcontainer.json properties the CLI's own devcontainer.metadata label
+    // leaves out (workspaceFolder, runArgs, initializeCommand), recorded in
+    // the image too - see CONFIG_LABEL / ADR-0012. Same discovery order as
+    // the CLI; an unparseable file gets no label (the CLI reports the real
+    // error itself). Added by a second, layer-less build on top of the
+    // pushed image rather than `devcontainer build --label`: the CLI only
+    // forwards --label on its image+Features path, never for a
+    // build.dockerfile config (checked in 0.89.0).
+    let configText = await readFirstExisting([
+      join(repoDir, ".devcontainer", "devcontainer.json"),
+      join(repoDir, ".devcontainer.json"),
+    ]);
+    // No devcontainer.json at all: build the configured fallback image
     // instead of failing (ADR-0013), from a config written into this
     // scratch clone only - the repository never sees it, so a workspace
     // can tell the image came from the fallback and offer to add one.
-    if (discovered.length === 0) {
-      if (!serviceConfig.fallbackImage) {
-        throw new BuildRequestError(
-          `no devcontainer.json found in repository ${repositoryForLogs} (looked for .devcontainer/devcontainer.json, .devcontainer.json and .devcontainer/<folder>/devcontainer.json)`,
-        );
-      }
+    if (configText === undefined && serviceConfig.fallbackImage) {
+      configText = fallbackConfig(serviceConfig.fallbackImage);
       await mkdir(join(repoDir, ".devcontainer"), { recursive: true });
-      await writeFile(join(repoDir, ".devcontainer", "devcontainer.json"), fallbackConfig(serviceConfig.fallbackImage));
+      await writeFile(join(repoDir, ".devcontainer", "devcontainer.json"), configText);
       logger.info({ event: "build.config.fallback", "git.repository.url": repositoryForLogs, "container.image.name": serviceConfig.fallbackImage });
-      discovered = [{ id: MAIN_INSTANCE_ID, configPath: ".devcontainer/devcontainer.json" }];
     }
+    const configLabel = configText !== undefined ? configLabelValue(configText) : undefined;
 
-    const images: BuildImage[] = selectInstances(discovered, req.instances).map(({ id, configPath }) => {
-      const itemName = instanceImageName(name, id);
-      return { id, configPath, image: `${registry}/${itemName}:${tag}`, registry, name: itemName, tag };
-    });
+    // The remote user's uid/gid/home, read from the pushed image's own
+    // /etc/passwd by a throwaway BuildKit stage (`getent`, else a grep for
+    // images without it) and exported as a single file - no layers come
+    // back to this service. Recorded in the config label so a pod can run
+    // as that user from the start (ADR-0012). Best effort: an image without
+    // a shell, or a user missing from /etc/passwd, just gets no account.
+    const probeRemoteUserAccount = async (env: NodeJS.ProcessEnv, logStream: NodeJS.WritableStream, signal: AbortSignal) => {
+      try {
+        const platform = platforms[0] ?? "linux/amd64";
+        const auth = req.registryCredentials ? { username: req.registryCredentials.username, password: req.registryCredentials.password } : undefined;
+        const pushed = await readImageConfig(registry, name, tag, platform, auth);
+        const metadata = pushed.found ? pushed.labels[METADATA_LABEL] : undefined;
+        if (!pushed.found || metadata === undefined) return {};
+        const user = remoteUserFor(metadata, pushed.user);
 
-    if (!req.dryRun) {
-      const options: BuildInstanceOptions = {
-        workDir,
-        repoDir,
-        platforms: req.platforms ?? serviceConfig.defaultPlatforms,
-        noCache: req.buildOptions?.noCache ?? serviceConfig.defaultBuildOptions.noCache,
-        cacheFrom: req.buildOptions?.cacheFrom ?? serviceConfig.defaultBuildOptions.cacheFrom,
-        cacheTo: req.buildOptions?.cacheTo ?? serviceConfig.defaultBuildOptions.cacheTo,
-        mode: req.buildOptions?.mode ?? serviceConfig.defaultBuildOptions.mode,
-        registryCredentials: req.registryCredentials,
-      };
-      // One after another: they share the remote builder, and usually
-      // base layers, and each has its own log and timeout.
-      const pushed: string[] = [];
-      for (const item of images) {
-        try {
-          item.imageBuildLogId = await buildInstance(item, options);
-        } catch (err) {
-          if (images.length > 1 && err instanceof Error) {
-            err.message += ` (image "${item.id}" from ${item.configPath}; already pushed: ${pushed.length > 0 ? pushed.join(", ") : "none"})`;
-          }
-          throw err;
-        }
-        pushed.push(item.image);
+        const probeDir = join(workDir, "user-probe");
+        const outDir = join(probeDir, "out");
+        await mkdir(outDir, { recursive: true });
+        await writeFile(
+          join(probeDir, "Dockerfile"),
+          [
+            `FROM ${image} AS probe`,
+            `ARG DEVCONTAINER_USER`,
+            `RUN (getent passwd "$DEVCONTAINER_USER" || grep -E "^$DEVCONTAINER_USER:|^[^:]*:[^:]*:$DEVCONTAINER_USER:" /etc/passwd) | head -n 1 > /devcontainer-user`,
+            `FROM scratch`,
+            `COPY --from=probe /devcontainer-user /`,
+            ``,
+          ].join("\n"),
+        );
+        const probeArgs = ["buildx", "build", "--build-arg", `DEVCONTAINER_USER=${user}`, "--platform", platform];
+        probeArgs.push("--output", `type=local,dest=${outDir}`, probeDir);
+        await run("docker", probeArgs, { env, logStream, signal });
+        const account = parsePasswdEntry(await readFile(join(outDir, "devcontainer-user"), "utf8"));
+        return account ? { remoteUserAccount: account } : {};
+      } catch (err) {
+        logStream.write(`remote user probe failed, continuing without it: ${err instanceof Error ? err.message : err}\n`);
+        return {};
       }
-    }
-
-    const first = images[0]!;
-    return {
-      image: first.image,
-      registry,
-      name: first.name,
-      tag,
-      branch,
-      commit: headSha.trim(),
-      gitCloneLogId,
-      ...(first.imageBuildLogId !== undefined ? { imageBuildLogId: first.imageBuildLogId } : {}),
-      images,
     };
+
+    const runBuild = async (baseEnv: NodeJS.ProcessEnv, logStream: NodeJS.WritableStream, signal: AbortSignal) => {
+      const env = builderEnv(baseEnv);
+      const args = ["build", "--workspace-folder", repoDir, "--image-name", image, "--push"];
+      if (platforms.length > 0) args.push("--platform", platforms.join(","));
+      if (noCache) args.push("--no-cache");
+      if (cacheFrom) args.push("--cache-from", cacheFrom);
+      if (cacheTo) args.push("--cache-to", cacheTo);
+      if (mode) args.push("--buildkit", mode);
+      await run("devcontainer", args, { env, logStream, signal });
+
+      if (configLabel !== undefined) {
+        const label = { ...JSON.parse(configLabel), ...(await probeRemoteUserAccount(env, logStream, signal)) };
+        const labelDir = join(workDir, "config-label");
+        await mkdir(labelDir, { recursive: true });
+        await writeFile(join(labelDir, "Dockerfile"), `FROM ${image}\n`);
+        const labelArgs = ["buildx", "build", "--push", "--label", `${CONFIG_LABEL}=${JSON.stringify(label)}`, "-t", image];
+        if (platforms.length > 0) labelArgs.push("--platform", platforms.join(","));
+        labelArgs.push(labelDir);
+        await run("docker", labelArgs, { env, logStream, signal });
+      }
+    };
+
+    const buildTimeout = phaseTimeout("image build and push", serviceConfig.buildTimeoutSeconds);
+    const { logId: imageBuildLogId } = await withSpan(
+      "image.build_push",
+      { "image.registry": registry, "image.name": name, "image.tag": tag },
+      () =>
+        withCommandLog("docker", "image.build_push.output_captured", async (logStream) => {
+          const { signal } = buildTimeout;
+          // Before withRegistryAuthEnv copies the ambient DOCKER_CONFIG, so
+          // the copy already has the builder in it.
+          await ensureRemoteBuilder(logStream, signal);
+          logStream.write(`using remote buildx builder ${serviceConfig.buildxBuilderName}\n`);
+          await (req.registryCredentials
+            ? withRegistryAuthEnv(req.registryCredentials, (env) => runBuild(env, logStream, signal))
+            : runBuild(process.env, logStream, signal));
+        }),
+    ).finally(buildTimeout.dispose);
+
+    return { image, registry, name, tag, branch, commit: headSha.trim(), gitCloneLogId, imageBuildLogId };
   } finally {
     await rm(workDir, { recursive: true, force: true });
   }
-}
-
-interface BuildInstanceOptions {
-  workDir: string;
-  repoDir: string;
-  platforms: string[];
-  noCache: boolean;
-  cacheFrom: string | null | undefined;
-  cacheTo: string | null | undefined;
-  mode: "auto" | "never" | undefined;
-  registryCredentials: RegistryCredentials | undefined;
-}
-
-export function devcontainerBuildArgs(
-  repoDir: string,
-  configPath: string,
-  image: string,
-  opts: Pick<BuildInstanceOptions, "platforms" | "noCache" | "cacheFrom" | "cacheTo" | "mode">,
-): string[] {
-  const args = ["build", "--workspace-folder", repoDir];
-  // The CLI only finds the root config on its own; a sub-folder one
-  // needs naming. A root config keeps exactly the argv it always had.
-  if (!isRootConfigPath(configPath)) args.push("--config", join(repoDir, configPath));
-  args.push("--image-name", image, "--push");
-  if (opts.platforms.length > 0) args.push("--platform", opts.platforms.join(","));
-  if (opts.noCache) args.push("--no-cache");
-  if (opts.cacheFrom) args.push("--cache-from", opts.cacheFrom);
-  if (opts.cacheTo) args.push("--cache-to", opts.cacheTo);
-  if (opts.mode) args.push("--buildkit", opts.mode);
-  return args;
-}
-
-// `devcontainer build --push` for one item, then the config label on top.
-// Returns the id of its captured output.
-async function buildInstance(item: BuildImage, opts: BuildInstanceOptions): Promise<string> {
-  const { workDir, repoDir, platforms } = opts;
-  const { id, configPath, image, registry, name, tag } = item;
-  const configFile = join(repoDir, configPath);
-
-  // devcontainer.json properties the CLI's own devcontainer.metadata label
-  // leaves out (workspaceFolder, runArgs, initializeCommand), recorded in
-  // the image too - see CONFIG_LABEL / ADR-0012. Read from this item's own
-  // file; an unparseable one gets no label (the CLI reports the real error
-  // itself). Added by a second, layer-less build on top of the pushed
-  // image rather than `devcontainer build --label`: the CLI only forwards
-  // --label on its image+Features path, never for a build.dockerfile
-  // config (checked in 0.89.0).
-  let configText: string | undefined;
-  try {
-    configText = await readFile(configFile, "utf8");
-  } catch {
-    configText = undefined;
-  }
-  const configLabel = configText !== undefined ? configLabelValue(configText) : undefined;
-
-  // The remote user's uid/gid/home, read from the pushed image's own
-  // /etc/passwd by a throwaway BuildKit stage (`getent`, else a grep for
-  // images without it) and exported as a single file - no layers come
-  // back to this service. Recorded in the config label so a pod can run
-  // as that user from the start (ADR-0012). Best effort: an image without
-  // a shell, or a user missing from /etc/passwd, just gets no account.
-  const probeRemoteUserAccount = async (env: NodeJS.ProcessEnv, logStream: NodeJS.WritableStream, signal: AbortSignal) => {
-    try {
-      const platform = platforms[0] ?? "linux/amd64";
-      const auth = opts.registryCredentials ? { username: opts.registryCredentials.username, password: opts.registryCredentials.password } : undefined;
-      const pushed = await readImageConfig(registry, name, tag, platform, auth);
-      const metadata = pushed.found ? pushed.labels[METADATA_LABEL] : undefined;
-      if (!pushed.found || metadata === undefined) return {};
-      const user = remoteUserFor(metadata, pushed.user);
-
-      const probeDir = join(workDir, "user-probe", id);
-      const outDir = join(probeDir, "out");
-      await mkdir(outDir, { recursive: true });
-      await writeFile(
-        join(probeDir, "Dockerfile"),
-        [
-          `FROM ${image} AS probe`,
-          `ARG DEVCONTAINER_USER`,
-          `RUN (getent passwd "$DEVCONTAINER_USER" || grep -E "^$DEVCONTAINER_USER:|^[^:]*:[^:]*:$DEVCONTAINER_USER:" /etc/passwd) | head -n 1 > /devcontainer-user`,
-          `FROM scratch`,
-          `COPY --from=probe /devcontainer-user /`,
-          ``,
-        ].join("\n"),
-      );
-      const probeArgs = ["buildx", "build", "--build-arg", `DEVCONTAINER_USER=${user}`, "--platform", platform];
-      probeArgs.push("--output", `type=local,dest=${outDir}`, probeDir);
-      await run("docker", probeArgs, { env, logStream, signal });
-      const account = parsePasswdEntry(await readFile(join(outDir, "devcontainer-user"), "utf8"));
-      return account ? { remoteUserAccount: account } : {};
-    } catch (err) {
-      logStream.write(`remote user probe failed, continuing without it: ${err instanceof Error ? err.message : err}\n`);
-      return {};
-    }
-  };
-
-  const runBuild = async (baseEnv: NodeJS.ProcessEnv, logStream: NodeJS.WritableStream, signal: AbortSignal) => {
-    const env = builderEnv(baseEnv);
-    await run("devcontainer", devcontainerBuildArgs(repoDir, configPath, image, opts), { env, logStream, signal });
-
-    if (configLabel !== undefined) {
-      const label = { ...JSON.parse(configLabel), ...(await probeRemoteUserAccount(env, logStream, signal)) };
-      const labelDir = join(workDir, "config-label", id);
-      await mkdir(labelDir, { recursive: true });
-      await writeFile(join(labelDir, "Dockerfile"), `FROM ${image}\n`);
-      const labelArgs = ["buildx", "build", "--push", "--label", `${CONFIG_LABEL}=${JSON.stringify(label)}`, "-t", image];
-      if (platforms.length > 0) labelArgs.push("--platform", platforms.join(","));
-      labelArgs.push(labelDir);
-      await run("docker", labelArgs, { env, logStream, signal });
-    }
-  };
-
-  const buildTimeout = phaseTimeout("image build and push", serviceConfig.buildTimeoutSeconds);
-  const { logId } = await withSpan(
-    "image.build_push",
-    { "image.registry": registry, "image.name": name, "image.tag": tag, "devcontainer.instance.id": id, "devcontainer.config.path": configPath },
-    () =>
-      withCommandLog("docker", "image.build_push.output_captured", async (logStream) => {
-        const { signal } = buildTimeout;
-        // Before withRegistryAuthEnv copies the ambient DOCKER_CONFIG, so
-        // the copy already has the builder in it.
-        await ensureRemoteBuilder(logStream, signal);
-        logStream.write(`using remote buildx builder ${serviceConfig.buildxBuilderName}\n`);
-        logStream.write(`building "${id}" from ${configPath}\n`);
-        await (opts.registryCredentials
-          ? withRegistryAuthEnv(opts.registryCredentials, (env) => runBuild(env, logStream, signal))
-          : runBuild(process.env, logStream, signal));
-      }),
-  ).finally(buildTimeout.dispose);
-  return logId;
 }
