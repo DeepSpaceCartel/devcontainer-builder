@@ -24,7 +24,7 @@ shows the result:
 | Status bar | Meaning | Click |
 |---|---|---|
 | `a1b2c3d` | The image is up to date with the branch's configuration. | Check now |
-| **Rebuild available** | The configuration changed on `origin/<branch>` since the image was built. The tooltip lists the files. | Rebuild / Later / Ignore This Commit |
+| **Rebuild available** | The configuration changed on `origin/<branch>` since the image was built. The tooltip lists the files, and any you changed here but haven't pushed. If the image's commit is no longer on the remote (force-pushed), it says so instead of listing files. | Rebuild / Later / Ignore This Commit |
 | **Push Dev Container changes** | You changed the configuration here, but it isn't on `origin/<branch>` yet, so a rebuild wouldn't include it. | Source Control view |
 | **Add Dev Container config** | The repository has no `devcontainer.json`; the workspace runs on a generic image. | Add configuration (below) |
 | `?` | It couldn't check, e.g. the fetch failed. The tooltip says why. | Check again |
@@ -40,6 +40,9 @@ When it becomes **Rebuild available**, a notification offers:
 - **Later** shows no more notifications until the window reloads.
 - **Ignore This Commit** shows no more notifications until `origin/<branch>`
   moves again.
+
+If you also have Dev Container changes that aren't pushed, the notification
+says so: a rebuild wouldn't include them, so push them first.
 
 Clicking **Rebuild available** brings the choices back, and **Dev Container:
 Rebuild Workspace** in the Command Palette rebuilds at any time.
@@ -120,8 +123,10 @@ window that connects before that's done picks up the rest after
   workspace can't honor (bind mounts, `--network`, …) is listed as a warning
   in the build log and counted in the dashboard's **Dev Container warnings**
   item. See [devcontainer.json support](../reference/devcontainer-json.md).
-- **No status bar item from the extension.** VS Code doesn't run it in
-  Restricted Mode: trust the folder (**Workspaces: Manage Workspace Trust**).
+- **The status bar shows a shield and "Dev Container".** The folder isn't
+  trusted (Restricted Mode), and checking runs git in it, so the extension
+  waits. Click it, or **Workspaces: Manage Workspace Trust**, to trust the
+  folder; checks start straight away.
 - **The workspace stays Pending.** The repository's `hostRequirements` reserve
   CPU and memory, and no node has that much free. The dashboard's
   **Resources** item shows what was requested; ask your platform admin.

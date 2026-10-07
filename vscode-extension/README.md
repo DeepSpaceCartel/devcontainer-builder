@@ -1,4 +1,4 @@
-# Dev Containers for Coder
+# Dev Containers for Coder in K8S
 
 Dev Containers' everyday flow for Coder workspaces built by
 [devcontainer-builder](https://github.com/DeepSpaceCartel/devcontainer-builder):
@@ -24,11 +24,15 @@ The Coder counterpart of *Clone Repository in Container Volume…*.
 **Logging in:**
 - If you've run `coder login` with the Coder CLI, that session is used.
 - Otherwise the command asks once for your Coder URL and a session token from its
-  `/cli-auth` page, and keeps the token in VS Code's secret storage.
+  `/cli-auth` page, and keeps the token in VS Code's secret storage, for that deployment
+  only.
 
-Settings:
+Settings (user settings only, so a folder you open can't change them):
 - `devcontainerBuilder.coderUrl` picks the deployment;
 - `devcontainerBuilder.template` picks the template when several ask for a repository.
+
+Paste repository URLs without credentials (`https://github.com/owner/repo`, not
+`https://user:token@…`): private repositories use your git account linked in Coder.
 
 Install it locally from the Extensions view (**Dev Containers for Coder in K8S**). It's on the
 [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=deepspacecartel.devcontainer-builder)
@@ -51,7 +55,11 @@ Clicking **Rebuild available** brings these choices back. **Dev Container: Rebui
 Workspace** rebuilds directly.
 
 A rebuild only ever builds what's pushed (*Commit Your Code*). Dev Container changes that
-exist only in the workspace show **Push Dev Container changes**.
+exist only in the workspace show **Push Dev Container changes**, and the rebuild prompt
+warns about them too.
+
+Checks run git in the folder, so they wait until you trust it (Restricted Mode shows a
+shield in the status bar). The clone command works either way.
 
 One-click Rebuild needs `coder login <your Coder URL>` once in the workspace. Without it,
 Rebuild opens the workspace's settings page.
@@ -69,7 +77,7 @@ Desktop), with its templates, options and Features. Commit and push what it adds
 - **Coder: Clone Repository in Workspace…**
 - **Dev Container: Check for Rebuild** fetches the branch and checks now (in a workspace).
 - **Dev Container: Rebuild Workspace** (in a workspace)
-- `devcontainerBuilder.checkIntervalMinutes` sets how often to fetch the branch (default 5;
-  0 turns it off).
+- `devcontainerBuilder.checkIntervalMinutes` sets how often to fetch the branch (default 5,
+  at most 1440; 0 turns it off).
 
 The *Dev Container Rebuild* output channel logs what the extension does.
