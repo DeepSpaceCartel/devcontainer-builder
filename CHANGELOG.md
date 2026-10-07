@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Deprecated
+
+- The Terraform module `terraform/devcontainer-build`. It's removed in 2.0. Use the
+  `deepspacecartel/devcontainer-builder` provider's `devcontainerbuilder_build` resource directly:
+  the module only wraps it, and the provider is the Terraform surface 1.x keeps stable. Plans that
+  use the module now show a deprecation warning.
+
 ### Added
 
 - The VS Code extension is also published to **Open VSX** as `deepspacecartel.devcontainer-builder`,

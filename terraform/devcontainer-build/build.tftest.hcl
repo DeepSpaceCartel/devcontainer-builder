@@ -23,6 +23,7 @@ run "rejects_empty_repository" {
   }
 
   expect_failures = [
+    check.deprecated,
     var.repository,
   ]
 }
@@ -51,6 +52,7 @@ run "rejects_registry_credentials_without_registry" {
   }
 
   expect_failures = [
+    check.deprecated,
     devcontainerbuilder_build.this,
   ]
 }
@@ -69,6 +71,11 @@ mock_provider "devcontainerbuilder" {
 
 run "resolves_image_output_from_the_build_resource" {
   command = apply
+
+  # The module's deprecation warning (main.tf) - a failed check fails a run.
+  expect_failures = [
+    check.deprecated,
+  ]
 
   providers = {
     devcontainerbuilder = devcontainerbuilder

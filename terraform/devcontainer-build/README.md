@@ -1,5 +1,31 @@
 # devcontainer-build
 
+> **Deprecated** in devcontainer-builder 1.0 and removed in 2.0. Use the
+> [Terraform provider](https://registry.terraform.io/providers/deepspacecartel/devcontainer-builder)'s
+> `devcontainerbuilder_build` resource directly - this module only wraps it,
+> and the provider is the one Terraform surface 1.x promises to keep stable:
+>
+> ```tf
+> terraform {
+>   required_providers {
+>     devcontainerbuilder = {
+>       source  = "deepspacecartel/devcontainer-builder"
+>     }
+>   }
+> }
+>
+> provider "devcontainerbuilder" {
+>   endpoint = "http://devcontainer-builder.devcontainer-builder.svc.cluster.local:8080"
+> }
+>
+> resource "devcontainerbuilder_build" "this" {
+>   repository = "https://github.com/example/example-devcontainer.git"
+>   branch     = "main"
+> }
+>
+> # devcontainerbuilder_build.this.image => "ghcr.io/example/example-devcontainer:sha-abc1234"
+> ```
+
 Calls a running [devcontainer-builder](../../service) service to build a
 container image from a repository's `.devcontainer.json` (using a remote
 BuildKit builder) and exposes the resulting image reference as an output.
@@ -31,8 +57,5 @@ module "devcontainer_build" {
 
 For a private repository, also set `git_username` and `git_token`.
 
-> This is a pre-publish working copy. Once the service's request/response
-> contract is stable, this module is intended to move into the public Coder
-> Registry (`registry/<namespace>/modules/devcontainer-build/`), following
-> that repo's module conventions (README frontmatter, `.tftest.hcl`,
-> versioning).
+> It was meant to move into the Coder Registry as a module; the complete
+> Coder template (`templates/coder-kubernetes/`) goes there instead.

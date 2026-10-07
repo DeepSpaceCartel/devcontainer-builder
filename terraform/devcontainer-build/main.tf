@@ -25,6 +25,15 @@ provider "devcontainerbuilder" {
   endpoint = var.service_url
 }
 
+# Deprecated (devcontainer-builder 1.0, removed in 2.0): a warning on every
+# plan, never an error.
+check "deprecated" {
+  assert {
+    condition     = var.service_url == null # never true: always warn
+    error_message = "The devcontainer-build module is deprecated and will be removed in devcontainer-builder 2.0 - use the deepspacecartel/devcontainer-builder provider's devcontainerbuilder_build resource directly (https://registry.terraform.io/providers/deepspacecartel/devcontainer-builder)."
+  }
+}
+
 locals {
   git_credentials = var.git_username != "" && var.git_token != "" ? {
     username = var.git_username

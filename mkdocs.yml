@@ -28,7 +28,7 @@ nav:
   - Helm Chart:
       - Reference: reference/HELM.md
   - Terraform:
-      - Module: reference/TERRAFORM.md
+      - Module (deprecated): reference/TERRAFORM.md
       - Provider: reference/TERRAFORM-PROVIDER.md
   - Project:
       - Installing: project/installing.md
