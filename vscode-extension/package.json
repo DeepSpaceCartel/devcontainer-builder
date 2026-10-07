@@ -29,6 +29,13 @@
     "workspace",
     "ui"
   ],
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": "limited",
+      "description": "In Restricted Mode only Coder: Clone Repository in Workspace… works. Checking for Dev Container changes runs git in the folder, so it waits until you trust it."
+    },
+    "virtualWorkspaces": false
+  },
   "activationEvents": [
     "onStartupFinished"
   ],
@@ -52,23 +59,26 @@
       }
     ],
     "configuration": {
-      "title": "Dev Containers for Coder",
+      "title": "Dev Containers for Coder in K8S",
       "properties": {
         "devcontainerBuilder.checkIntervalMinutes": {
           "type": "number",
           "default": 5,
           "minimum": 0,
-          "description": "How often to fetch the workspace's branch and check for Dev Container changes. 0 checks only on start and on demand."
+          "maximum": 1440,
+          "description": "How often to fetch the workspace's branch and check for Dev Container changes, in minutes (at most 1440, a day). 0 checks only on start and on demand."
         },
         "devcontainerBuilder.coderUrl": {
           "type": "string",
           "default": "",
-          "description": "Coder deployment for Coder: Clone Repository in Workspace. Empty: the one you're logged in to with the Coder CLI, else asked once."
+          "description": "Coder deployment for Coder: Clone Repository in Workspace. Empty: the one you're logged in to with the Coder CLI, else asked once. A user setting only: a folder's settings can't send your Coder token elsewhere.",
+          "scope": "application"
         },
         "devcontainerBuilder.template": {
           "type": "string",
           "default": "",
-          "description": "Coder template new workspaces are created from (its name). Empty: the only template asking for a repository and a branch, else asked."
+          "description": "Coder template new workspaces are created from (its name). Empty: the only template asking for a repository and a branch, else asked.",
+          "scope": "application"
         }
       }
     },

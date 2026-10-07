@@ -1,6 +1,8 @@
 import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { coderConfigDir } from "./clone";
+import { CoderApiError, coderRequest } from "./http";
 
 // The template's parameter that rebuilds the image when increased.
 export const REBUILD_PARAMETER = "rebuild";
@@ -22,9 +24,9 @@ export class NotLoggedIn extends Error {}
 
 // The session `coder login` stores in the workspace. Without one there's no
 // way to start a build from here: the agent's own token can't.
-export async function sessionToken(env: NodeJS.ProcessEnv = process.env, home = homedir()): Promise<string | undefined> {
+export async function sessionToken(env: NodeJS.ProcessEnv = process.env, home = homedir(), platform = process.platform): Promise<string | undefined> {
   if (env.CODER_SESSION_TOKEN) return env.CODER_SESSION_TOKEN.trim();
-  const dir = env.CODER_CONFIG_DIR ?? join(home, ".config", "coderv2");
+  const dir = coderConfigDir(platform, env, home);
   try {
     return (await readFile(join(dir, "session"), "utf8")).trim() || undefined;
   } catch {
@@ -34,8 +36,8 @@ export async function sessionToken(env: NodeJS.ProcessEnv = process.env, home = 
 
 // The deployment's URL: the one `coder login` used, else the agent's (which
 // may be an internal address on some deployments).
-export async function coderUrl(env: NodeJS.ProcessEnv = process.env, home = homedir()): Promise<string | undefined> {
-  const dir = env.CODER_CONFIG_DIR ?? join(home, ".config", "coderv2");
+export async function coderUrl(env: NodeJS.ProcessEnv = process.env, home = homedir(), platform = process.platform): Promise<string | undefined> {
+  const dir = coderConfigDir(platform, env, home);
   let url = env.CODER_URL;
   if (!url) {
     try {
@@ -53,15 +55,13 @@ export async function coderUrl(env: NodeJS.ProcessEnv = process.env, home = home
 // keep an existing workspace's value (Coder v2.37), and `coder update` does
 // nothing on an up-to-date workspace. Other parameters keep their values.
 export async function requestRebuild(ws: CoderWorkspace, token: string, fetchImpl: typeof fetch = fetch): Promise<number> {
-  const api = async (path: string, init?: RequestInit) => {
-    const res = await fetchImpl(`${ws.url}/api/v2${path}`, {
-      ...init,
-      headers: { "Coder-Session-Token": token, "Content-Type": "application/json", Accept: "application/json" },
-    });
-    if (res.status === 401) throw new NotLoggedIn("The Coder session has expired.");
-    const body: any = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(`Coder API ${res.status}: ${[body.message, body.detail].filter(Boolean).join(" - ") || res.statusText}`);
-    return body;
+  const api = async (path: string, init?: RequestInit): Promise<any> => {
+    try {
+      return await coderRequest(fetchImpl, ws.url, token, path, init);
+    } catch (e) {
+      if (e instanceof CoderApiError && e.status === 401) throw new NotLoggedIn("The Coder session has expired.");
+      throw e;
+    }
   };
 
   // The current value, in case it moved since this workspace started (e.g.

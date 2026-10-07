@@ -1,9 +1,18 @@
 import * as vscode from "vscode";
 import { cloneInWorkspace } from "./cloneCommand";
 import { coderUrl, NotLoggedIn, requestRebuild, sessionToken, settingsUrl, type CoderWorkspace } from "./coder";
-import { decidePrompt, localKey, shortSha, type PromptMemory } from "./prompt";
+import { decidePrompt, localKey, rebuildMessage, shortSha, type PromptMemory } from "./prompt";
+import { CoalescingRunner, intervalMs } from "./scheduler";
 import { checkStatus, type Status, type Workspace } from "./status";
 
+// fetch: fetch origin/<branch> first. interactive: started by the user, who
+// can answer a sign-in.
+interface CheckRequest {
+  fetch: boolean;
+  interactive: boolean;
+}
+
+const TRUST_MESSAGE = "Trust the folder to check for Dev Container changes.";
 const IGNORED_ORIGIN_KEY = "devcontainerBuilder.ignoredOrigin";
 const ADD_CONFIG_DISMISSED_KEY = "devcontainerBuilder.addConfigDismissed";
 // Dev Containers' "Add Dev Container Configuration Files…": templates,
@@ -60,8 +69,6 @@ export function activate(context: vscode.ExtensionContext): void {
     addConfigDismissed: context.workspaceState.get<boolean>(ADD_CONFIG_DISMISSED_KEY),
   };
   let last: Status | undefined;
-  let running: Promise<void> | undefined;
-  let again: { fetch: boolean } | undefined;
 
   const render = (status: Status) => {
     const image = shortSha(status.imageCommit);
@@ -78,7 +85,15 @@ export function activate(context: vscode.ExtensionContext): void {
       case "rebuild-available":
         item.text = "$(sync) Rebuild available";
         item.backgroundColor = new vscode.ThemeColor("statusBarItem.warningBackground");
-        tip.appendMarkdown(`Changed on origin since the image was built:\n\n${status.changed.map((f) => `- \`${f}\``).join("\n")}\n\nClick for options.`);
+        tip.appendMarkdown(
+          status.changed.length > 0
+            ? `Changed on origin since the image was built:\n\n${status.changed.map((f) => `- \`${f}\``).join("\n")}\n\n`
+            : `${status.reason ?? ""}\n\n`,
+        );
+        if (status.local.length > 0) {
+          tip.appendMarkdown(`Not on origin/${status.branch} yet, so a rebuild wouldn't include them:\n\n${status.local.map((f) => `- \`${f}\``).join("\n")}\n\n`);
+        }
+        tip.appendMarkdown("Click for options.");
         item.command = "devcontainerBuilder.showPrompt";
         break;
       case "unpushed":
@@ -148,7 +163,7 @@ export function activate(context: vscode.ExtensionContext): void {
   const showRebuildPrompt = async (status: Status) => {
     memory.promptedOrigin = status.originCommit;
     const choice = await vscode.window.showInformationMessage(
-      `Dev Container configuration changed on origin/${status.branch} since this workspace's image (${shortSha(status.imageCommit)} → ${shortSha(status.originCommit)}): ${status.changed.join(", ")}. Rebuild the workspace?`,
+      rebuildMessage(status),
       "Rebuild",
       "Later",
       "Ignore This Commit",
@@ -187,35 +202,44 @@ export function activate(context: vscode.ExtensionContext): void {
     }
   };
 
-  // One check at a time; a request during a check runs once after it.
-  const check = (opts: { fetch: boolean }): Promise<void> => {
-    if (running) {
-      again = { fetch: (again?.fetch ?? false) || opts.fetch };
-      return running;
-    }
-    running = (async () => {
-      const status = await checkStatus(ws, opts);
+  // Background fetches keep GIT_ASKPASS - it's how Coder's linked git
+  // account reaches private repositories - until one hangs on it (an
+  // unlinked account waits for a browser sign-in nobody sees). Then they
+  // skip it, so each one fails fast, until a check you start succeeds.
+  let backgroundAskpass = true;
+
+  // One check at a time; a request during a check runs once after it, and
+  // its caller waits for that run.
+  const runner = new CoalescingRunner<CheckRequest>(
+    async (req) => {
+      const status = await checkStatus(ws, { fetch: req.fetch, askpass: req.interactive || backgroundAskpass });
       if (status.kind === "unknown") log.warn(`Check failed: ${status.reason}`);
       else log.info(`${status.kind}: image ${shortSha(status.imageCommit)}, origin/${status.branch} ${shortSha(status.originCommit)}, paths ${status.paths.join(" ")}`);
+      if (req.fetch && req.interactive && status.kind !== "unknown") {
+        backgroundAskpass = true;
+      } else if (req.fetch && !req.interactive && backgroundAskpass && /timed out/.test(status.reason ?? "")) {
+        backgroundAskpass = false;
+        log.warn("Background checks now fetch without GIT_ASKPASS until Check for Rebuild succeeds.");
+      }
       last = status;
       render(status);
       void prompt(status);
-    })().finally(() => {
-      running = undefined;
-      if (again) {
-        const next = again;
-        again = undefined;
-        void check(next);
-      }
-    });
-    return running;
+    },
+    (a, b) => ({ fetch: a.fetch || b.fetch, interactive: a.interactive || b.interactive }),
+  );
+  const check = (req: CheckRequest): Promise<void> => (vscode.workspace.isTrusted ? runner.run(req) : Promise.resolve());
+
+  const askForTrust = async () => {
+    const choice = await vscode.window.showInformationMessage(TRUST_MESSAGE, "Manage Workspace Trust");
+    if (choice) await vscode.commands.executeCommand("workbench.trust.manage");
   };
 
   context.subscriptions.push(
     vscode.commands.registerCommand("devcontainerBuilder.check", async () => {
+      if (!vscode.workspace.isTrusted) return askForTrust();
       memory.promptedOrigin = undefined;
       memory.snoozed = false;
-      await check({ fetch: true });
+      await check({ fetch: true, interactive: true });
       if (last?.kind === "up-to-date") vscode.window.showInformationMessage("The workspace's Dev Container image is up to date.");
     }),
     // The status bar's click: the same choices as the notification, even
@@ -223,7 +247,8 @@ export function activate(context: vscode.ExtensionContext): void {
     // Not in the palette (not contributed); Rebuild Workspace is.
     vscode.commands.registerCommand("devcontainerBuilder.showPrompt", async () => {
       if (last?.kind === "rebuild-available") await showRebuildPrompt(last);
-      else await check({ fetch: true });
+      else if (!vscode.workspace.isTrusted) await askForTrust();
+      else await check({ fetch: true, interactive: true });
     }),
     // Not in the palette (not contributed): the status bar's and the
     // notification's way to Dev Containers' own command.
@@ -242,7 +267,7 @@ export function activate(context: vscode.ExtensionContext): void {
       }),
     ),
     vscode.commands.registerCommand("devcontainerBuilder.rebuild", async () => {
-      if (last?.kind === "unpushed") {
+      if (last && last.local.length > 0) {
         const choice = await vscode.window.showWarningMessage(
           `Your Dev Container changes aren't on origin/${ws.branch}; a rebuild won't include them.`,
           "Rebuild Anyway",
@@ -253,37 +278,55 @@ export function activate(context: vscode.ExtensionContext): void {
     }),
   );
 
-  // Local changes and fetches (by the user, VS Code's autofetch or a push)
-  // re-check without fetching again - fetching here would touch FETCH_HEAD
-  // and loop.
-  let timer: NodeJS.Timeout | undefined;
-  const soon = () => {
-    clearTimeout(timer);
-    timer = setTimeout(() => void check({ fetch: false }), 2000);
+  // Checking runs git in the repository, whose own config (core.fsmonitor,
+  // core.sshCommand, …) can run commands: only in a trusted folder.
+  let started = false;
+  const start = () => {
+    if (started) return;
+    started = true;
+
+    // Local changes and fetches (by the user, VS Code's autofetch or a
+    // push) re-check without fetching again - fetching here would touch
+    // FETCH_HEAD and loop.
+    let timer: NodeJS.Timeout | undefined;
+    const soon = () => {
+      clearTimeout(timer);
+      timer = setTimeout(() => void check({ fetch: false, interactive: false }), 2000);
+    };
+    const folder = vscode.Uri.file(ws.folder);
+    for (const pattern of [".devcontainer/**", ".devcontainer.json", ".git/FETCH_HEAD", ".git/packed-refs", `.git/refs/remotes/origin/**`, ".git/HEAD", ".git/index"]) {
+      const watcher = vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(folder, pattern));
+      watcher.onDidChange(soon);
+      watcher.onDidCreate(soon);
+      watcher.onDidDelete(soon);
+      context.subscriptions.push(watcher);
+    }
+    context.subscriptions.push(vscode.workspace.onDidSaveTextDocument(soon), { dispose: () => clearTimeout(timer) });
+
+    let interval: NodeJS.Timeout | undefined;
+    const schedule = () => {
+      clearInterval(interval);
+      const ms = intervalMs(vscode.workspace.getConfiguration("devcontainerBuilder").get<number>("checkIntervalMinutes", 5));
+      if (ms > 0) interval = setInterval(() => void check({ fetch: true, interactive: false }), ms);
+    };
+    schedule();
+    context.subscriptions.push(
+      vscode.workspace.onDidChangeConfiguration((e) => e.affectsConfiguration("devcontainerBuilder.checkIntervalMinutes") && schedule()),
+      { dispose: () => clearInterval(interval) },
+    );
+
+    void check({ fetch: true, interactive: false });
   };
-  const folder = vscode.Uri.file(ws.folder);
-  for (const pattern of [".devcontainer/**", ".devcontainer.json", ".git/FETCH_HEAD", ".git/packed-refs", `.git/refs/remotes/origin/**`, ".git/HEAD", ".git/index"]) {
-    const watcher = vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(folder, pattern));
-    watcher.onDidChange(soon);
-    watcher.onDidCreate(soon);
-    watcher.onDidDelete(soon);
-    context.subscriptions.push(watcher);
+
+  if (vscode.workspace.isTrusted) {
+    start();
+  } else {
+    item.text = "$(workspace-untrusted) Dev Container";
+    item.tooltip = TRUST_MESSAGE;
+    item.command = "workbench.trust.manage";
+    item.show();
+    context.subscriptions.push(vscode.workspace.onDidGrantWorkspaceTrust(start));
   }
-  context.subscriptions.push(vscode.workspace.onDidSaveTextDocument(soon), { dispose: () => clearTimeout(timer) });
-
-  let interval: NodeJS.Timeout | undefined;
-  const schedule = () => {
-    clearInterval(interval);
-    const minutes = vscode.workspace.getConfiguration("devcontainerBuilder").get<number>("checkIntervalMinutes", 5);
-    if (minutes > 0) interval = setInterval(() => void check({ fetch: true }), minutes * 60_000);
-  };
-  schedule();
-  context.subscriptions.push(
-    vscode.workspace.onDidChangeConfiguration((e) => e.affectsConfiguration("devcontainerBuilder.checkIntervalMinutes") && schedule()),
-    { dispose: () => clearInterval(interval) },
-  );
-
-  void check({ fetch: true });
 }
 
 async function coderWorkspace(): Promise<CoderWorkspace | undefined> {

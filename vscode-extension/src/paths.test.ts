@@ -17,6 +17,18 @@ test("parseJsonc strips comments and trailing commas, not string contents", () =
   });
 });
 
+test("parseJsonc leaves ,] and ,} inside strings alone", () => {
+  const text = `{
+    "a": "x,]",
+    "b": "y, }",
+    "c": "\\",]", // an escaped quote, then ,]
+    "d": [1, /* gap */ 2, // trailing
+    ],
+  }`;
+  assert.deepEqual(parseJsonc(text), { a: "x,]", b: "y, }", c: '",]', d: [1, 2] });
+  assert.throws(() => parseJsonc(`[1,,]`));
+});
+
 test("an image-only config only has the Dev Container files", () => {
   assert.deepEqual(rebuildPaths(".devcontainer/devcontainer.json", `{"image": "x"}`), [".devcontainer", ".devcontainer.json"]);
 });

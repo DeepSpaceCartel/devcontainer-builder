@@ -39,6 +39,18 @@ export function localKey(status: Status): string {
   return status.local.join("\n");
 }
 
+// The rebuild notification. Local changes still matter when origin also
+// changed: a rebuild wouldn't include them, so say so here too.
+export function rebuildMessage(status: Status): string {
+  const what = status.changed.length > 0 ? `: ${status.changed.join(", ")}` : status.reason ? `. ${status.reason}` : "";
+  let message = `Dev Container configuration changed on origin/${status.branch} since this workspace's image (${shortSha(status.imageCommit)} → ${shortSha(status.originCommit)})${what}`;
+  if (!/[.!?]$/.test(message)) message += ".";
+  if (status.local.length > 0) {
+    message += ` Your changes to ${status.local.join(", ")} aren't on origin/${status.branch} yet, so a rebuild won't include them - commit and push them first.`;
+  }
+  return `${message} Rebuild the workspace?`;
+}
+
 export function shortSha(sha: string | undefined): string {
   return sha ? sha.slice(0, 7) : "unknown";
 }
