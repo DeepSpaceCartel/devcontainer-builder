@@ -2,7 +2,8 @@
 
 # ADR-0012: Dev Container → Kubernetes runtime mapping
 
-Status: accepted
+Status: accepted (the `hostRequirements` consequence is superseded by
+[ADR-0014](0014-host-requirements-are-minimums.md))
 Date: 2026-10-07
 
 ## Context
@@ -110,6 +111,8 @@ workspace can check out exactly the source its image came from.
 - **`hostRequirements` override the template's CPU, Memory and Disk
   parameters** when the image sets them; parameter defaults can't come from
   the image.
+  *Superseded by [ADR-0014](0014-host-requirements-are-minimums.md):
+  `hostRequirements` are now minimums and never lower the parameters.*
 - An image's config label is fixed at build time: changing
   `workspaceFolder` or `runArgs` takes a rebuild, like any other
   `devcontainer.json` change.

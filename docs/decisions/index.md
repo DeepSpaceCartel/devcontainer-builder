@@ -30,5 +30,6 @@ change, never rewritten in place).
 | [0009](0009-event-oriented-structured-logging.md) | Event-oriented structured logging, and log/trace correlation via OpenTelemetry | accepted |
 | [0010](0010-command-output-capture.md) | Capture git/docker subprocess output to files instead of stdout | accepted |
 | [0011](0011-devcontainer-metadata-endpoint.md) | `GET /devcontainer`: merged Dev Container metadata, read from the image | accepted |
-| [0012](0012-dev-container-to-kubernetes-runtime-mapping.md) | Dev Container → Kubernetes runtime mapping | accepted |
+| [0012](0012-dev-container-to-kubernetes-runtime-mapping.md) | Dev Container → Kubernetes runtime mapping | accepted (`hostRequirements` part superseded by [0014](0014-host-requirements-are-minimums.md)) |
 | [0013](0013-fallback-config-for-repos-without-one.md) | A fallback image for repositories without a devcontainer.json | accepted |
+| [0014](0014-host-requirements-are-minimums.md) | `hostRequirements` are minimums | accepted |
