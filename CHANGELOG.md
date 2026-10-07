@@ -66,9 +66,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- **Breaking:** **Extension: requires VS Code 1.140 or newer** (was 1.90), to build against current
+  VS Code APIs. Editors on an older VS Code base can keep using 0.5.0.
 - **Breaking:** **Template: `hostRequirements` are minimums**, as in the Dev Container spec, instead of overriding
-- **Image: Node 24 LTS** (was Node 20, end-of-life since April 2026), base image pinned by digest.
-  The npm package's `engines` is now `node >=22`.
+- **Breaking:** **Image: Node 26** (was Node 20, end-of-life since April 2026), on Debian trixie,
+  base image pinned by digest. The npm package's `engines` is now `node >=26`.
 - **Image: `@devcontainers/cli` pinned to 0.89.0** (`DEVCONTAINERS_CLI_VERSION` build arg), the
   version the service is checked against, instead of whatever was latest at build time.
 - **Image: `tini` is PID 1**, so exited `git`/`ssh`/`buildx` children are reaped and signals reach

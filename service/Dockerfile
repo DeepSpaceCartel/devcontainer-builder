@@ -1,9 +1,9 @@
 # syntax=docker/dockerfile:1
 
-# Node 24 (Active LTS). Pinned by digest for reproducible builds - the tag
+# Node 26. Pinned by digest for reproducible builds - the tag
 # is kept alongside for readability; bump both together (the digest is the
 # multi-arch index from `docker buildx imagetools inspect node:<tag>`).
-ARG NODE_IMAGE=node:24-bookworm-slim@sha256:d6aa754f16b3197301076f047b5def2f02ea1dbbc2ca920407d46d7ec7f87b20
+ARG NODE_IMAGE=node:26-trixie-slim@sha256:930557a230abacbc3f4fd9b8648abf8f4bee1e17cb72195dcdfb2f709bc85b33
 
 FROM ${NODE_IMAGE} AS runtime-base
 

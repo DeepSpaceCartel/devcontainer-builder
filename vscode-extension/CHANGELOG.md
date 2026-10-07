@@ -23,6 +23,8 @@ adheres to [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- **Breaking:** **Extension: requires VS Code 1.140 or newer** (was 1.90), to build against current
+  VS Code APIs. Editors on an older VS Code base can keep using 0.5.0.
 - `devcontainerBuilder.coderUrl` and `devcontainerBuilder.template` are user settings only
   (application scope); a folder's `.vscode/settings.json` no longer sets them.
 - `devcontainerBuilder.checkIntervalMinutes` is at most 1440 (a day).

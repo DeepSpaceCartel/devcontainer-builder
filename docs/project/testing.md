@@ -49,12 +49,6 @@ manifests, indexes and config blobs, `DELETE`, redirected blobs, and an
 `serviceConfig.insecureRegistries` so the client uses plain http.
 `src/testing/` is excluded from the `tsc` build, so none of it ships.
 
-!!! note "`test:coverage` needs Node 22.5 or newer"
-    It uses `--test-coverage-include`/`--test-coverage-exclude`, which
-    Node 22.5 added. CI runs Node 24. On older Node, run
-    `node --import tsx --test --experimental-test-coverage src/*.test.ts`
-    instead (that table also lists the test files).
-
 ## Prerequisites
 
 - A real, reachable Kubernetes cluster, with `kubectl`'s current context
