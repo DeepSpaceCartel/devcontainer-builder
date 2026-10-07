@@ -34,9 +34,9 @@ terraform {
     }
     devcontainerbuilder = {
       source = "deepspacecartel/devcontainer-builder"
-      # >= 0.2.0 for the devcontainerbuilder_devcontainer data source (and
-      # devcontainer-builder service >= 0.2.0 behind it).
-      version = ">= 0.2.0"
+      # >= 0.3.0 for the data source's runtime/env_scripts/variables (and a
+      # devcontainer-builder service >= 0.3.0 behind it).
+      version = ">= 0.3.0"
     }
   }
 }
