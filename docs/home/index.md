@@ -18,7 +18,7 @@ never leaves your network.
    also use the Coder dashboard, or an **Open in Coder** badge in a README.
 2. **The image is built from its Dev Container configuration**, on BuildKit
    inside your cluster, and pushed to your registry tagged with the commit
-   (`sha-<commit>`). The workspace starts on it.
+   (one tag per workspace, rebuilt on Rebuild). The workspace starts on it.
 3. **Code** in VS Code Desktop or VS Code in the browser, opened on the
    cloned repository. Home and repository persist across restarts.
 4. **Push a change to `.devcontainer/`** and the workspace offers **Rebuild

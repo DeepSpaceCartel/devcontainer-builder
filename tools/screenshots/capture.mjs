@@ -219,9 +219,69 @@ async function main() {
     await toast(vscode, "Rebuild the workspace?").waitFor({ timeout: 120000 });
     await vscode.waitForTimeout(1500);
     await shot(vscode, "vscode-rebuild-available.png");
+    await command(vscode, "Notifications: Clear All Notifications");
+
+    // 6. Coder: Clone Repository in Workspace… - the same command a local
+    // VS Code window runs. This window has no Coder login yet, so it asks
+    // for the URL and a token first.
+    await vscode.keyboard.press("F1");
+    await vscode.locator(".quick-input-widget input").fill(">Coder: Clone Repository");
+    await vscode.locator(".quick-input-list .monaco-list-row").first().waitFor();
+    await vscode.waitForTimeout(800);
+    await shot(vscode, "clone-command.png");
+    await vscode.keyboard.press("Enter");
+    const input = vscode.locator(".quick-input-widget input");
+    await vscode.getByText("Your Coder URL").first().waitFor({ timeout: 30000 });
+    await input.fill(CODER_URL);
+    await vscode.keyboard.press("Enter");
+    // VS Code asks before opening <coder>/cli-auth; the token is already at hand.
+    await vscode.getByText("open the external website").first().waitFor({ timeout: 15000 }).catch(() => {});
+    if (await vscode.getByText("open the external website").first().isVisible().catch(() => false)) {
+      await vscode.keyboard.press("Escape");
+    }
+    await vscode.getByText("Paste the session token").first().waitFor({ timeout: 30000 });
+    await input.fill(TOKEN);
+    await vscode.keyboard.press("Enter");
+    // The repository picker: VS Code's own (Git: Clone's), with a URL typed.
+    await vscode.getByText("Clone Repository in Coder Workspace").first().waitFor({ timeout: 30000 });
+    await input.fill(REPO);
+    await vscode.locator(".quick-input-list .monaco-list-row", { hasText: "Clone from URL" }).first().waitFor();
+    await vscode.waitForTimeout(800);
+    await shot(vscode, "clone-pick-repository.png");
+    await vscode.keyboard.press("Enter");
+    // The branch list, the default branch first.
+    await vscode.getByText("Branch", { exact: true }).first().waitFor({ timeout: 60000 });
+    await vscode.locator(".quick-input-list .monaco-list-row").first().waitFor();
+    await vscode.waitForTimeout(800);
+    await shot(vscode, "clone-pick-branch.png");
+    await input.fill(BRANCH);
+    await vscode.locator(".quick-input-list .monaco-list-row", { hasText: BRANCH }).first().waitFor();
+    await vscode.keyboard.press("Enter");
+    // docs-demo is already on that branch: reuse it, or create another.
+    await vscode.getByText("You already have a workspace").first().waitFor({ timeout: 60000 });
+    await vscode.waitForTimeout(800);
+    await shot(vscode, "clone-existing.png");
+    await input.fill("Create Another");
+    await vscode.keyboard.press("Enter");
+    // Several templates may ask for a repository: pick ours.
+    const picker = vscode.locator(".quick-input-widget", { hasText: "Coder template" });
+    if (await picker.waitFor({ timeout: 15000 }).then(() => true, () => false)) {
+      await vscode.waitForTimeout(500);
+      // The picker filters on the display name.
+      const shown = (await api("/templates")).find((t) => t.name === TEMPLATE)?.display_name || TEMPLATE;
+      await input.fill(shown);
+      await vscode.locator(".quick-input-list .monaco-list-row", { hasText: shown }).first().waitFor();
+      await vscode.waitForTimeout(300);
+      await vscode.keyboard.press("Enter");
+    }
+    await toast(vscode, "Building the image").waitFor({ timeout: 120000 });
+    await vscode.waitForTimeout(800);
+    await shot(vscode, "clone-progress.png");
+    const another = (await api(`/workspaces?q=owner:me template:${TEMPLATE}`)).workspaces.filter((w) => w.name !== "docs-demo" && w.name !== "docs-no-config");
+    for (const w of another) cleanup.push(w.id);
     await vscode.close();
 
-    // 6. A repository without a configuration.
+    // 7. A repository without a configuration.
     const bare = await workspace("docs-no-config", NO_CONFIG_BRANCH);
     if (bare.created && !KEEP) cleanup.push(bare.ws.id);
     const bareReady = await waitReady(bare.ws.id);
@@ -246,6 +306,12 @@ async function main() {
     }
     rmSync(clone, { recursive: true, force: true });
     for (const id of cleanup) {
+      // A build still running can't be replaced by a delete: let it finish.
+      for (let i = 0; i < 60; i++) {
+        const w = await api(`/workspaces/${id}`).catch(() => undefined);
+        if (!w || !["pending", "running"].includes(w.latest_build.job.status)) break;
+        await new Promise((r) => setTimeout(r, 5000));
+      }
       await api(`/workspaces/${id}/builds`, { method: "POST", body: JSON.stringify({ transition: "delete" }) }).catch((e) => log(e.message));
       log(`deleting workspace ${id}`);
     }

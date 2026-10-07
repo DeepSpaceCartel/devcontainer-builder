@@ -21,23 +21,36 @@ it's needed.
 
 Run **Coder: Clone Repository in Workspace…** from the Command Palette.
 
+![The Command Palette with Coder: Clone Repository in Workspace…](../assets/screenshots/clone-command.png)
+
 1. **Log in to Coder** if asked. If you've used the `coder` CLI on this
    machine, its login is reused. Otherwise, enter your Coder URL and paste the
    token from the page it opens.
 2. **Pick the repository** in the same picker **Git: Clone** uses. Signed in
    to GitHub in VS Code, choose **GitHub** to browse and filter your
    repositories. Or paste any git URL.
+
+    ![The repository picker: Clone from URL, or GitHub](../assets/screenshots/clone-pick-repository.png)
+
 3. **Pick the branch.** The default branch comes first.
+
+    ![The branch list, the default branch first](../assets/screenshots/clone-pick-branch.png)
+
 4. **Link your GitHub account** if your team's template asks for it (for
    private repositories). A browser page opens; approve it once.
 5. **Wait for the build.** A progress notification follows it through building
    the image, starting the workspace, cloning and running the repository's
    setup hooks. The first build of a repository takes a minute or two.
+
+    ![The progress notification while the workspace builds](../assets/screenshots/clone-progress.png)
+
 6. **VS Code opens in the workspace,** on the cloned repository, in a new
    window.
 
 Already have a workspace on that repository and branch? The command offers
 to open it instead, starting it if it's stopped.
+
+![You already have a workspace on this branch: open it, or create another](../assets/screenshots/clone-existing.png)
 
 !!! tip "Without VS Code"
     The Coder dashboard's **Create workspace** asks for the same **Git
