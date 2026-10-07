@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-07
+
 ### Added
 
 - `GET /devcontainer?registry=&name=&tag=[&platform=]` — reads a built
@@ -23,15 +25,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   service's own registry calls (`/image`, `/devcontainer`) reach over plain
   HTTP. Empty by default; reported by `GET /config`.
 - New metric `devcontainer_builder_devcontainer_lookups_total{result}`.
-
-### Fixed
-
-- `GET`/`DELETE /image` with a namespaced `registry` (e.g.
-  `ghcr.io/deepspacecartel`, as `POST /build` returns it) built an invalid
-  registry URL. The namespace is now part of the repository path, and
-  ambient credentials stored for the bare host (`ghcr.io`) are found.
-- `GET`/`DELETE /image` never sent credentials to registries that use Basic
-  (htpasswd) auth instead of a Bearer token exchange.
 
 ### Changed
 
@@ -62,6 +55,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   `docker-ce-cli`, `buildx`, `@devcontainers/cli`) never actually changes
   release to release, but was being rebuilt from scratch on both
   `linux/amd64` and `linux/arm64` every single time.
+
+### Fixed
+
+- `GET`/`DELETE /image` with a namespaced `registry` (e.g.
+  `ghcr.io/deepspacecartel`, as `POST /build` returns it) built an invalid
+  registry URL. The namespace is now part of the repository path, and
+  ambient credentials stored for the bare host (`ghcr.io`) are found.
+- `GET`/`DELETE /image` never sent credentials to registries that use Basic
+  (htpasswd) auth instead of a Bearer token exchange.
 
 ## [0.1.5] - 2026-09-16
 
@@ -232,7 +234,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   by the two fully static generated pages above, which don't depend on a
   script running after navigation at all.
 
-[Unreleased]: https://github.com/DeepSpaceCartel/devcontainer-builder/compare/v0.1.5...HEAD
+[Unreleased]: https://github.com/DeepSpaceCartel/devcontainer-builder/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/DeepSpaceCartel/devcontainer-builder/releases/tag/v0.2.0
 [0.1.5]: https://github.com/DeepSpaceCartel/devcontainer-builder/releases/tag/v0.1.5
 [0.1.4]: https://github.com/DeepSpaceCartel/devcontainer-builder/releases/tag/v0.1.4
 [0.1.3]: https://github.com/DeepSpaceCartel/devcontainer-builder/releases/tag/v0.1.3
