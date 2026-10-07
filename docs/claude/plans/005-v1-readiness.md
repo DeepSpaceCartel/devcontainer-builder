@@ -5,7 +5,7 @@ created: 2026-10-07
 
 # v1.0.0 readiness
 
-## Status (2026-10-07): fixes merged; release pending
+## Status (2026-10-07): fixes and features merged; waiting on rts applies and tags
 
 Six reviews ran ahead of 1.0, each read-only, against the code at `main`
 after #44:
@@ -31,18 +31,57 @@ This page tracks every "fix before 1.0" finding and where it was handled.
 | Docs + CI | #45 ✅ | quickstart namespace and troubleshooting; the provider page (data source, `commit`, the deprecated module); ADR-0014 (hostRequirements are minimums); security, troubleshooting and uninstall pages; terminology; README; stale doc paths; CHANGELOG order and compare links; CI permissions and concurrency; template validation and a Docker build on PRs; release prerelease handling, `latest` only for the highest version, and `npm ci`; docs deploy permissions; actions pinned to SHAs; Dependabot |
 | Provider | provider #5 ✅ (not released) | credentials updatable without a rebuild; `branch` resolved by the service instead of defaulting to `main`; tests against a fake service; CHANGELOG; import; goreleaser signing; pinned actions; Dependabot |
 
+## Done overnight (2026-10-07)
+
+All merged on `main`, each verified as noted:
+
+- **Fix PRs:**
+  - service hardening #51 (scratch release: credentials in URLs, schemes, tags and cache types → 400;
+    no token in logs);
+  - image and chart #46 (scratch release as uid 2000 with a read-only root: real build plus `/logs`);
+  - template robustness #47 (scratch workspace: per-workspace tag, clone marker, Rebuild);
+  - extension hardening #48;
+  - docs and CI #45;
+  - provider readiness (provider #5, not released).
+- **Follow-ups:**
+  - Node 24 in CI and chart values for the new settings #54;
+  - `helm upgrade --reuse-values` from 0.5.0 crashing #56 (reproduced on a real 0.5.0 release);
+  - template picker matching names #58;
+  - dead pre-Thomas BDD files #62.
+- **Features:**
+  - `customizations.kubernetes` for pod resources and node placement #59 (ADR-0015; scratch workspace:
+    requests and limits applied, hostRequirements and placement ignored with warnings);
+  - one image per devcontainer.json in sub-folders #60 (ADR-0016, additive API; scratch release:
+    dry run, a folder build, a root build unchanged, unknown ids → 400).
+- **Tests:**
+  - route tests and a fake registry #61: 87% → 94% lines, 74% → 88% branches, 129 unit tests;
+  - BDD `request_validation` on the cluster: 53 of 53 scenarios.
+- **Docs:**
+  - clone-command screenshots captured by the script #53;
+  - repositories and registries tutorials #57 (public with GHCR; private with each user's account;
+    private over SSH with a pinned deploy key, all verified).
+
+## Waiting for you
+
+- **rts-terraform PRs (you apply):**
+  - #37 Harbor;
+  - #38 Coder subdomain apps (wildcard access URL);
+  - #39 template sync of #47.
+  - And syncs of #59/#60 once you're happy with them.
+- **Coder Registry:** coder/registry#1167, waiting for Coder's maintainers (updated with the current
+  template and a screenshot).
+- **Tags:** provider 1.0.0, then devcontainer-builder 1.0.0.
+- **GHCR retention:** per-workspace tags accumulate, because GHCR can't delete through the registry
+  API.
+
 ## Still open before tagging
 
-- **rts:**
-  - template sync of #47 (per-workspace tags, robust scripts);
-  - #37 (Harbor);
-  - #38 (subdomain apps).
-- **Coder Registry copy** (coder/registry#1167) updated to the current template.
-- **Live checks of #47 in a scratch workspace:** an update rebuilding once, two workspaces on one
-  commit, an interrupted clone, the `postAttachCommand` ordering.
-- **CI** still uses Node 20 while the image is on Node 24 (`engines >=22`).
-- **Chart values** for the new service settings (git protocols, timeouts, concurrency). `extraEnv`
-  covers them until then.
+- **Multiple configurations end to end:**
+  - provider `images`/`instances` (PR in progress);
+  - template Phase A, keyed by instance with `moved` blocks (PR in progress);
+  - then Phase B, which needs a provider release.
+- **Harbor tutorial** once rts #37 is applied, including whether `DELETE /image` by digest can remove
+  another tag that shares it.
 
 ## Decisions for the maintainer
 
