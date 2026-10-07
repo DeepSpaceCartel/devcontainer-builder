@@ -33,6 +33,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   and checking for Dev Container changes waits until you trust the folder (a shield in the status
   bar) - checking runs git there, and a repository's own git config can run commands. Virtual
   workspaces aren't supported. The extension has its own `CHANGELOG.md` on the Marketplace.
+- **Service: build timeouts and a concurrency limit.** `git clone` and the build+push each have a
+  wall-clock limit (`--clone-timeout`/`CLONE_TIMEOUT_SECONDS`/`build.cloneTimeoutSeconds`, default
+  600s; `--build-timeout`/`BUILD_TIMEOUT_SECONDS`/`build.timeoutSeconds`, default 3600s); past it
+  the command and its children are killed and the build fails naming the phase. Registry calls
+  time out after 30s. At most `build.maxConcurrent` (`--max-concurrent-builds`/
+  `MAX_CONCURRENT_BUILDS`, default 4, `0` = no limit) builds run at once; past that `POST /build`
+  answers `429` with `Retry-After`.
+- **Service: `POST /build` returns the built `branch`**, and `GET /config` reports the new settings.
+- **Service: `--allow-insecure-git-protocols`** (`ALLOW_INSECURE_GIT_PROTOCOLS`,
+  `git.allowInsecureProtocols`, default `false`) to accept `git://` and `http://` repositories,
+  for test git servers.
 
 ### Changed
 
@@ -95,6 +106,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   - The rebuild prompt also warns about Dev Container changes that aren't pushed yet.
   - An image commit that's no longer on origin (force-pushed away) shows **Rebuild available** with
     the reason, instead of an unknown status forever.
+- **Breaking: `POST /build` without `branch` builds the repository's default branch**, not
+  `main`. A request that names a branch is unchanged.
+- **Breaking: `POST /build` rejects more requests with `400` before cloning:** repository URLs
+  other than `https://`, `ssh://` or SCP-style (`git://`/`http://` need the new opt-in), URLs with
+  credentials in them, `image.registry`/`image.name`/`image.tag` that aren't valid OCI reference
+  parts (e.g. an upper-case name, or a registry with an `http://` prefix), `platforms` entries that
+  aren't `os/arch[/variant]`, and `buildOptions.cacheFrom`/`cacheTo` with a cache type other than
+  `registry`, `gha` or `inline`.
+- **Breaking: `GET`/`DELETE /image` and `GET /devcontainer` reject an `http://` registry with `400`**
+  unless its host is in `insecureRegistries`.
+- **Service: traces use `SERVICE_NAME`** (like the logs) when `OTEL_SERVICE_NAME` isn't set, and
+  shutdown waits for the tracing SDK to flush before exiting.
 
 ### Deprecated
 
@@ -174,6 +197,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - **VS Code extension: repository URLs with credentials** (`https://user:token@…`) are refused
   instead of being logged and saved as a workspace parameter.
 - **VS Code extension: every Coder API call times out** after 30 seconds.
+- **Service: derived image names are valid OCI names.** `github.com/Org/MyRepo` used to produce
+  `MyRepo` and fail with a 500 after cloning; it's now `myrepo` (lower-cased, other characters
+  replaced by `-`).
+- **Service: concurrent first builds no longer race to create the remote buildx builder.** It's
+  created once per process, and each build selects it with `BUILDX_BUILDER` instead of
+  `docker buildx use` rewriting shared state per request.
+- **Service: command output is complete.** Commands were treated as finished on `exit`, before
+  their output was drained, which could truncate captured logs. A command killed by a signal now
+  says so (`... was killed by SIGTERM`).
+- **Service: `${constructor}` and other `Object.prototype` names** in a devcontainer.json were
+  treated as context variables by `GET /devcontainer`.
+- **Service: `pino` is a declared dependency** (it was used without being listed).
+- **Service: the OpenAPI document describes `GET /logs/{id}`'s `text/plain` body and
+  `DELETE /logs/{id}`'s `204`.**
+- **Service: credentials in a repository URL are rejected** (`https://user:token@host/...` is a
+  `400` pointing at `gitCredentials`). They used to reach git's argv, the error response, the
+  `build.started` log, Sentry and trace attributes. URL userinfo is now also redacted wherever a URL
+  reaches a log, an error or a span.
+- **Service: repository URL schemes are allowlisted** (`https://`, `ssh://`, SCP-style). `file://`
+  let a caller build any repository on the service's own filesystem; `git://`/`http://` are
+  opt-in. Every git process gets a matching `GIT_ALLOW_PROTOCOL`, and the URL follows `--` in its
+  argv.
+- **Service: an `http://` registry prefix no longer bypasses `insecureRegistries`**, which let a
+  caller send registry credentials over cleartext.
+- **Service: caller-chosen build cache backends are limited to `registry`, `gha` and `inline`.**
+  `type=local` let a request read or write paths on the service's filesystem.
 
 ## [0.5.0] - 2026-10-07
 

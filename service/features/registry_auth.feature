@@ -148,6 +148,8 @@ Feature: Registry push authentication
       | --set              | image.tag=test                                                     |
       | --set              | image.pullPolicy=Always                                            |
       | --set              | buildkit.endpoint=<BuildkitEndpoint>                               |
+      | --set              | extraEnv[0].name=ALLOW_INSECURE_GIT_PROTOCOLS                      |
+      | --set-string       | extraEnv[0].value=true                                             |
       | --set              | gitCredentials.enabled=false                                       |
       | --wait             | True                                                               |
       | --timeout          | 120s                                                               |
@@ -192,6 +194,8 @@ Feature: Registry push authentication
       | --set              | image.tag=test                                                     |
       | --set              | image.pullPolicy=Always                                            |
       | --set              | buildkit.endpoint=<BuildkitEndpoint>                               |
+      | --set              | extraEnv[0].name=ALLOW_INSECURE_GIT_PROTOCOLS                      |
+      | --set-string       | extraEnv[0].value=true                                             |
       | --set              | gitCredentials.enabled=false                                       |
       | --set              | registryAuth.registries[0].registry=<AuthedRegistryUrl>            |
       | --set              | registryAuth.registries[0].username=svc-bot                       |
@@ -239,6 +243,8 @@ Feature: Registry push authentication
       | --set              | image.tag=test                                                     |
       | --set              | image.pullPolicy=Always                                            |
       | --set              | buildkit.endpoint=<BuildkitEndpoint>                               |
+      | --set              | extraEnv[0].name=ALLOW_INSECURE_GIT_PROTOCOLS                      |
+      | --set-string       | extraEnv[0].value=true                                             |
       | --set              | gitCredentials.enabled=false                                       |
       | --wait             | True                                                               |
       | --timeout          | 120s                                                               |
@@ -291,6 +297,8 @@ Feature: Registry push authentication
       | --set              | image.tag=test                                                     |
       | --set              | image.pullPolicy=Always                                            |
       | --set              | buildkit.endpoint=<BuildkitEndpoint>                               |
+      | --set              | extraEnv[0].name=ALLOW_INSECURE_GIT_PROTOCOLS                      |
+      | --set-string       | extraEnv[0].value=true                                             |
       | --set              | gitCredentials.enabled=false                                       |
       | --wait             | True                                                               |
       | --timeout          | 120s                                                               |
@@ -335,6 +343,8 @@ Feature: Registry push authentication
       | --set              | image.tag=test                                                     |
       | --set              | image.pullPolicy=Always                                            |
       | --set              | buildkit.endpoint=<BuildkitEndpoint>                               |
+      | --set              | extraEnv[0].name=ALLOW_INSECURE_GIT_PROTOCOLS                      |
+      | --set-string       | extraEnv[0].value=true                                             |
       | --set              | gitCredentials.enabled=false                                       |
       | --wait             | True                                                               |
       | --timeout          | 120s                                                               |
@@ -387,6 +397,8 @@ Feature: Registry push authentication
       | --set              | image.tag=test                                                     |
       | --set              | image.pullPolicy=Always                                            |
       | --set              | buildkit.endpoint=<BuildkitEndpoint>                               |
+      | --set              | extraEnv[0].name=ALLOW_INSECURE_GIT_PROTOCOLS                      |
+      | --set-string       | extraEnv[0].value=true                                             |
       | --set              | gitCredentials.enabled=false                                       |
       | --wait             | True                                                               |
       | --timeout          | 120s                                                               |
@@ -443,6 +455,8 @@ Feature: Registry push authentication
       | --set              | image.tag=test                                                     |
       | --set              | image.pullPolicy=Always                                            |
       | --set              | buildkit.endpoint=<BuildkitEndpoint>                               |
+      | --set              | extraEnv[0].name=ALLOW_INSECURE_GIT_PROTOCOLS                      |
+      | --set-string       | extraEnv[0].value=true                                             |
       | --set              | gitCredentials.enabled=false                                       |
       | --wait             | True                                                               |
       | --timeout          | 120s                                                               |

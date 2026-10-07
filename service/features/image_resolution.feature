@@ -153,6 +153,8 @@ Feature: Image name, tag, and registry resolution
       | --set              | image.tag=test                                                     |
       | --set              | image.pullPolicy=Always                                            |
       | --set              | buildkit.endpoint=<BuildkitEndpoint>                               |
+      | --set              | extraEnv[0].name=ALLOW_INSECURE_GIT_PROTOCOLS                      |
+      | --set-string       | extraEnv[0].value=true                                             |
       | --set              | gitCredentials.enabled=false                                       |
       | --wait             | True                                                               |
       | --timeout          | 120s                                                               |
@@ -209,6 +211,8 @@ Feature: Image name, tag, and registry resolution
       | --set              | image.tag=test                                                     |
       | --set              | image.pullPolicy=Always                                            |
       | --set              | buildkit.endpoint=<BuildkitEndpoint>                               |
+      | --set              | extraEnv[0].name=ALLOW_INSECURE_GIT_PROTOCOLS                      |
+      | --set-string       | extraEnv[0].value=true                                             |
       | -f                 | .cache/fixtures/image-resolution-w<WorkerId>/mapping-1.yaml                    |
       | --wait             | True                                                               |
       | --timeout          | 120s                                                               |
@@ -265,6 +269,8 @@ Feature: Image name, tag, and registry resolution
       | --set              | image.tag=test                                                     |
       | --set              | image.pullPolicy=Always                                            |
       | --set              | buildkit.endpoint=<BuildkitEndpoint>                               |
+      | --set              | extraEnv[0].name=ALLOW_INSECURE_GIT_PROTOCOLS                      |
+      | --set-string       | extraEnv[0].value=true                                             |
       | -f                 | .cache/fixtures/image-resolution-w<WorkerId>/mapping-2.yaml                    |
       | --wait             | True                                                               |
       | --timeout          | 120s                                                               |
@@ -312,6 +318,8 @@ Feature: Image name, tag, and registry resolution
       | --set              | image.tag=test                                                     |
       | --set              | image.pullPolicy=Always                                            |
       | --set              | buildkit.endpoint=<BuildkitEndpoint>                               |
+      | --set              | extraEnv[0].name=ALLOW_INSECURE_GIT_PROTOCOLS                      |
+      | --set-string       | extraEnv[0].value=true                                             |
       | --set              | gitCredentials.enabled=false                                       |
       | --wait             | True                                                               |
       | --timeout          | 120s                                                               |
@@ -374,6 +382,8 @@ Feature: Image name, tag, and registry resolution
       | --set              | image.tag=test                                                     |
       | --set              | image.pullPolicy=Always                                            |
       | --set              | buildkit.endpoint=<BuildkitEndpoint>                               |
+      | --set              | extraEnv[0].name=ALLOW_INSECURE_GIT_PROTOCOLS                      |
+      | --set-string       | extraEnv[0].value=true                                             |
       | -f                 | .cache/fixtures/image-resolution-w<WorkerId>/mapping-3.yaml                    |
       | --wait             | True                                                               |
       | --timeout          | 120s                                                               |
@@ -430,6 +440,8 @@ Feature: Image name, tag, and registry resolution
       | --set              | image.tag=test                                                     |
       | --set              | image.pullPolicy=Always                                            |
       | --set              | buildkit.endpoint=<BuildkitEndpoint>                               |
+      | --set              | extraEnv[0].name=ALLOW_INSECURE_GIT_PROTOCOLS                      |
+      | --set-string       | extraEnv[0].value=true                                             |
       | -f                 | .cache/fixtures/image-resolution-w<WorkerId>/mapping-4.yaml                    |
       | --wait             | True                                                               |
       | --timeout          | 120s                                                               |
@@ -485,6 +497,8 @@ Feature: Image name, tag, and registry resolution
       | --set              | image.tag=test                                                     |
       | --set              | image.pullPolicy=Always                                            |
       | --set              | buildkit.endpoint=<BuildkitEndpoint>                               |
+      | --set              | extraEnv[0].name=ALLOW_INSECURE_GIT_PROTOCOLS                      |
+      | --set-string       | extraEnv[0].value=true                                             |
       | -f                 | .cache/fixtures/image-resolution-w<WorkerId>/mapping-5.yaml                    |
       | --wait             | True                                                               |
       | --timeout          | 120s                                                               |
@@ -542,6 +556,8 @@ Feature: Image name, tag, and registry resolution
       | --set              | image.tag=test                                                     |
       | --set              | image.pullPolicy=Always                                            |
       | --set              | buildkit.endpoint=<BuildkitEndpoint>                               |
+      | --set              | extraEnv[0].name=ALLOW_INSECURE_GIT_PROTOCOLS                      |
+      | --set-string       | extraEnv[0].value=true                                             |
       | -f                 | .cache/fixtures/image-resolution-w<WorkerId>/mapping-6.yaml                    |
       | --wait             | True                                                               |
       | --timeout          | 120s                                                               |
@@ -598,6 +614,8 @@ Feature: Image name, tag, and registry resolution
       | --set              | image.tag=test                                                     |
       | --set              | image.pullPolicy=Always                                            |
       | --set              | buildkit.endpoint=<BuildkitEndpoint>                               |
+      | --set              | extraEnv[0].name=ALLOW_INSECURE_GIT_PROTOCOLS                      |
+      | --set-string       | extraEnv[0].value=true                                             |
       | -f                 | .cache/fixtures/image-resolution-w<WorkerId>/mapping-7.yaml                    |
       | --wait             | True                                                               |
       | --timeout          | 120s                                                               |
@@ -645,6 +663,8 @@ Feature: Image name, tag, and registry resolution
       | --set              | image.tag=test                                                     |
       | --set              | image.pullPolicy=Always                                            |
       | --set              | buildkit.endpoint=<BuildkitEndpoint>                               |
+      | --set              | extraEnv[0].name=ALLOW_INSECURE_GIT_PROTOCOLS                      |
+      | --set-string       | extraEnv[0].value=true                                             |
       | --set              | gitCredentials.enabled=false                                       |
       | --wait             | True                                                               |
       | --timeout          | 120s                                                               |
@@ -700,6 +720,8 @@ Feature: Image name, tag, and registry resolution
       | --set              | image.tag=test                                                     |
       | --set              | image.pullPolicy=Always                                            |
       | --set              | buildkit.endpoint=<BuildkitEndpoint>                               |
+      | --set              | extraEnv[0].name=ALLOW_INSECURE_GIT_PROTOCOLS                      |
+      | --set-string       | extraEnv[0].value=true                                             |
       | -f                 | .cache/fixtures/image-resolution-w<WorkerId>/mapping-8.yaml                    |
       | --wait             | True                                                               |
       | --timeout          | 120s                                                               |

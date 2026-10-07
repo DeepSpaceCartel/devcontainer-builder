@@ -12,6 +12,7 @@ import {
   deleteManifest,
   readImageConfig,
   PlatformNotFoundError,
+  InvalidRegistryError,
   type RegistryAuthOverride,
 } from "./registry-client.js";
 import { buildDevcontainerMetadata, CONFIG_LABEL, InvalidMetadataLabelError, METADATA_LABEL } from "./devcontainer-metadata.js";
@@ -25,9 +26,11 @@ import {
   imageDeletesTotal,
 } from "./metrics.js";
 import { logger } from "./logger.js";
+import { redactUrlCredentials } from "./git-url.js";
 import {
   BuildRequestSchema,
   BuildResponseSchema,
+  BusyResponseSchema,
   ConfigResponseSchema,
   DevcontainerNotFoundResponseSchema,
   DevcontainerQuerySchema,
@@ -40,7 +43,9 @@ import {
   ImageDeleteResponseSchema,
   ImageExistsResponseSchema,
   ImageQuerySchema,
+  LogContentResponseSchema,
   LogIdParamSchema,
+  NoContentResponseSchema,
   RegistryAuthHeadersSchema,
   RegistryUpstreamErrorResponseSchema,
   type BuildRequestBody,
@@ -107,18 +112,32 @@ function logIdOf(err: unknown): string | undefined {
   return err instanceof Error ? (err as Error & { logId?: string }).logId : undefined;
 }
 
+// Messages and stacks are redacted of URL credentials on the way out -
+// defense in depth: requests carrying them are already refused, and
+// process.ts redacts command lines in the errors it builds.
 function errorFields(err: unknown): { "error.type": string; "error.message": string; "error.stacktrace"?: string } {
   if (err instanceof Error) {
-    return { "error.type": err.constructor.name, "error.message": err.message, "error.stacktrace": err.stack };
+    return {
+      "error.type": err.constructor.name,
+      "error.message": redactUrlCredentials(err.message),
+      "error.stacktrace": err.stack === undefined ? undefined : redactUrlCredentials(err.stack),
+    };
   }
-  return { "error.type": "UnknownError", "error.message": String(err) };
+  return { "error.type": "UnknownError", "error.message": redactUrlCredentials(String(err)) };
 }
+
+// How long a caller turned away by the build concurrency limit is told to
+// wait - a build takes minutes, so retrying sooner is pointless.
+const BUILD_BUSY_RETRY_AFTER_SECONDS = 30;
 
 // Builds and fully configures the app (routes, schemas, swagger) without
 // binding a port - kept separate from actually listening so this is
 // injectable/testable (fastify.inject()) and so index.ts, the real
 // entrypoint, controls exactly when the process starts accepting traffic.
 export async function buildApp(): Promise<FastifyInstance> {
+  // Builds in flight in this instance, for serviceConfig.maxConcurrentBuilds.
+  let activeBuilds = 0;
+
   if (serviceConfig.sentryDsn) {
     Sentry.init({
       dsn: serviceConfig.sentryDsn,
@@ -301,6 +320,10 @@ export async function buildApp(): Promise<FastifyInstance> {
       gitCredentials: serviceConfig.gitCredentials.map((entry) => ({ host: entry.host, kind: entry.kind })),
       registryMappingRules: serviceConfig.registryMappingRules,
       insecureRegistries: serviceConfig.insecureRegistries,
+      allowInsecureGitProtocols: serviceConfig.allowInsecureGitProtocols,
+      cloneTimeoutSeconds: serviceConfig.cloneTimeoutSeconds,
+      buildTimeoutSeconds: serviceConfig.buildTimeoutSeconds,
+      maxConcurrentBuilds: serviceConfig.maxConcurrentBuilds,
       registryAuth: serviceConfig.registryAuthRegistries.map((registry) => ({ registry })),
     };
   });
@@ -314,7 +337,7 @@ export async function buildApp(): Promise<FastifyInstance> {
           "Prometheus text-format metrics (`Content-Type: text/plain`), for a `ServiceMonitor`/node-exporter-style scrape.",
           "Node.js process/runtime defaults (`prom-client`'s `collectDefaultMetrics`) plus:",
           "",
-          "- **`devcontainer_builder_builds_total`** (counter, label `status`: `success`|`failure`|`invalid_request`) - every `POST /build` attempt.",
+          "- **`devcontainer_builder_builds_total`** (counter, label `status`: `success`|`failure`|`invalid_request`|`busy`) - every `POST /build` attempt.",
           "- **`devcontainer_builder_build_duration_seconds`** (histogram, label `status`) - real build wall-clock time, bucketed toward minutes (not the sub-second defaults), since a build is a clone + image build + push.",
           "- **`devcontainer_builder_image_checks_total`** (counter, label `result`: `exists`|`absent`|`error`) - every `GET /image` call.",
           "- **`devcontainer_builder_image_deletes_total`** (counter, label `result`: `deleted`|`unsupported`|`error`) - every `DELETE /image` call.",
@@ -339,13 +362,20 @@ export async function buildApp(): Promise<FastifyInstance> {
           '- `{"error": "invalid JSON body"}` - the request body isn\'t valid JSON at all.',
           `- \`{"error": "${BUILD_REQUEST_SHAPE_ERROR}"}\` - the parsed body isn't a JSON object, or fails the shape check.`,
           '- `{"error": "unable to parse git repository URL: <repository>"}` - `repository` doesn\'t match any accepted URL form.',
+          '- `{"error": "repository URL scheme \\"<scheme>://\\" is not allowed: ..."}` - `repository` uses a scheme other than `https://`/`ssh://`/SCP-style (`git://`/`http://` need the server\'s `allowInsecureGitProtocols`).',
+          '- `{"error": "repository URL must not contain credentials (user:token@...) - pass them in gitCredentials instead"}`.',
+          '- `{"error": "buildOptions.cacheTo: cache type \\"<type>\\" is not allowed (allowed: registry, gha, inline)"}` - likewise for `cacheFrom`.',
+          '- `{"error": "unable to derive an image name from repository path ...: provide image.name"}`.',
           '- `{"error": "no registry resolved for repository <repository>: provide image.registry or configure a matching registry mapping rule"}` - no `image.registry` given and no registry mapping rule matched.',
           '- `{"error": "SSH host key policy is \\"pinned\\" but no pinned key configured for host <host>"}` - the resolved SSH credential has no `pinnedHostKey` under `sshHostKeyPolicy: pinned`.',
+          "",
+          "",
+          "`429` means the instance is already running `build.maxConcurrent` builds; retry after `Retry-After` seconds.",
           "",
           '`500` always means a real external command was actually run and failed - the request was well-formed, but cloning or building it didn\'t work: `{"error": "<command> <args...> exited with code <n>", "logId": "<id>"}`. The body is the real command and exit code, not the real error text (a registry\'s real 401 body, git\'s real "Permission denied") - fetch that via `GET /logs/{logId}` (also returned on success, as `gitCloneLogId`/`imageBuildLogId`).',
         ].join("\n"),
         body: BuildRequestSchema,
-        response: { 200: BuildResponseSchema, 400: ErrorResponseSchema, 500: ErrorResponseSchema },
+        response: { 200: BuildResponseSchema, 400: ErrorResponseSchema, 429: BusyResponseSchema, 500: ErrorResponseSchema },
       },
       attachValidation: true,
     },
@@ -355,9 +385,16 @@ export async function buildApp(): Promise<FastifyInstance> {
         return { error: BUILD_REQUEST_SHAPE_ERROR };
       }
 
+      if (serviceConfig.maxConcurrentBuilds > 0 && activeBuilds >= serviceConfig.maxConcurrentBuilds) {
+        buildsTotal.inc({ status: "busy" });
+        request.log.warn({ event: "build.rejected", reason: "busy", "builds.active": activeBuilds });
+        reply.code(429).header("Retry-After", String(BUILD_BUSY_RETRY_AFTER_SECONDS));
+        return { error: `already running ${activeBuilds} builds, the maximum - retry later` };
+      }
+
       request.log.info({
         event: "build.started",
-        repository: request.body.repository,
+        repository: redactUrlCredentials(request.body.repository),
         branch: request.body.branch,
         "image.registry": request.body.image?.registry,
         "image.name": request.body.image?.name,
@@ -365,6 +402,7 @@ export async function buildApp(): Promise<FastifyInstance> {
       });
 
       const stopTimer = buildDurationSeconds.startTimer();
+      activeBuilds++;
       try {
         const result = await buildDevcontainer(request.body);
         buildsTotal.inc({ status: "success" });
@@ -374,6 +412,7 @@ export async function buildApp(): Promise<FastifyInstance> {
           "image.registry": result.registry,
           "image.name": result.name,
           "image.tag": result.tag,
+          branch: result.branch,
         });
         return result;
       } catch (err) {
@@ -390,7 +429,9 @@ export async function buildApp(): Promise<FastifyInstance> {
         request.log.error({ event: "build.failed", "log.id": logId, ...errorFields(err) });
         captureIfEnabled(err);
         reply.code(500);
-        return { error: err instanceof Error ? err.message : "build failed", logId };
+        return { error: err instanceof Error ? redactUrlCredentials(err.message) : "build failed", logId };
+      } finally {
+        activeBuilds--;
       }
     },
   );
@@ -425,6 +466,10 @@ export async function buildApp(): Promise<FastifyInstance> {
         request.log.info({ event: "image.lookup.completed", "image.registry": registry, "image.name": name, "image.tag": tag, exists });
         return { image: `${registry}/${name}:${tag}`, exists };
       } catch (err) {
+        if (err instanceof InvalidRegistryError) {
+          reply.code(400);
+          return { error: err.message };
+        }
         imageChecksTotal.inc({ result: "error" });
         request.log.error({
           event: "image.lookup.failed",
@@ -476,6 +521,10 @@ export async function buildApp(): Promise<FastifyInstance> {
         });
         return { image: `${registry}/${name}:${tag}`, ...result };
       } catch (err) {
+        if (err instanceof InvalidRegistryError) {
+          reply.code(400);
+          return { error: err.message };
+        }
         imageDeletesTotal.inc({ result: "error" });
         request.log.error({
           event: "image.delete.failed",
@@ -553,6 +602,10 @@ export async function buildApp(): Promise<FastifyInstance> {
         });
         return { image, digest: lookup.digest, ...metadata };
       } catch (err) {
+        if (err instanceof InvalidRegistryError) {
+          reply.code(400);
+          return { error: err.message };
+        }
         if (err instanceof PlatformNotFoundError || err instanceof InvalidMetadataLabelError) {
           devcontainerLookupsTotal.inc({ result: "no_metadata" });
           request.log.info({ event: "devcontainer.lookup.completed", ...imageFields, result: "no_metadata", "error.message": err.message });
@@ -579,7 +632,11 @@ export async function buildApp(): Promise<FastifyInstance> {
           "Not persisted beyond this pod's own lifetime (backed by the same ephemeral scratch space as an in-progress build, not a volume) and rotated: only the most recent `commandLogRetention` (default 10) files are kept per kind (`git`/`docker`) - an id from an old build may already be gone.",
         ].join("\n"),
         params: LogIdParamSchema,
-        response: { 400: ErrorResponseSchema, 404: ErrorResponseSchema },
+        response: {
+          200: { content: { "text/plain": { schema: LogContentResponseSchema } } },
+          400: ErrorResponseSchema,
+          404: ErrorResponseSchema,
+        },
       },
       attachValidation: true,
     },
@@ -612,7 +669,7 @@ export async function buildApp(): Promise<FastifyInstance> {
         tags: [TAGS.logs],
         description: "Deletes one captured command-output log ahead of its normal rotation. Idempotent - deleting an already-gone id also 404s.",
         params: LogIdParamSchema,
-        response: { 400: ErrorResponseSchema, 404: ErrorResponseSchema },
+        response: { 204: NoContentResponseSchema, 400: ErrorResponseSchema, 404: ErrorResponseSchema },
       },
       attachValidation: true,
     },

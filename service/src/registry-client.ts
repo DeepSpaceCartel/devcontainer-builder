@@ -18,6 +18,16 @@ export class RegistryUpstreamError extends Error {}
 // something this image genuinely doesn't have, not a registry failure).
 export class PlatformNotFoundError extends Error {}
 
+// The caller's `registry` itself is unacceptable (e.g. an http:// prefix
+// for a host the operator didn't list in insecureRegistries) - 400.
+export class InvalidRegistryError extends Error {}
+
+// Every registry HTTP call (including reading its body) is bounded, so a
+// registry that accepts the connection and then stalls can't hold a
+// request - or a build's post-push probe - open indefinitely.
+// An object, not a const, so tests can shorten it.
+export const registryRequestLimits = { timeoutMs: 30_000 };
+
 const MANIFEST_ACCEPT = [
   "application/vnd.oci.image.manifest.v1+json",
   "application/vnd.oci.image.index.v1+json",
@@ -34,10 +44,12 @@ const MAX_JSON_BYTES = 4 * 1024 * 1024;
 // `registry` as callers pass it (and as POST /build returns it) may carry a
 // namespace path - `ghcr.io/deepspacecartel` - that belongs to the
 // repository, not the host: the distribution API lives at
-// `https://ghcr.io/v2/deepspacecartel/<name>/...`. An explicit
-// http:// / https:// prefix is still honored as-is; otherwise plain http is
-// used only for hosts listed in serviceConfig.insecureRegistries.
-interface RegistryTarget {
+// `https://ghcr.io/v2/deepspacecartel/<name>/...`. Plain http is used only
+// for hosts listed in serviceConfig.insecureRegistries - an explicit
+// `http://` prefix for any other host is refused (it used to be honored,
+// which let a caller downgrade credentials to cleartext), while an
+// explicit `https://` prefix is always fine.
+export interface RegistryTarget {
   baseUrl: string;
   host: string;
   repository: string;
@@ -47,7 +59,7 @@ interface RegistryTarget {
 // redirects to the marketing site. Same mapping the Docker CLI applies.
 const API_HOST_ALIASES: Record<string, string> = { "docker.io": "registry-1.docker.io", "index.docker.io": "registry-1.docker.io" };
 
-function resolveTarget(registry: string, name: string): RegistryTarget {
+export function resolveTarget(registry: string, name: string): RegistryTarget {
   let scheme: "http" | "https" | undefined;
   let rest = registry;
   const schemeMatch = /^(https?):\/\//.exec(rest);
@@ -61,7 +73,13 @@ function resolveTarget(registry: string, name: string): RegistryTarget {
   const host = slash === -1 ? rest : rest.slice(0, slash);
   const prefix = slash === -1 ? "" : rest.slice(slash + 1);
 
-  scheme ??= serviceConfig.insecureRegistries.includes(host) ? "http" : "https";
+  const insecure = serviceConfig.insecureRegistries.includes(host);
+  if (scheme === "http" && !insecure) {
+    throw new InvalidRegistryError(
+      `registry ${registry} uses http://, but ${host} is not in insecureRegistries - drop the scheme, or have the operator list the host`,
+    );
+  }
+  scheme ??= insecure ? "http" : "https";
   return { baseUrl: `${scheme}://${API_HOST_ALIASES[host] ?? host}`, host, repository: prefix ? `${prefix}/${name}` : name };
 }
 
@@ -138,7 +156,7 @@ class RegistrySession {
   private send(method: string, url: string, accept: string): Promise<Response> {
     const headers: Record<string, string> = { Accept: accept };
     if (this.authorization) headers.Authorization = this.authorization;
-    return fetch(url, { method, headers });
+    return fetch(url, { method, headers, signal: AbortSignal.timeout(registryRequestLimits.timeoutMs) });
   }
 
   private async exchange(challenge: BearerChallenge): Promise<string> {
@@ -151,7 +169,7 @@ class RegistrySession {
       tokenHeaders.Authorization = `Basic ${Buffer.from(`${this.auth.username}:${this.auth.password}`).toString("base64")}`;
     }
 
-    const tokenRes = await fetch(tokenUrl, { headers: tokenHeaders });
+    const tokenRes = await fetch(tokenUrl, { headers: tokenHeaders, signal: AbortSignal.timeout(registryRequestLimits.timeoutMs) });
     if (!tokenRes.ok) {
       throw new RegistryUpstreamError(`registry auth token request to ${challenge.realm} failed with status ${tokenRes.status}`);
     }

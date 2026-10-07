@@ -15,6 +15,19 @@ one request, removed in a `finally` block. See
 [0002: Credentials never touch argv, env history, or the clone URL](../decisions/0002-credentials-never-touch-argv-or-urls.md)
 for the decision record.
 
+The same rule holds for what callers send. A `repository` with
+credentials in it (`https://user:token@host/...`, or a bare token as the
+user) is rejected with `400` before anything runs, pointing at
+`gitCredentials` instead — otherwise the URL would be cloned verbatim and
+the token would land in git's argv, the error body, the `build.started`
+log line, Sentry and the `git.clone` span. As defense in depth, URL
+userinfo is also redacted (`https://[redacted]@host/...`) wherever a URL
+reaches a log line, an error message or a span attribute; a bare ssh
+login (`ssh://git@host`) is kept. Likewise a request's `registry` with an
+explicit `http://` prefix is refused unless the host is in
+[`insecureRegistries`](../reference/CONFIGURATION.md#insecure_registries),
+so registry credentials never go out over cleartext on a caller's say-so.
+
 ## Git credentials
 
 ### Resolution: request-level wins, then per-host server config

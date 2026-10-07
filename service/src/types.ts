@@ -41,6 +41,7 @@ export interface BuildResponse {
   registry: string;
   name: string;
   tag: string;
+  branch: string;
   commit: string;
   gitCloneLogId?: string;
   imageBuildLogId?: string;

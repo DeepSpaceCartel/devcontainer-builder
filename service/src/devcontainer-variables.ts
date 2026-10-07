@@ -52,7 +52,7 @@ const CONTEXT_VARIABLES: Record<string, string> = {
 // wouldn't substitute (left verbatim, like the CLI does).
 function parseReference(inner: string): ShellReference | undefined {
   const [name, ...args] = inner.split(":");
-  if (name in CONTEXT_VARIABLES) {
+  if (Object.hasOwn(CONTEXT_VARIABLES, name)) {
     return { kind: "context", name, shellName: CONTEXT_VARIABLES[name] };
   }
   if ((name === "localEnv" || name === "env" || name === "containerEnv") && args.length > 0 && SHELL_NAME.test(args[0])) {
