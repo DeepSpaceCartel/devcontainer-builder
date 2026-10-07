@@ -87,7 +87,7 @@ variable "accept_vscode_license" {
 
 variable "allow_privileged" {
   type        = bool
-  description = "Honor devcontainer.json's `privileged: true` (and `--security-opt seccomp=unconfined`). Off by default: a privileged pod can take over its node, and most namespaces' Pod Security level forbids it anyway."
+  description = "Honor devcontainer.json's `privileged: true`, `--security-opt seccomp=unconfined` and capabilities beyond Pod Security baseline's list (e.g. SYS_PTRACE, NET_ADMIN). Off by default: they need a namespace whose Pod Security level allows them, and privileged pods can take over their node."
   default     = false
 }
 
@@ -297,8 +297,39 @@ locals {
   # gpu: true or {cores, memory} -> one GPU; "optional" or unset -> none.
   gpu_limit = local.gpu_json != null && local.gpu_json != "\"optional\"" && local.gpu_json != "false" ? { "nvidia.com/gpu" = "1" } : {}
 
-  # localEnv variables without a default that the user must provide.
-  required_variables = [for v in local.variables : v.name if v.kind == "localEnv" && v.default == null]
+  # Pod Security "baseline" (the usual namespace level) only allows these
+  # added capabilities; anything else (SYS_PTRACE, NET_ADMIN, ...) would get
+  # the whole pod rejected, so it's only added with var.allow_privileged.
+  baseline_capabilities  = ["AUDIT_WRITE", "CHOWN", "DAC_OVERRIDE", "FOWNER", "FSETID", "KILL", "MKNOD", "NET_BIND_SERVICE", "SETFCAP", "SETGID", "SETPCAP", "SETUID", "SYS_CHROOT"]
+  requested_capabilities = try(local.runtime.cap_add, [])
+  capabilities           = var.allow_privileged ? local.requested_capabilities : [for c in local.requested_capabilities : c if contains(local.baseline_capabilities, c)]
+  skipped_capabilities   = var.allow_privileged ? [] : [for c in local.requested_capabilities : c if !contains(local.baseline_capabilities, c)]
+  all_warnings = concat(local.warnings, length(local.skipped_capabilities) > 0 ? [
+    "capAdd ${join(", ", local.skipped_capabilities)} not added - Pod Security baseline forbids it (template variable allow_privileged enables it)"
+  ] : [])
+
+  # Mount points that live on the PVC (the workspace folder itself, and any
+  # mount target inside /workspaces, the home or the workspace folder):
+  # seed-home creates them as the remote user first, or kubelet would
+  # create them root-owned and unwritable (e.g. the workspace folder, when
+  # a volume is mounted at <workspace folder>/node_modules).
+  mount_point_dirs = compact([for t in concat([local.workspace_folder], [for m in local.mounts : m.target]) :
+    startswith(t, "/workspaces/") ? "workspaces/${trimprefix(t, "/workspaces/")}" :
+    startswith(t, "${local.home_dir}/") ? "home/${trimprefix(t, "${local.home_dir}/")}" :
+    !startswith(local.workspace_folder, "/workspaces/") && startswith(t, "${local.workspace_folder}/") ? "workspace-folder/${trimprefix(t, "${local.workspace_folder}/")}" : ""
+  ])
+
+  # localEnv variables without a default that the user must provide -
+  # ignoring ones only used by mounts, which only matter for bind mounts
+  # (dropped anyway: there's no host).
+  required_variables = [for v in local.variables : v.name if v.kind == "localEnv" && v.default == null && length([for u in v.used_in : u if !startswith(u, "mounts")]) > 0]
+  # Names only - the checks below must never reference the parameter itself:
+  # Terraform prints referenced values in a failed check's diagnostics, and
+  # the parameter holds the user's tokens.
+  missing_variables = nonsensitive([for name in local.required_variables : nonsensitive(name) if !can(regex("(?m)^${name}=.+", data.coder_parameter.devcontainer_variables.value))])
+  # Not secrets, but derived from the data source (whose registry
+  # credentials input is sensitive) - unmarked so the build log shows them.
+  warning_lines = nonsensitive([for w in local.all_warnings : nonsensitive(w)])
 }
 
 # --- The actual build ----------------------------------------------------
@@ -367,7 +398,7 @@ resource "coder_agent" "main" {
         eval "value=\$${DEVCONTAINER_LOCALENV_$name-}"
         [ -n "$value" ] || missing="$missing $name"
       done
-      if [ -n "$missing" ]; then echo "unset:$missing - add NAME=value to the Dev Container variables setting and restart"; else echo "all set (${length(local.variables)} detected)"; fi
+      if [ -n "$missing" ]; then echo "unset:$missing"; else echo "all set"; fi
     EOT
     interval     = 60
     timeout      = 1
@@ -376,7 +407,7 @@ resource "coder_agent" "main" {
   metadata {
     display_name = "Dev Container warnings"
     key          = "8_devcontainer_warnings"
-    script       = "echo '${base64encode(length(local.warnings) == 0 ? "none" : join(" | ", local.warnings))}' | base64 -d"
+    script       = "echo '${length(local.all_warnings) == 0 ? "none" : "${length(local.all_warnings)} - see the build log"}'"
     interval     = 3600
     timeout      = 1
   }
@@ -432,24 +463,6 @@ resource "coder_agent" "main" {
   }
 }
 
-# Clones the repository into /workspaces/<repo name> on first start, before
-# login (start_blocks_login). It only clones into an empty folder, so the
-# working copy on the PVC - local edits, other branches - is never touched
-# on later starts. Private repos authenticate the way the agent does: a
-# Coder external auth provider for HTTPS (GIT_ASKPASS), or the owner's
-# Coder SSH key (`coder gitssh`) for ssh/scp-style URLs. Clones the branch
-# tip; checking out the commit the image was built from is F1.
-module "git_clone" {
-  count       = data.coder_workspace.me.start_count
-  source      = "registry.coder.com/coder/git-clone/coder"
-  version     = "2.0.5"
-  agent_id    = coder_agent.main.id
-  url         = data.coder_parameter.repository.value
-  branch_name = data.coder_parameter.branch.value
-  base_dir    = dirname(local.workspace_folder)
-  folder_name = basename(local.workspace_folder)
-}
-
 # VS Code in the browser - Microsoft's own VS Code Server (vscode-web),
 # not code-server, so extensions come from the Microsoft Marketplace. It
 # shares ~/.vscode-server (and so the extensions/settings installed by
@@ -479,8 +492,8 @@ module "vscode_desktop" {
 # each hook is one script devcontainer-builder already rendered with the
 # Dev Containers CLI's semantics (base image, then Features, then
 # devcontainer.json; string/array/object forms; stop at the first failure).
-# Runs them in the spec's order from the repo folder, after git_clone has
-# cloned it, before login. In Dev Containers the first three run once per
+# Clones the repo first (see below), then runs them in the spec's order
+# from the repo folder, before login. In Dev Containers the first three run once per
 # container; here every start is a fresh root filesystem, so all four run
 # on every start and must be idempotent. Output is in the agent's startup
 # logs.
@@ -498,33 +511,40 @@ resource "coder_script" "devcontainer_lifecycle" {
     dir="$HOME/.cache/devcontainer-lifecycle"
     mkdir -p "$dir"
 
-    # git_clone runs alongside this script; the hooks need the checked-out
-    # working copy. `.git` appears as soon as a clone starts - the index is
-    # only written once checkout has finished.
-    i=0
-    until [ -f "$workspace_folder/.git/index" ] && [ ! -e "$workspace_folder/.git/index.lock" ]; do
-      i=$((i + 1))
-      if [ "$i" -gt 300 ]; then
-        echo "devcontainer: $workspace_folder was not cloned within 10 minutes, skipping lifecycle commands" >&2
-        exit 1
-      fi
-      sleep 2
-    done
-
-    # A fresh clone (git_clone's only reflog entry is the clone itself) is
-    # moved to the commit the image was built from, so the hooks below run
-    # the scripts that image was built for. Anything else - an existing
-    # working copy, local commits - is never touched.
-    commit='${devcontainerbuilder_build.workspace.commit != null ? devcontainerbuilder_build.workspace.commit : ""}'
+    # Clone the repository into the workspace folder on first start, at
+    # the commit the image was built from (on its branch), so the hooks
+    # below run the scripts that image was built for. git init + fetch
+    # rather than `git clone`: the folder may already hold mount points
+    # (e.g. a node_modules volume). An existing working copy is never
+    # touched. Private repos authenticate like the agent: GIT_ASKPASS
+    # (Coder external auth) for HTTPS, `coder gitssh` for SSH.
+    repository='${data.coder_parameter.repository.value}'
     branch='${data.coder_parameter.branch.value}'
-    marker="$workspace_folder/.git/devcontainer-builder-checkout"
-    if [ -n "$commit" ] && [ ! -e "$marker" ]; then
-      if [ "$(git -C "$workspace_folder" reflog 2>/dev/null | wc -l)" -le 1 ] && [ -z "$(git -C "$workspace_folder" status --porcelain 2>/dev/null)" ]; then
-        if git -C "$workspace_folder" cat-file -e "$commit^{commit}" 2>/dev/null || git -C "$workspace_folder" fetch -q origin "$commit"; then
-          git -C "$workspace_folder" checkout -q -B "$branch" "$commit" && echo "devcontainer: checked out $commit, the commit the image was built from"
-        fi
+    commit='${devcontainerbuilder_build.workspace.commit != null ? devcontainerbuilder_build.workspace.commit : ""}'
+    if [ ! -e "$workspace_folder/.git" ]; then
+      case "$repository" in
+        ssh://* | *@*:*)
+          host=$(printf '%s' "$repository" | sed -E 's#^ssh://##; s#^[^@]*@##; s#[:/].*$##')
+          mkdir -p "$HOME/.ssh" && touch "$HOME/.ssh/known_hosts"
+          ssh-keygen -F "$host" -f "$HOME/.ssh/known_hosts" >/dev/null 2>&1 || ssh-keyscan -H "$host" >> "$HOME/.ssh/known_hosts" 2>/dev/null || true
+          ;;
+      esac
+      echo "devcontainer: cloning $repository ($branch) into $workspace_folder"
+      mkdir -p "$workspace_folder"
+      git -C "$workspace_folder" init -q -b "$branch" &&
+        git -C "$workspace_folder" remote add origin "$repository" &&
+        git -C "$workspace_folder" fetch -q origin "+refs/heads/$branch:refs/remotes/origin/$branch" || {
+          echo "devcontainer: cloning $repository failed" >&2
+          rm -rf "$workspace_folder/.git"
+          exit 1
+        }
+      target="origin/$branch"
+      if [ -n "$commit" ] && { git -C "$workspace_folder" cat-file -e "$commit^{commit}" 2>/dev/null || git -C "$workspace_folder" fetch -q origin "$commit"; }; then
+        target="$commit"
       fi
-      touch "$marker"
+      git -C "$workspace_folder" checkout -q -B "$branch" "$target" &&
+        git -C "$workspace_folder" branch -q --set-upstream-to="origin/$branch" "$branch" &&
+        echo "devcontainer: checked out $(git -C "$workspace_folder" rev-parse --short HEAD), the commit the image was built from" || exit 1
     fi
 
     run_hook() {
@@ -643,6 +663,23 @@ resource "coder_script" "devcontainer_vscode" {
   EOT
 }
 
+# Everything in devcontainer.json the workspace couldn't honor, as one
+# Terraform warning in the workspace's build log (full text, one per line) -
+# the agent metadata above only has room for a count.
+check "devcontainer_warnings" {
+  assert {
+    condition     = length(local.warning_lines) == 0
+    error_message = "devcontainer.json settings this workspace doesn't honor:\n- ${join("\n- ", local.warning_lines)}"
+  }
+}
+
+check "devcontainer_variables" {
+  assert {
+    condition     = length(local.missing_variables) == 0
+    error_message = "devcontainer.json uses $${localEnv:...} variables without a value: ${join(", ", local.missing_variables)}. Add NAME=value lines to the workspace's \"Dev Container variables\" setting and restart."
+  }
+}
+
 # devcontainer.json's forwardPorts as dashboard apps. Coder needs a fixed
 # number of apps at plan time, so there are var.max_forwarded_ports slots;
 # the ones without a port are hidden.
@@ -652,7 +689,7 @@ resource "coder_app" "forwarded_port" {
   slug         = "port-${count.index}"
   display_name = count.index < length(local.ports) ? coalesce(try(local.ports[count.index].label, null), "Port ${try(local.ports[count.index].port, 0)}") : null
   url          = "${try(local.ports[count.index].protocol, "") == "https" ? "https" : "http"}://localhost:${try(local.ports[count.index].port, 0)}"
-  icon         = "/icon/widgets.svg"
+  icon         = count.index < length(local.ports) ? "/icon/widgets.svg" : null
   subdomain    = true
   share        = "owner"
   hidden       = count.index >= length(local.ports)
@@ -826,7 +863,7 @@ resource "kubernetes_deployment_v1" "main" {
           command = ["sh", "-c", <<-EOT
             set -eu
             mkdir -p /mnt/data/home /mnt/data/workspaces /mnt/data/workspace-folder
-            for dir in $VOLUME_DIRS; do mkdir -p "/mnt/data/$dir"; done
+            for dir in $VOLUME_DIRS $MOUNT_POINT_DIRS; do mkdir -p "/mnt/data/$dir"; done
             if [ ! -e /mnt/data/home/.devcontainer-home-seeded ]; then
               cp -R --preserve=mode,timestamps,links --no-clobber "$HOME_DIR"/. /mnt/data/home/
               touch /mnt/data/home/.devcontainer-home-seeded
@@ -841,6 +878,10 @@ resource "kubernetes_deployment_v1" "main" {
           env {
             name  = "VOLUME_DIRS"
             value = join(" ", local.volume_dirs)
+          }
+          env {
+            name  = "MOUNT_POINT_DIRS"
+            value = join(" ", local.mount_point_dirs)
           }
           resources {
             requests = {
@@ -884,11 +925,16 @@ resource "kubernetes_deployment_v1" "main" {
             done <<EOF_VARIABLES
             $DC_VARIABLES
             EOF_VARIABLES
+            # An unset variable (e.g. a Dev Container variable the user hasn't
+            # provided yet) expands to empty, as with the Dev Containers CLI -
+            # so no `set -u` while these run.
+            set +u
             for script in "$DC_CONTAINER_ENV" "$DC_REMOTE_ENV"; do
               [ -n "$script" ] || continue
               printf '%s' "$script" | base64 -d > /tmp/devcontainer-env.sh
               . /tmp/devcontainer-env.sh
             done
+            set -u
             rm -f /tmp/devcontainer-env.sh
             export HOME="$DC_HOME" USER="$DC_REMOTE_USER" LOGNAME="$DC_REMOTE_USER"
             init="$DC_INIT_SCRIPT"
@@ -899,7 +945,7 @@ resource "kubernetes_deployment_v1" "main" {
           security_context {
             privileged = var.allow_privileged && try(local.runtime.privileged, false)
             capabilities {
-              add = try(local.runtime.cap_add, [])
+              add = local.capabilities
             }
             dynamic "seccomp_profile" {
               for_each = var.allow_privileged && try(local.runtime.seccomp_unconfined, false) ? [1] : []
