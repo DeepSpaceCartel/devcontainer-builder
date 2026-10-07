@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-10-07
+
 ### Added
 
 - The VS Code extension is on the **VS Code Marketplace** as `deepspacecartel.devcontainer-builder`
@@ -343,7 +345,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   by the two fully static generated pages above, which don't depend on a
   script running after navigation at all.
 
-[Unreleased]: https://github.com/DeepSpaceCartel/devcontainer-builder/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/DeepSpaceCartel/devcontainer-builder/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/DeepSpaceCartel/devcontainer-builder/releases/tag/v0.5.0
 [0.4.0]: https://github.com/DeepSpaceCartel/devcontainer-builder/releases/tag/v0.4.0
 [0.3.0]: https://github.com/DeepSpaceCartel/devcontainer-builder/releases/tag/v0.3.0
 [0.2.0]: https://github.com/DeepSpaceCartel/devcontainer-builder/releases/tag/v0.2.0
