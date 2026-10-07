@@ -40,8 +40,11 @@ fi
 # prefix at a directory this user owns instead, unconditionally, since we
 # can't assume the fast-path (image already had Node) left a writable one.
 npm_global_dir="$HOME/.npm-global"
+# lib/ and bin/ too, every time: npm and npx fail with ENOENT on a prefix
+# without lib/ - and with $HOME persisted, the prefix outlives the run that
+# set it.
+mkdir -p "$npm_global_dir/lib" "$npm_global_dir/bin"
 if [ "$(npm config get prefix 2>/dev/null)" != "$npm_global_dir" ]; then
-  mkdir -p "$npm_global_dir"
   npm config set prefix "$npm_global_dir"
 fi
 export PATH="$npm_global_dir/bin:$PATH"

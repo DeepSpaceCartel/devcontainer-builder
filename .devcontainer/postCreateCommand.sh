@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
-# Installs the CLI tools the base devcontainer image doesn't already provide:
-# Bun (bun/bunx), Starship, Helm, Terraform, GitHub CLI, 1Password CLI,
-# kubectl, k9s, Docker CLI + buildx plugin + devcontainers CLI, Claude Code
-# CLI, Go, Coder CLI, and the `helm tui` plugin. No
-# Dev Container
-# Features are used here (they aren't usable yet in this repo's Coder/K8s
-# setup) - everything goes through plain shell so this script also works
-# when invoked manually via install.sh at the repo root.
+# Sets up the workspace user's environment. In a Dev Container / Coder
+# workspace, the system-wide tools - Helm, Terraform, kubectl, GitHub CLI,
+# Go, Claude Code CLI (devcontainer.json's Features), Docker CLI + buildx,
+# devcontainers CLI, 1Password CLI, k9s, Starship, pipx (the local
+# .devcontainer/workspace-tools Feature) - are already in the image, so
+# their steps below are instant no-ops: a Coder workspace runs this on every
+# start (each start is a fresh root filesystem) and only the $HOME-scoped
+# steps do real work, once - $HOME persists. On a plain machine (install.sh
+# at the repo root) the same steps install everything.
 #
 # Versions are intentionally not pinned: nothing else in this repo pins
 # Helm/Terraform/kubectl either (CI's setup-helm/setup-terraform actions run
@@ -30,8 +31,9 @@ arch="$(dpkg --print-architecture)"
 bash "$(dirname "${BASH_SOURCE[0]}")/typescript-node.sh"
 
 # --- Timezone -------------------------------------------------------------
+# In the workspace, devcontainer.json's containerEnv already sets TZ.
 tz="America/Los_Angeles"
-if [ "$(cat /etc/timezone 2>/dev/null)" != "$tz" ]; then
+if [ "${TZ:-}" != "$tz" ] && [ "$(cat /etc/timezone 2>/dev/null)" != "$tz" ]; then
   echo "Setting timezone to ${tz}..."
   $SUDO ln -sf "/usr/share/zoneinfo/${tz}" /etc/localtime
   echo "$tz" | $SUDO tee /etc/timezone > /dev/null
@@ -55,12 +57,12 @@ fi
 # JS/TS runtime + package runner, fetched by Bun's own installer. Lands in
 # ~/.bun/bin, so put it on PATH for this run and future interactive shells
 # (the installer writes to a login profile, but not the rc files used here).
+export PATH="$HOME/.bun/bin:$PATH"
 if ! command -v bun >/dev/null 2>&1; then
   echo "Installing Bun..."
   curl -fsSL https://bun.sh/install | bash
 fi
 
-export PATH="$HOME/.bun/bin:$PATH"
 for rc in "$HOME/.bashrc" "$HOME/.zshrc"; do
   if [ -f "$rc" ] && ! grep -qF '.bun/bin' "$rc"; then
     echo 'export PATH="$HOME/.bun/bin:$PATH"' >> "$rc"
@@ -70,17 +72,19 @@ done
 # --- MkDocs Material -----------------------------------------------------
 # Install into an isolated pipx environment so Debian's system Python stays
 # untouched while the mkdocs command remains available to the workspace user.
+# On PATH *before* checking: Bun and MkDocs live in the persisted $HOME, so
+# after the first start they're already there - but a non-interactive run
+# doesn't read the rc files that put them on PATH.
+export PATH="$HOME/.local/bin:$PATH"
 if ! command -v mkdocs >/dev/null 2>&1; then
   echo "Installing MkDocs Material..."
   if ! command -v pipx >/dev/null 2>&1; then
     $SUDO apt-get update
     $SUDO apt-get install -y --no-install-recommends pipx python3-venv
   fi
-  export PATH="$HOME/.local/bin:$PATH"
   pipx install --include-deps mkdocs-material
 fi
 
-export PATH="$HOME/.local/bin:$PATH"
 for rc in "$HOME/.bashrc" "$HOME/.zshrc"; do
   if [ -f "$rc" ] && ! grep -qF 'export PATH="$HOME/.local/bin:$PATH"' "$rc"; then
     echo 'export PATH="$HOME/.local/bin:$PATH"' >> "$rc"
@@ -180,31 +184,36 @@ done
 
 # --- Coder CLI --------------------------------------------------------------
 # Inside a Coder workspace, download the binary the deployment itself serves
-# (/bin/coder-linux-<arch>) so the CLI always matches the server version.
+# (/bin/coder-linux-<arch>) into ~/.local/bin - persisted, so it's only
+# downloaded again when the server's version changes (it can't be baked into
+# the image: it has to match whichever Coder server the workspace talks to).
 # Elsewhere (install.sh on a plain machine), fall back to Coder's installer.
 # Log in separately: `coder login <url>`, or export CODER_URL and
 # CODER_SESSION_TOKEN.
 # The agent puts its own binary (e.g. /tmp/coder.XXXXXX/coder) on PATH for
 # the scripts it runs, but not for other shells, so that copy doesn't count.
-coder_path="$(command -v coder 2>/dev/null || true)"
-case "$coder_path" in
-  "" | */coder.*/coder) coder_path="" ;;
-esac
-if [ -z "$coder_path" ]; then
-  echo "Installing Coder CLI..."
-  if [ -n "${CODER_AGENT_URL:-}" ]; then
+if [ -n "${CODER_AGENT_URL:-}" ]; then
+  coder_bin="$HOME/.local/bin/coder"
+  server_version="$(curl -fsSL "${CODER_AGENT_URL%/}/api/v2/buildinfo" 2>/dev/null | grep -oE '"version":"[^"]*"' | cut -d'"' -f4 || true)"
+  local_version="$("$coder_bin" version 2>/dev/null | head -n1 | awk '{print $2}' || true)"
+  if [ ! -x "$coder_bin" ] || { [ -n "$server_version" ] && [ "$local_version" != "$server_version" ]; }; then
+    echo "Installing Coder CLI ${server_version}..."
+    mkdir -p "$HOME/.local/bin"
     tmp_coder="$(mktemp)"
     # Only install a complete download - an empty file left by a failed
     # one would satisfy `command -v coder` from then on.
     if curl -fsSL -o "$tmp_coder" "${CODER_AGENT_URL%/}/bin/coder-linux-${arch}" && [ -s "$tmp_coder" ]; then
-      $SUDO install -m 0755 "$tmp_coder" /usr/local/bin/coder
+      install -m 0755 "$tmp_coder" "$coder_bin"
     else
       echo "Coder CLI download from ${CODER_AGENT_URL} failed - skipping" >&2
     fi
     rm -f "$tmp_coder"
-  else
-    curl -fsSL https://coder.com/install.sh | sh
   fi
+else
+  coder_path="$(command -v coder 2>/dev/null || true)"
+  case "$coder_path" in
+    "" | */coder.*/coder) curl -fsSL https://coder.com/install.sh | sh ;;
+  esac
 fi
 
 # --- 1Password CLI (apt repo + debsig package verification, per
@@ -324,10 +333,15 @@ fi
 
 # --- helm tui plugin (https://github.com/pidanou/helm-tui) ---------------
 # Ships a prebuilt binary via its own install-binary.sh hook - no Go
-# toolchain needed. Run as `helm tui` once installed.
+# toolchain needed. Run as `helm tui` once installed. Helm 4 (what the
+# kubectl-helm-minikube Feature installs) refuses unsigned plugin sources
+# unless told not to verify; Helm 3 has no --verify flag. Optional, so a
+# failure here never fails the workspace start.
 if command -v helm >/dev/null 2>&1 && ! helm plugin list 2>/dev/null | grep -qw tui; then
   echo "Installing helm tui plugin..."
-  helm plugin install https://github.com/pidanou/helm-tui
+  helm plugin install --verify=false https://github.com/pidanou/helm-tui 2>/dev/null \
+    || helm plugin install https://github.com/pidanou/helm-tui \
+    || echo "helm tui plugin install failed - skipping" >&2
 fi
 
 echo "postCreateCommand.sh done: node, bun/bunx, timezone, starship, helm, terraform, gh, 1Password CLI, kubectl, krew (kubectl-tree), k9s, docker cli, devcontainers cli, claude code cli, go, coder cli, MkDocs Material, helm tui plugin ready."

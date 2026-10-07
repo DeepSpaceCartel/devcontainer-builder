@@ -1,0 +1,7 @@
+{
+  "id": "workspace-tools",
+  "version": "1.0.0",
+  "name": "devcontainer-builder workspace tools",
+  "description": "CLI tools this repo's workspace needs that no public Feature provides here: Docker CLI + buildx (no daemon - builds go to a remote BuildKit), the Dev Containers CLI, 1Password CLI, k9s, Starship and pipx. Baked into the image so a workspace start doesn't reinstall them.",
+  "installsAfter": ["ghcr.io/devcontainers/features/common-utils"]
+}

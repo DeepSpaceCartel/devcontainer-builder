@@ -1,7 +1,21 @@
 {
   "name": "devcontainer-builder",
   "image": "mcr.microsoft.com/devcontainers/typescript-node:1-20-bookworm",
+  "features": {
+    "ghcr.io/devcontainers/features/terraform:1": {},
+    "ghcr.io/devcontainers/features/kubectl-helm-minikube:1": {
+      "minikube": "none"
+    },
+    "ghcr.io/devcontainers/features/github-cli:1": {},
+    "ghcr.io/devcontainers/features/go:1": {},
+    "ghcr.io/anthropics/devcontainer-features/claude-code:1": {},
+    "./workspace-tools": {}
+  },
   "remoteUser": "node",
+  "containerEnv": {
+    "TZ": "America/Los_Angeles"
+  },
+  "updateContentCommand": "bash .devcontainer/updateContentCommand.sh",
   "postCreateCommand": "bash .devcontainer/postCreateCommand.sh",
   "customizations": {
     "vscode": {
@@ -9,7 +23,6 @@
         "hashicorp.terraform",
         "redhat.vscode-yaml",
         "alexkrechik.cucumberautocomplete",
-        "HashiCorp.terraform",
         "ms-azuretools.vscode-containers",
         "openai.chatgpt",
         "Google.geminicodeassist",

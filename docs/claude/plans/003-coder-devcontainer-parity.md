@@ -5,6 +5,35 @@ created: 2026-10-01
 
 # Dev Containers parity for Coder Kubernetes workspaces
 
+## Status (2026-10-07): done
+
+Every feature below has shipped, several in a different shape than planned here. This
+plan is kept as the record of the starting point; the current design lives in:
+
+- [ADR-0011](../../decisions/0011-devcontainer-metadata-endpoint.md): `GET /devcontainer`,
+  the image's merged metadata, lifecycle scripts, VS Code customizations.
+- [ADR-0012](../../decisions/0012-dev-container-to-kubernetes-runtime-mapping.md): the
+  runtime mapping, variables, the build's config label, the recorded remote-user uid.
+- The guide's support table: [devcontainer.json in a Kubernetes workspace](../../guides/coder-workspace-template.md#devcontainerjson-in-a-kubernetes-workspace).
+
+| Feature | Outcome |
+|---|---|
+| F0 plan-time configuration | **Replaced.** Coder evaluates provider data sources only at template import, so nothing can be known at plan time per workspace. Instead `GET /devcontainer` reads the *built image* (service 0.2.0/0.3.0), and the template consumes it at apply time. |
+| F1 commit pinning, rebuild | Done, simplified. `POST /build` reports the commit; a fresh clone checks it out; a **Rebuild** parameter (`replace_triggered_by`) rebuilds from the branch tip. There's no commit input. |
+| F2 persistence | Done. PVC subPaths for home, `/workspaces`, an outside `workspaceFolder`, and volumes. |
+| F3 users | Done, differently. The build records the remote user's uid/gid/home (BuildKit probe of `/etc/passwd`), and the pod runs as that user from the start. There's no root plus `setpriv`. Older images fall back to uid 1000. |
+| F4 lifecycle | Done. The service renders each hook (CLI semantics); one blocking `coder_script` runs them on every start; `initializeCommand` runs first. |
+| F5 clone | Done. The lifecycle script clones into `workspaceFolder` at the image's commit (the `git-clone` module was dropped: it can't clone into a folder holding mount points). |
+| F6 extensions | Done. Installed from the Microsoft Marketplace into `~/.vscode-server`, used by VS Code Desktop and vscode-web. |
+| F7 env | Done. `envScripts` are sourced by the startup wrapper; `${…}` variables become shell references; `${localEnv:…}` comes from a **Dev Container variables** parameter. |
+| F8 ports | Done. `coder_app` slots (fixed count, unused ones hidden). |
+| F9 mounts, runArgs | Done, without DinD. Volumes, tmpfs, capabilities (beyond Pod Security baseline only with `allow_privileged`), init, shm, host aliases, resources from `hostRequirements`. |
+| F10 IDE folder | Done. vscode-web (replacing code-server) and VS Code Desktop open `workspaceFolder`. |
+| F11 git identity | Done. |
+| F12 sandbox2 | Done. |
+| F13 Features for this repo | Done. Terraform, kubectl/helm, gh, Go and Claude Code come from Features; docker CLI, devcontainers CLI, 1Password, k9s, Starship and pipx from the local `.devcontainer/workspace-tools` Feature. Per-start hooks dropped from about 100 s to about 11 s. |
+| F14 rts sync | Done. rts-terraform #24, #27, #29, #30. |
+
 ## Context
 
 v1 of the `kubernetes-devcontainer-dsc` template proves the build path: the pod runs the
