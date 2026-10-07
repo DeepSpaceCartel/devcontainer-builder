@@ -130,15 +130,18 @@ platform infrastructure from step 1), then boots
 ## Persistence
 
 Each workspace gets one PVC, `coder-<workspace-id>-data` (sized by the
-**Disk size** parameter), mounted twice via subPaths:
+**Disk size** parameter, or by `hostRequirements.storage` — see below),
+mounted via subPaths:
 
-| PVC path      | Mounted at                                   |
-| ------------- | -------------------------------------------- |
-| `home/`       | the remote user's home (`/home/<user>`, or `/root`) |
-| `workspaces/` | `/workspaces`                                |
+| PVC path            | Mounted at                                                  |
+| ------------------- | ----------------------------------------------------------- |
+| `home/`             | the remote user's home (`/home/<user>`, or `/root`)         |
+| `workspaces/`       | `/workspaces`                                               |
+| `workspace-folder/` | a `workspaceFolder` outside `/workspaces`, if there is one  |
+| `volumes/<name>/`   | each `type=volume` mount from devcontainer.json             |
 
 Everything else (the image's root filesystem) is fresh on every pod start,
-so anything installed outside those two paths has to come from the image.
+so anything installed outside those paths has to come from the image.
 
 A mount hides whatever the image had at that path, so a `seed-home` init
 container runs first, with the same image: on the workspace's **first**
@@ -146,15 +149,27 @@ start only, it copies the image's own home (`.bashrc`, nvm, oh-my-zsh, …)
 into the PVC. After that the home is the user's — later image rebuilds
 don't re-seed it, and a dotfile deleted by the user stays deleted.
 
+## The user
+
+The pod runs as devcontainer.json's `remoteUser` (else `containerUser`,
+else the image's `USER`) — **as that user from the start**:
+`runAsUser`/`runAsGroup`/`fsGroup` come from the uid/gid devcontainer-builder
+recorded from the image's `/etc/passwd` at build time, so nothing starts as
+root and any uid works. `fsGroup` (with `OnRootMismatch`) keeps the PVC
+writable for it. An image without that record (built by devcontainer-builder
+older than 0.3.0) stops the start with a message to bump **Rebuild**.
+
 ## The repository clone
 
-On a workspace's first start, Coder's
-[`git-clone`](https://registry.coder.com/modules/coder/git-clone) module
-clones the **Git repository**'s **Branch** into `/workspaces/<repo name>`,
-and login waits until it's done. VS Code Desktop and code-server open in that folder;
+On a workspace's first start, the login-blocking "Dev Container lifecycle"
+script clones the **Git repository**'s **Branch** into devcontainer.json's
+`workspaceFolder` (default `/workspaces/<repo name>`), **at the commit the
+image was built from**, so the hooks run the scripts the image was built
+for. VS Code Desktop and VS Code in the browser open that folder;
 terminals and SSH sessions start in `$HOME` (the agent's `dir` setting is
-deprecated and would break Coder Desktop file sync). On later starts the folder isn't empty, so the
-clone is skipped and the working copy is left exactly as it was.
+deprecated and would break Coder Desktop file sync). An existing working
+copy is never touched again — local changes and other branches survive
+restarts and rebuilds.
 
 The image build and this clone authenticate separately: devcontainer-builder
 clones with its own server-side credentials, which never reach the
@@ -167,52 +182,77 @@ one of:
   (`coder publickey`) added to their GitHub account. The agent's
   `coder gitssh` uses it.
 
-If the clone fails, the folder is left empty and the workspace still
-starts; the error is in the "Git Clone" script's log in the dashboard.
+If the clone fails, the lifecycle script fails (the workspace shows a
+startup error) and its log says why.
 
-!!! note "Whose home is persisted"
-    The template reads the image's merged `remoteUser` (falling back to
-    `containerUser`) from devcontainer-builder — see below. Pods still run
-    as uid 1000, so that user must be uid 1000 in the image: `seed-home`
-    checks it against the image's `/etc/passwd` and fails the pod with a
-    clear message if it isn't.
+**Rebuild.** The image is built when the workspace is created. Bump the
+**Rebuild** parameter (workspace settings) to rebuild it from the branch's
+latest commit on the next start, e.g. after `devcontainer.json` changes.
+The working copy is left as it is.
 
-## devcontainer.json: lifecycle commands and VS Code
+## devcontainer.json in a Kubernetes workspace
 
 A `devcontainerbuilder_devcontainer` data source reads the built image's
 merged Dev Container configuration from devcontainer-builder
-(`GET /devcontainer`, service and provider `>= 0.2.0`) — what the repo's
+(`GET /devcontainer`, service and provider `>= 0.3.0`) — what the repo's
 `devcontainer.json`, its Features and its base image say, merged the way
-the Dev Containers CLI merges them.
+the Dev Containers CLI merges them, plus a translation into pod terms
+([ADR-0012](../decisions/0012-dev-container-to-kubernetes-runtime-mapping.md)).
 
-**Lifecycle commands.** A login-blocking "Dev Container lifecycle" script
-waits for the clone, then runs `onCreateCommand`, `updateContentCommand`,
-`postCreateCommand` and `postStartCommand`, in that order, from the repo
-folder — each hook already rendered by devcontainer-builder with the CLI's
-semantics (Features before devcontainer.json; string, array and object
-forms; stop at the first failure). Its output is in the agent's startup
-logs. `postAttachCommand` runs once per start in a separate, non-blocking
-script — there's no "attach" event to hook into.
+| devcontainer.json | In the workspace |
+|---|---|
+| `image`, `build`, `features` | the image devcontainer-builder built |
+| `remoteUser`, `containerUser` | the pod's user (see *The user*) |
+| `workspaceFolder` | where the repo is cloned and the IDEs open |
+| `onCreate`/`updateContent`/`postCreate`/`postStartCommand` | run in order, before login, on **every** start (below) |
+| `postAttachCommand` | once per start, not blocking login |
+| `initializeCommand` | first, before `onCreateCommand`, in the repo folder (there's no host) |
+| `containerEnv`, `remoteEnv` (and `runArgs -e`) | exported before the agent starts — terminals, IDEs and hooks all see them; `${PATH}:/x` expands against the image's real `PATH` |
+| `${localEnv:NAME}` | the **Dev Container variables** setting (below) |
+| `${containerWorkspaceFolder}`, `${devcontainerId}` | the workspace folder, the Coder workspace ID |
+| `forwardPorts`, `portsAttributes` | dashboard apps (label, http/https), through Coder's proxy; up to `max_forwarded_ports` |
+| `mounts` / `--mount` / `-v` (volume) | the PVC, `volumes/<name>` — persists |
+| `mounts` / `--tmpfs` (tmpfs) | an in-memory `emptyDir` |
+| `capAdd`, `--cap-add` | `securityContext.capabilities.add` — beyond Pod Security *baseline*'s list (e.g. `SYS_PTRACE`) only with `allow_privileged` |
+| `init`, `--init` | `shareProcessNamespace` (the pause container reaps zombies) |
+| `--shm-size` | `/dev/shm` as an in-memory `emptyDir` of that size (default 64 Mi) |
+| `--add-host`, `--hostname` | pod `hostAliases`, `hostname` |
+| `privileged`, `securityOpt: seccomp=unconfined` | only with `allow_privileged` |
+| `hostRequirements` (`cpus`, `memory`, `storage`, `gpu`), `--cpus`, `--memory` | **override** the CPU/Memory/Disk parameters; `gpu` → `nvidia.com/gpu: 1` |
+| `customizations.vscode` | extensions (Microsoft Marketplace) and settings for VS Code Desktop and in the browser (below) |
+| bind mounts, `--network`, `--device`, `--gpus`, `host:port` forwards | ❌ no pod equivalent — reported as warnings |
+| `dockerComposeFile`, `shutdownAction`, `updateRemoteUserUID` | ❌ not supported |
+
+Everything the workspace can't honor shows up as a **warning in the
+workspace's build log** ("Check block assertion failed", one line per item)
+and as a count in the dashboard's "Dev Container warnings" item.
 
 !!! warning "Every start runs every hook"
-    Dev Containers runs the first three once per container. A workspace
-    pod gets a fresh root filesystem on **every** start, so here all four
-    run on every start: they must be idempotent (and anything they install
-    outside `$HOME` or `/workspaces` is gone after a restart anyway — put
-    that in the image or a Feature instead).
+    Dev Containers runs `onCreate`/`updateContent`/`postCreate` once per
+    container. A workspace pod gets a fresh root filesystem on **every**
+    start, so here they run on every start: they must be idempotent (and
+    anything they install outside `$HOME` or `/workspaces` is gone after a
+    restart anyway — put that in the image or a Feature instead).
 
-**VS Code extensions and settings.** A non-blocking script installs
+**Dev Container variables.** `${localEnv:NAME}` refers to the developer's
+machine, which a workspace doesn't have. Values come from the workspace's
+**Dev Container variables** setting instead — one `NAME=value` per line,
+applied on the next restart. The build log and the dashboard name any the
+repo uses without a value or default. Coder can't offer one field per
+variable: template parameters are evaluated once, when the template is
+imported, so they can't depend on the repository a workspace uses. Values
+are visible to anyone who can see the workspace's settings.
+
+**VS Code.** A non-blocking script installs
 `customizations.vscode.extensions` from the **Microsoft Marketplace** into
 `~/.vscode-server/extensions`, and merges `customizations.vscode.settings`
-into `~/.vscode-server/data/Machine/settings.json` — the folder VS Code
-Desktop's own remote server uses, on the persisted home, so the
-**VS Code Desktop** button opens the repo with them already in place. It
-uses Desktop's own server as the installer once Desktop has connected, and
-before that downloads Microsoft's latest VS Code Server once into
-`~/.cache` (used only as an installer, never served). A Desktop window
-that attaches before it finishes picks up the rest after
-**Developer: Reload Window**. code-server, the browser fallback, isn't
-given these extensions.
+into `~/.vscode-server/data/Machine/settings.json`. That's the folder both
+VS Code Desktop's remote server and **VS Code in the browser** (Microsoft's
+VS Code Server, the `vscode-web` module) use, on the persisted home. The
+browser IDE needs the template variable `accept_vscode_license` (default
+`true`): Microsoft's [license](https://aka.ms/vscode-server-license) allows
+it within your own organization. A Desktop window that attaches before the
+script finishes picks up the rest after **Developer: Reload Window**.
 
 !!! warning "Upgrading from the first template version"
     Workspaces created before this layout used a `coder-<id>-home` PVC
