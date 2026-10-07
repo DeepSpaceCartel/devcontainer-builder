@@ -31,7 +31,8 @@
     "start": "node dist/index.js",
     "test": "NODE_OPTIONS='--import tsx' cucumber-js",
     "test:unit": "node --import tsx --import ./src/testing/setup.ts --test src/*.test.ts",
-    "test:coverage": "node --import tsx --import ./src/testing/setup.ts --test --experimental-test-coverage --test-coverage-include='src/**/*.ts' --test-coverage-exclude='src/**/*.test.ts' --test-coverage-exclude='src/testing/**' src/*.test.ts"
+    "test:coverage": "node --import tsx --import ./src/testing/setup.ts --test --experimental-test-coverage --test-coverage-include='src/**/*.ts' --test-coverage-exclude='src/**/*.test.ts' --test-coverage-exclude='src/testing/**' src/*.test.ts",
+    "test:feature": "node scripts/test-feature.mjs"
   },
   "dependencies": {
     "@fastify/swagger": "^9.8.1",

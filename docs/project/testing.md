@@ -77,6 +77,16 @@ npm install    # pulls in thomas via a pinned github:DeepSpaceCartel/thomas comm
 npm test
 ```
 
+To run only some features, use `test:feature`:
+
+```bash
+npm run test:feature -- features/request_validation.feature features/health.feature
+npm run test:feature -- features/health.feature --parallel 1
+```
+
+`npm test -- features/x.feature` runs the **whole** suite: cucumber-js merges
+paths given on the command line with `cucumber.mjs`'s `features/**/*.feature`.
+
 ### Developing against a local, unreleased Thomas checkout
 
 `service/package.json`'s `thomas` devDependency is pinned to a real commit
