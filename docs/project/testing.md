@@ -273,15 +273,10 @@ cluster yet.
    shorten those probe periods to 1s. The log and Pod polls use 1–2s
    intervals, and a shorter interval also ends a poll sooner once its
    condition is met. The suite has no fixed sleeps.
-6. **Fix `cucumber.mjs`'s support globs.** `cucumber.mjs` only imports
-   `features/support/**/*.ts` and `features/step_definitions/**/*.ts`,
-   but every file there is `.js`. So none of them loads:
-    - `timeouts.js`, so Thomas's own 5-minute default step timeout
-      applies instead;
-    - `cluster_teardown_hooks.js` and its `AfterAll`;
-    - the three local step files.
-
-    Either add the `.js` globs or delete those files.
+6. ~~Fix `cucumber.mjs`'s support globs~~ (done): the `.js` support and
+   step files under `features/` were left over from before the suite moved
+   to Thomas, and `cucumber.mjs` never loaded them (it imports `*.ts` only).
+   They were deleted; Thomas provides every step and the defaults.
 7. **Quick profiles.** `@smoke` exists on `end_to_end_build.feature` but
    nothing selects it. A `smoke` profile (`--tags @smoke`) plus `failFast`
    for local runs would stop a broken run early instead of finishing all
