@@ -19,6 +19,11 @@ nav:
   - Getting started:
       - Set up the platform: getting-started/platform.md
       - Your first workspace: getting-started/first-workspace.md
+  - Tutorials:
+      - Repositories and registries: tutorials/index.md
+      - Public repositories and GHCR: tutorials/public-ghcr.md
+      - Private repositories, each user's account: tutorials/private-github-external-auth.md
+      - Private repositories over SSH: tutorials/private-ssh-deploy-key.md
   - Guides:
       - Working in a workspace: guides/working-in-a-workspace.md
       - Operating the template: guides/coder-workspace-template.md
