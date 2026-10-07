@@ -128,6 +128,47 @@ coder create my-workspace --template devcontainer-kubernetes \
 platform infrastructure from step 1), then boots
 `kubernetes_deployment_v1.main` from the image it returns.
 
+### From VS Code: Clone Repository in Workspace…
+
+The same extension that runs the [rebuild prompt](#the-repository-clone)
+inside workspaces also works in a **local** VS Code window. Install the
+release's `devcontainer-builder-rebuild.vsix` once on your machine
+(**Extensions: Install from VSIX…**). Then **Coder: Clone Repository in
+Workspace…** works like Dev Containers' *Clone Repository in
+Container Volume…*:
+
+1. **Log in.** It uses the Coder CLI's login if you have one (`coder
+   login`); otherwise it asks for your Coder URL and a token from its
+   `/cli-auth` page, once.
+2. **Choose the repository and branch** in VS Code's own repository
+   picker, the one **Git: Clone** uses. Signed in to GitHub in VS Code,
+   its **GitHub** source lists and filters your repositories, then their
+   branches. For a typed URL, the branches come from `git ls-remote`, the
+   default first. For a private repository without local git credentials,
+   type the branch name.
+3. **Reuse or create.** If you already have a workspace on that
+   repository and branch, it offers to open it (starting it if it's
+   stopped). Otherwise it creates `<repo>-<branch>` from the template
+   that asks for a repository and a branch (setting
+   `devcontainerBuilder.template` when there are several), with the
+   template's defaults for everything else.
+4. **Open.** It follows the build to ready, then opens VS Code Desktop on
+   the cloned folder through the Coder extension, which it offers to
+   install. If the build fails, it offers the build log.
+
+### Repositories without a devcontainer.json
+
+With the chart's default `build.fallbackImage`, a repository without any
+Dev Container configuration still builds, on
+`mcr.microsoft.com/devcontainers/base:ubuntu`
+([ADR-0013](../decisions/0013-fallback-config-for-repos-without-one.md)).
+In the workspace, the status bar shows **Add Dev Container config**, and a
+notification offers **Add Configuration**. Both run the Dev Containers
+extension's own **Add Dev Container Configuration Files…** (VS Code
+Desktop), with its templates, options and Features. Commit and push what it
+adds: a rebuild builds `origin/<branch>`, so **Rebuild available** appears
+once it's there, and Rebuild moves the workspace onto the new image.
+
 ## Persistence
 
 Each workspace gets one PVC, `coder-<workspace-id>-data` (sized by the

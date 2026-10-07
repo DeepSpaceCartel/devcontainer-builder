@@ -116,6 +116,25 @@ test("an image commit missing locally is fetched", async () => {
   assert.equal(s.imageCommit, sha);
 });
 
+test("no devcontainer.json anywhere is no-config, until one is added", async () => {
+  run(other, "rm", "-q", "-r", ".devcontainer");
+  const sha = push(other, {});
+  run(workspace, "pull", "-q", "origin", "main");
+  const s = await checkStatus({ ...ws(), imageCommit: sha }, { fetch: true });
+  assert.equal(s.kind, "no-config");
+
+  // Added locally: push it first.
+  write(workspace, ".devcontainer/devcontainer.json", `{ "image": "alpine" }`);
+  assert.equal((await checkStatus({ ...ws(), imageCommit: sha }, { fetch: true })).kind, "unpushed");
+
+  // Pushed: rebuild onto it.
+  commitAll(workspace, "add config");
+  run(workspace, "push", "-q", "origin", "main");
+  const after = await checkStatus({ ...ws(), imageCommit: sha }, { fetch: true });
+  assert.equal(after.kind, "rebuild-available");
+  assert.deepEqual(after.changed, [".devcontainer/devcontainer.json"]);
+});
+
 test("unknown without the env, or when origin is unreachable", async () => {
   assert.equal((await checkStatus({ ...ws(), imageCommit: "" }, { fetch: true })).kind, "unknown");
   run(workspace, "remote", "set-url", "origin", join(root, "missing.git"));

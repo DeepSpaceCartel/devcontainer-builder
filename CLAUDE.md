@@ -64,13 +64,22 @@ TypeScript compiles; ask the user to verify or run it themselves.
   [Installing](docs/project/installing.md#the-container-image). `npm
   publish` runs before the `release` image build in
   `.github/workflows/release.yaml`, not in parallel with it.
-- `vscode-extension/` — the rebuild prompt the Coder template installs into
-  workspaces (`cd vscode-extension && npm install && npm test && npm run
-  package` → `devcontainer-builder-rebuild.vsix`, attached to each GitHub
-  Release). Compares `DEVCONTAINER_IMAGE_COMMIT` with `origin/<branch>`
-  over the Dev Container files and build context; Rebuild goes through the
-  Coder API with the `coder login` session. Only `src/extension.ts` imports
-  `vscode` — everything else is unit-tested with `node:test`.
+- `vscode-extension/` — "Dev Containers for Coder" (`cd vscode-extension &&
+  npm install && npm test && npm run package` →
+  `devcontainer-builder-rebuild.vsix`, attached to each GitHub Release).
+  `extensionKind: ["workspace", "ui"]`, with two modes:
+  - **In a Coder workspace** (the template installs it, `DEVCONTAINER_*` env
+    set): the rebuild prompt, which compares `DEVCONTAINER_IMAGE_COMMIT` with
+    `origin/<branch>` over the Dev Container files and build context, with
+    Rebuild through the Coder API. A repo without a config shows *Add
+    Dev Container config*, which runs Dev Containers'
+    `remote-containers.createDevContainerFile` (not reimplemented).
+  - **Locally:** *Coder: Clone Repository in Workspace…* (`src/clone.ts`),
+    with VS Code's own repository picker (`git-base.api.getRemoteSources`,
+    the one Git: Clone and Dev Containers use).
+
+  `src/extension.ts` and `cloneCommand.ts` import `vscode`; the rest is
+  unit-tested with `node:test`.
 - `charts/devcontainer-builder/` — Helm chart deploying the service
   (Deployment, ClusterIP Service, ServiceAccount, Secret for registry push
   creds with `existingSecret` support). No autoscaling/Ingress by design —

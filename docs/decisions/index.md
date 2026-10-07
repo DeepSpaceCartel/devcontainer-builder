@@ -31,3 +31,4 @@ change, never rewritten in place).
 | [0010](0010-command-output-capture.md) | Capture git/docker subprocess output to files instead of stdout | accepted |
 | [0011](0011-devcontainer-metadata-endpoint.md) | `GET /devcontainer`: merged Dev Container metadata, read from the image | accepted |
 | [0012](0012-dev-container-to-kubernetes-runtime-mapping.md) | Dev Container → Kubernetes runtime mapping | accepted |
+| [0013](0013-fallback-config-for-repos-without-one.md) | A fallback image for repositories without a devcontainer.json | accepted |

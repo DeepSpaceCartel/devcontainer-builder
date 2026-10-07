@@ -1,7 +1,7 @@
 {
   "name": "devcontainer-builder-rebuild",
-  "displayName": "Dev Container Rebuild for Coder",
-  "description": "Prompts to rebuild a Coder workspace when its devcontainer.json (or build context) changes on the branch it was built from.",
+  "displayName": "Dev Containers for Coder",
+  "description": "Clone a repository into a new Coder workspace built from its devcontainer.json, and rebuild the workspace when that configuration changes on its branch.",
   "version": "0.0.0",
   "publisher": "deepspacecartel",
   "license": "MIT",
@@ -17,7 +17,8 @@
     "Other"
   ],
   "extensionKind": [
-    "workspace"
+    "workspace",
+    "ui"
   ],
   "activationEvents": [
     "onStartupFinished"
@@ -25,6 +26,11 @@
   "main": "./dist/extension.js",
   "contributes": {
     "commands": [
+      {
+        "command": "devcontainerBuilder.cloneInWorkspace",
+        "title": "Clone Repository in Workspace...",
+        "category": "Coder"
+      },
       {
         "command": "devcontainerBuilder.check",
         "title": "Check for Rebuild",
@@ -37,15 +43,37 @@
       }
     ],
     "configuration": {
-      "title": "Dev Container Rebuild",
+      "title": "Dev Containers for Coder",
       "properties": {
         "devcontainerBuilder.checkIntervalMinutes": {
           "type": "number",
           "default": 5,
           "minimum": 0,
           "description": "How often to fetch the workspace's branch and check for Dev Container changes. 0 checks only on start and on demand."
+        },
+        "devcontainerBuilder.coderUrl": {
+          "type": "string",
+          "default": "",
+          "description": "Coder deployment for Clone Repository in Coder Workspace. Empty: the one you're logged in to with the Coder CLI, else asked once."
+        },
+        "devcontainerBuilder.template": {
+          "type": "string",
+          "default": "",
+          "description": "Coder template new workspaces are created from (its name). Empty: the only template asking for a repository and a branch, else asked."
         }
       }
+    },
+    "menus": {
+      "commandPalette": [
+        {
+          "command": "devcontainerBuilder.check",
+          "when": "devcontainerBuilder.inWorkspace"
+        },
+        {
+          "command": "devcontainerBuilder.rebuild",
+          "when": "devcontainerBuilder.inWorkspace"
+        }
+      ]
     }
   },
   "scripts": {

@@ -1,12 +1,18 @@
 import * as vscode from "vscode";
+import { cloneInWorkspace } from "./cloneCommand";
 import { coderUrl, NotLoggedIn, requestRebuild, sessionToken, settingsUrl, type CoderWorkspace } from "./coder";
 import { decidePrompt, localKey, shortSha, type PromptMemory } from "./prompt";
 import { checkStatus, type Status, type Workspace } from "./status";
 
 const IGNORED_ORIGIN_KEY = "devcontainerBuilder.ignoredOrigin";
+const ADD_CONFIG_DISMISSED_KEY = "devcontainerBuilder.addConfigDismissed";
+// Dev Containers' "Add Dev Container Configuration Files…": templates,
+// options and Features, in VS Code Desktop (the extension is UI-side).
+const DEV_CONTAINERS_ADD_CONFIG = "remote-containers.createDevContainerFile";
+const DEV_CONTAINERS_EXTENSION = "ms-vscode-remote.remote-containers";
 
-// Env set by the Coder template (see templates/coder-kubernetes) - absent
-// anywhere else, where the extension stays inactive.
+// Env set by the Coder template (see templates/coder-kubernetes). Absent
+// anywhere else - e.g. a local window, where only the clone command works.
 function workspaceFromEnv(): Workspace | undefined {
   const imageCommit = process.env.DEVCONTAINER_IMAGE_COMMIT;
   const branch = process.env.DEVCONTAINER_BRANCH;
@@ -19,10 +25,24 @@ export function activate(context: vscode.ExtensionContext): void {
   const ws = workspaceFromEnv();
   const log = vscode.window.createOutputChannel("Dev Container Rebuild", { log: true });
   context.subscriptions.push(log);
+  const reportErrors =
+    (fn: () => Promise<unknown>) =>
+    async (): Promise<void> => {
+      try {
+        await fn();
+      } catch (e) {
+        log.error((e as Error).message);
+        vscode.window.showErrorMessage((e as Error).message);
+      }
+    };
+
+  // Locally (extensionKind "ui") and in a workspace alike.
+  context.subscriptions.push(vscode.commands.registerCommand("devcontainerBuilder.cloneInWorkspace", reportErrors(() => cloneInWorkspace(context, log))));
+  void vscode.commands.executeCommand("setContext", "devcontainerBuilder.inWorkspace", ws !== undefined);
 
   if (!ws) {
     const inactive = () =>
-      vscode.window.showInformationMessage("Dev Container Rebuild only works in a Coder workspace built by devcontainer-builder.");
+      vscode.window.showInformationMessage("This command only works in a Coder workspace built by devcontainer-builder.");
     context.subscriptions.push(
       vscode.commands.registerCommand("devcontainerBuilder.check", inactive),
       vscode.commands.registerCommand("devcontainerBuilder.rebuild", inactive),
@@ -34,7 +54,11 @@ export function activate(context: vscode.ExtensionContext): void {
   item.name = "Dev Container Rebuild";
   context.subscriptions.push(item);
 
-  const memory: PromptMemory = { snoozed: false, ignoredOrigin: context.workspaceState.get<string>(IGNORED_ORIGIN_KEY) };
+  const memory: PromptMemory = {
+    snoozed: false,
+    ignoredOrigin: context.workspaceState.get<string>(IGNORED_ORIGIN_KEY),
+    addConfigDismissed: context.workspaceState.get<boolean>(ADD_CONFIG_DISMISSED_KEY),
+  };
   let last: Status | undefined;
   let running: Promise<void> | undefined;
   let again: { fetch: boolean } | undefined;
@@ -64,6 +88,14 @@ export function activate(context: vscode.ExtensionContext): void {
           `Not on origin/${status.branch} yet, so a rebuild wouldn't include them:\n\n${status.local.map((f) => `- \`${f}\``).join("\n")}\n\nCommit and push, then rebuild.`,
         );
         item.command = "workbench.view.scm";
+        break;
+      case "no-config":
+        item.text = "$(add) Add Dev Container config";
+        item.backgroundColor = undefined;
+        tip.appendMarkdown(
+          "This repository has no devcontainer.json, so the workspace runs on a generic image. Click to add a Dev Container configuration from a template.",
+        );
+        item.command = "devcontainerBuilder.addConfig";
         break;
       default:
         item.text = "$(container) $(question)";
@@ -135,6 +167,16 @@ export function activate(context: vscode.ExtensionContext): void {
     const decision = decidePrompt(status, memory);
     if (decision.kind === "rebuild") {
       await showRebuildPrompt(status);
+    } else if (decision.kind === "add-config") {
+      memory.addConfigDismissed = true;
+      const choice = await vscode.window.showInformationMessage(
+        "This repository has no devcontainer.json, so the workspace runs on a generic image. Add a Dev Container configuration?",
+        "Add Configuration",
+        "Not Now",
+        "Don't Ask Again",
+      );
+      if (choice === "Add Configuration") await vscode.commands.executeCommand("devcontainerBuilder.addConfig");
+      else if (choice === "Don't Ask Again") await context.workspaceState.update(ADD_CONFIG_DISMISSED_KEY, true);
     } else if (decision.kind === "push") {
       memory.nudgedLocal = localKey(status);
       const choice = await vscode.window.showInformationMessage(
@@ -183,6 +225,22 @@ export function activate(context: vscode.ExtensionContext): void {
       if (last?.kind === "rebuild-available") await showRebuildPrompt(last);
       else await check({ fetch: true });
     }),
+    // Not in the palette (not contributed): the status bar's and the
+    // notification's way to Dev Containers' own command.
+    vscode.commands.registerCommand(
+      "devcontainerBuilder.addConfig",
+      reportErrors(async () => {
+        if ((await vscode.commands.getCommands(true)).includes(DEV_CONTAINERS_ADD_CONFIG)) {
+          await vscode.commands.executeCommand(DEV_CONTAINERS_ADD_CONFIG);
+          return;
+        }
+        const choice = await vscode.window.showInformationMessage(
+          "Adding a configuration uses the Dev Containers extension's \"Add Dev Container Configuration Files…\", in VS Code Desktop. Commit and push what it adds, then rebuild.",
+          "Install Dev Containers",
+        );
+        if (choice === "Install Dev Containers") await vscode.commands.executeCommand("workbench.extensions.installExtension", DEV_CONTAINERS_EXTENSION);
+      }),
+    ),
     vscode.commands.registerCommand("devcontainerBuilder.rebuild", async () => {
       if (last?.kind === "unpushed") {
         const choice = await vscode.window.showWarningMessage(

@@ -34,6 +34,7 @@ plan is kept as the record of the starting point; the current design lives in:
 | F13 Features for this repo | Done. Terraform, kubectl/helm, gh, Go and Claude Code come from Features; docker CLI, devcontainers CLI, 1Password, k9s, Starship and pipx from the local `.devcontainer/workspace-tools` Feature. Per-start hooks dropped from about 100 s to about 11 s. |
 | F14 rts sync | Done. rts-terraform #24, #27, #29, #30. |
 | F15 rebuild prompt | Done. A VS Code extension (`vscode-extension/`) compares the image's commit with `origin/<branch>` over the Dev Container files and build context, and offers Rebuild (Coder API, after `coder login`). No service or provider changes. |
+| F16 clone in workspace | Done. *Coder: Clone Repository in Workspace…* (local mode of the same extension, VS Code's repository picker) and, for repositories without a config, the service's `fallbackImage` ([ADR-0013](../../decisions/0013-fallback-config-for-repos-without-one.md)) plus a prompt in the workspace that runs Dev Containers' *Add Dev Container Configuration Files…*. |
 
 ## Context
 

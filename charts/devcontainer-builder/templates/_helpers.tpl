@@ -121,6 +121,9 @@ reason - REGISTRY_MAPPING_CONFIG_PATH wins entirely whenever it's set.
 {{- if ne .Values.build.mode "auto" -}}
 {{- $build = set $build "mode" .Values.build.mode -}}
 {{- end -}}
+{{- if .Values.build.fallbackImage -}}
+{{- $build = set $build "fallbackImage" .Values.build.fallbackImage -}}
+{{- end -}}
 {{- if $build -}}
 {{- $settings = set $settings "build" $build -}}
 {{- end -}}
