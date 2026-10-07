@@ -18,7 +18,7 @@ cd service && docker build -t devcontainer-builder .   # Build the service image
 helm lint charts/devcontainer-builder
 helm template charts/devcontainer-builder -f values-file.yaml   # Render manifests
 
-# terraform/devcontainer-build/ (Terraform module)
+# terraform/devcontainer-build/ (Terraform module - deprecated in 1.0, removed in 2.0)
 cd terraform/devcontainer-build && terraform init
 cd terraform/devcontainer-build && terraform fmt -check -diff
 cd terraform/devcontainer-build && terraform validate
@@ -87,7 +87,9 @@ TypeScript compiles; ask the user to verify or run it themselves.
   (Deployment, ClusterIP Service, ServiceAccount, Secret for registry push
   creds with `existingSecret` support). No autoscaling/Ingress by design —
   single ClusterIP instance, in-cluster callers only.
-- `terraform/devcontainer-build/` — the Terraform module a Coder Workspace
+- `terraform/devcontainer-build/` — **deprecated in 1.0, removed in 2.0**
+  (the provider is the one Terraform surface; a `check` warns on every plan).
+  The Terraform module a Coder Workspace
   Template consumes. Wraps the Terraform provider's
   `devcontainerbuilder_build` resource internally (owns its own `provider
   "devcontainerbuilder"` config, sourced from `var.service_url`) and
@@ -110,10 +112,8 @@ TypeScript compiles; ask the user to verify or run it themselves.
 
 ## Conventions
 
-- The Terraform module is a pre-publish working copy of a future Coder
-  Registry module. Follow that registry's variable/output conventions so
-  porting it into `registry/<namespace>/modules/devcontainer-build/` later is
-  mechanical: variable block field order `description → type → default →
+- The Terraform module (deprecated) keeps the Coder Registry's
+  variable/output conventions until it's removed: variable block field order `description → type → default →
   validation → sensitive`; every `output` has a `description`; secrets
   (`git_username`, `git_token`) are `sensitive = true`; no hardcoded values
   that should be configurable.

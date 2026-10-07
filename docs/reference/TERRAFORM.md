@@ -2,6 +2,13 @@
 
 # Terraform module
 
+!!! warning "Deprecated"
+    This module is deprecated in 1.0 and will be removed in 2.0. Use the
+    [Terraform provider](TERRAFORM-PROVIDER.md)'s `devcontainerbuilder_build`
+    resource directly: the module only wraps it, and the provider is the
+    Terraform surface 1.x keeps stable. Plans that use the module show a
+    deprecation warning.
+
 [`terraform/devcontainer-build`](https://github.com/DeepSpaceCartel/devcontainer-builder/tree/main/terraform/devcontainer-build)
 calls an already-running devcontainer-builder instance and exposes the
 pushed image reference as an output — the module deploys nothing itself.

@@ -27,7 +27,8 @@ out to Kubernetes to provision a PersistentVolumeClaim before the pod.
   build --push`, and returns the resulting image reference.
 - [`charts/devcontainer-builder/`](charts/devcontainer-builder) - a Helm
   chart that deploys the service into a Kubernetes cluster.
-- [`terraform/devcontainer-build/`](terraform/devcontainer-build) - a
+- [`terraform/devcontainer-build/`](terraform/devcontainer-build) -
+  **deprecated** (removed in 2.0; use the Terraform provider directly), a
   Terraform module that calls an already-running instance of the service and
   exposes the built image as an output, for use from a Workspace Template.
 - [`templates/coder-kubernetes/`](templates/coder-kubernetes) - a real Coder
