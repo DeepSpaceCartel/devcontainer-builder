@@ -81,6 +81,25 @@ spec:
 repository can reserve. Above them, the workspace gets the cap and a warning
 in its build log.
 
+### `customizations.kubernetes`
+
+Repositories can also describe their workspace in Kubernetes terms, under
+`customizations.kubernetes` in `devcontainer.json`
+([how-to](working-in-a-workspace.md#size-the-workspace-in-kubernetes-terms),
+[ADR-0015](../decisions/0015-kubernetes-customizations.md)):
+
+- **`resources.requests` / `.limits`** replace `hostRequirements.cpus`/`.memory`
+  once any is set. CPU and memory requests are still capped by
+  `max_cpu`/`max_memory`. Limits aren't capped, because they reserve nothing.
+  GPUs and other extended resources are passed through. A repository asking
+  for a resource no node has stays Pending.
+- **`storage`** works like `hostRequirements.storage` and wins over it.
+- **`nodeSelector` / `tolerations`** apply only when you set
+  **`allow_node_placement = true`**. Turn it on when repositories should be
+  able to reach GPU or other tainted node pools. Keep it off when taints
+  protect nodes from general workloads. The template's
+  `kubernetes.io/arch` selector always wins.
+
 A workspace whose requirements no node can satisfy stays **Pending** with
 Kubernetes' scheduling reason until a node frees up or your autoscaler adds
 one. On a small cluster, lower `max_cpu`/`max_memory` to fit your nodes. The

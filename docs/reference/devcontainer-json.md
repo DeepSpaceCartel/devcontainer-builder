@@ -33,9 +33,12 @@ the Dev Containers CLI merges them.
 | `init`, `--init` | `shareProcessNamespace` (the pause container reaps zombies) |
 | `--shm-size` | `/dev/shm` as an in-memory `emptyDir` of that size (default 64 Mi) |
 | `--add-host`, `--hostname` | pod `hostAliases`, `hostname` |
-| `hostRequirements.cpus`, `.memory`, `--cpus`, `--memory` | **minimums**: reserved as pod requests (capped by `max_cpu`/`max_memory`, with a warning above them); limits are the larger of the requirement and the CPU/Memory parameters |
-| `hostRequirements.storage` | the larger of it and the Disk parameter, **when the workspace is created**: raising it later (and rebuilding) doesn't grow the volume |
-| `hostRequirements.gpu` | `nvidia.com/gpu: 1` (needs the NVIDIA device plugin) |
+| `hostRequirements.cpus`, `.memory`, `--cpus`, `--memory` | **minimums**: reserved as pod requests (capped by `max_cpu`/`max_memory`, with a warning above them); limits are the larger of the requirement and the CPU/Memory parameters. ⚠️ Ignored, with a warning, when `customizations.kubernetes.resources` sets any request or limit |
+| `hostRequirements.storage` | the larger of it and the Disk parameter, **when the workspace is created**: raising it later (and rebuilding) doesn't grow the volume. `customizations.kubernetes.storage` replaces it |
+| `hostRequirements.gpu` | `nvidia.com/gpu: 1` (needs the NVIDIA device plugin), unless `customizations.kubernetes.resources` sets `nvidia.com/gpu` |
+| `customizations.kubernetes.resources` (`requests`, `limits`) | the pod's resources, Kubernetes quantities as written: `cpu`/`memory` requests capped by `max_cpu`/`max_memory`; without a `cpu`/`memory` limit, the larger of the request and the CPU/Memory parameter; a limit below its request is raised to it. `ephemeral-storage` passed through; extended resources (`nvidia.com/gpu`, …) and `hugepages-*` set as limits. Invalid names or quantities are dropped with a warning ([ADR-0015](../decisions/0015-kubernetes-customizations.md), [how-to](../guides/working-in-a-workspace.md#size-the-workspace-in-kubernetes-terms)) |
+| `customizations.kubernetes.storage` | like `hostRequirements.storage` (a minimum, when the workspace is created), and wins over it |
+| `customizations.kubernetes.nodeSelector`, `.tolerations` | the pod's `nodeSelector` (the template's `kubernetes.io/arch` always wins) and `tolerations`, **only with the template's `allow_node_placement`**; otherwise ignored with a warning |
 | `customizations.vscode.extensions`, `.settings` | installed from the Microsoft Marketplace, and applied as machine settings, for VS Code Desktop and VS Code in the browser. Settings are defaults: one the user has set to something else is left alone |
 | bind mounts, `--network`, `--device`, `--gpus`, `host:port` in `forwardPorts` | ❌ no pod equivalent; reported as warnings |
 | `overrideCommand: false` | ❌ the pod always runs the Coder agent; the image's own `ENTRYPOINT`/`CMD` doesn't run (use `postStartCommand`) |

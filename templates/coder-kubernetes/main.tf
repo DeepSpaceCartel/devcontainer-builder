@@ -125,14 +125,20 @@ variable "external_auth_id" {
 
 variable "max_cpu" {
   type        = number
-  description = "Most CPU cores a repository's hostRequirements.cpus can reserve (requests) - above it, the workspace gets this many and a warning."
+  description = "Most CPU cores a repository can reserve (requests), through hostRequirements.cpus or customizations.kubernetes.resources.requests.cpu - above it, the workspace gets this many and a warning."
   default     = 8
 }
 
 variable "max_memory" {
   type        = number
-  description = "Most memory, in GiB, a repository's hostRequirements.memory can reserve (requests) - above it, the workspace gets this much and a warning."
+  description = "Most memory, in GiB, a repository can reserve (requests), through hostRequirements.memory or customizations.kubernetes.resources.requests.memory - above it, the workspace gets this much and a warning."
   default     = 32
+}
+
+variable "allow_node_placement" {
+  type        = bool
+  description = "Honor a repository's customizations.kubernetes nodeSelector and tolerations, e.g. to land on GPU or otherwise tainted nodes. The template's own node selector (kubernetes.io/arch) always wins. Off by default: they let any repository steer its workspaces onto nodes kept for other uses."
+  default     = false
 }
 
 variable "git_credentials_username" {
@@ -361,40 +367,182 @@ locals {
 
   ports = try(local.dc.forward_ports, [])
 
-  # hostRequirements are minimums, as in the spec: the scheduler reserves
-  # them (requests, capped by var.max_cpu/max_memory), and the limits are
-  # the larger of them and the CPU/Memory parameters. Storage is the larger
-  # of it and the Disk parameter, so the PVC never shrinks. Where the
-  # parameter wins, values stay "<n>Gi" as before (no spurious diffs).
-  gib            = 1073741824
-  param_cpu      = tonumber(data.coder_parameter.cpu.value)
-  param_memory   = tonumber(data.coder_parameter.memory.value) * local.gib
-  param_disk     = tonumber(data.coder_parameter.disk_size.value) * local.gib
-  required_cpu   = try(local.host_requirements.cpus, null)
-  required_mem   = try(local.host_requirements.memory_bytes, null)
-  required_disk  = try(local.host_requirements.storage_bytes, null)
-  reserved_cpu   = local.required_cpu != null ? min(local.required_cpu, var.max_cpu) : null
-  reserved_mem   = local.required_mem != null ? floor(min(local.required_mem, var.max_memory * local.gib)) : null
-  cpu_request    = local.reserved_cpu != null ? tostring(local.reserved_cpu) : "250m"
-  memory_request = local.reserved_mem != null ? tostring(local.reserved_mem) : "512Mi"
-  cpu_limit      = local.reserved_cpu != null && try(local.reserved_cpu > local.param_cpu, false) ? tostring(local.reserved_cpu) : data.coder_parameter.cpu.value
-  memory_limit   = local.reserved_mem != null && try(local.reserved_mem > local.param_memory, false) ? tostring(local.reserved_mem) : "${data.coder_parameter.memory.value}Gi"
-  disk_size      = local.required_disk != null && try(local.required_disk > local.param_disk, false) ? tostring(floor(local.required_disk)) : "${data.coder_parameter.disk_size.value}Gi"
-  resource_warnings = concat(
-    local.required_cpu != null && try(local.required_cpu > var.max_cpu, false) ? ["hostRequirements.cpus ${local.required_cpu} is more than this template allows (max_cpu ${var.max_cpu}) - reserving ${var.max_cpu}"] : [],
-    local.required_mem != null && try(local.required_mem > var.max_memory * local.gib, false) ? ["hostRequirements.memory ${format("%.1f", local.required_mem / local.gib)} GiB is more than this template allows (max_memory ${var.max_memory} GiB) - reserving ${var.max_memory} GiB"] : [],
+  # customizations.kubernetes (ADR-0015): Kubernetes-native resources and
+  # node placement, read from the image's merged configuration. That has one
+  # customizations.kubernetes entry per contributor - base image, Features,
+  # then devcontainer.json - merged in that order: maps per key (the later
+  # entry wins), tolerations appended. Non-objects are skipped; a value
+  # that isn't a string or number becomes "" (invalid, so dropped with a
+  # warning below). Maps and lists of the wrong shape are skipped.
+  # Nothing here fails the plan.
+  dc_configuration  = try(jsondecode(local.dc.configuration_json), {})
+  k8s_entries       = try([for e in local.dc_configuration.customizations.kubernetes : e if can(keys(e))], [])
+  k8s_requests_raw  = merge(concat([{}], [for e in local.k8s_entries : try({ for k, v in e.resources.requests : k => v == null ? "" : try(tostring(v), "") if can(keys(e.resources.requests)) }, {})])...)
+  k8s_limits_raw    = merge(concat([{}], [for e in local.k8s_entries : try({ for k, v in e.resources.limits : k => v == null ? "" : try(tostring(v), "") if can(keys(e.resources.limits)) }, {})])...)
+  k8s_storage_raw   = try(reverse(compact([for e in local.k8s_entries : try(tostring(e.storage), null)]))[0], null)
+  k8s_node_selector = merge(concat([{}], [for e in local.k8s_entries : try({ for k, v in e.nodeSelector : k => v == null ? "" : try(tostring(v), "") if can(keys(e.nodeSelector)) }, {})])...)
+  k8s_tolerations = distinct(flatten([for e in local.k8s_entries : try([for t in e.tolerations : {
+    key                = try(tostring(t.key), null)
+    operator           = try(tostring(t.operator), null)
+    value              = try(tostring(t.value), null)
+    effect             = try(tostring(t.effect), null)
+    toleration_seconds = try(tostring(t.tolerationSeconds), null)
+  } if !can(keys(e.tolerations))], [])]))
+
+  # Kubernetes quantities ("500m", "2", "1.5", "512Mi", "4Gi", "1G", plain
+  # bytes; no exponent form), parsed to numbers to compare and cap them.
+  # Where the repository's own string is used, it's kept as written.
+  quantity_re      = "^([0-9]+(?:\\.[0-9]+)?|\\.[0-9]+)(Ki|Mi|Gi|Ti|Pi|Ei|m|k|M|G|T|P|E)?$"
+  quantity_factors = { "" = 1, m = 0.001, k = 1e3, M = 1e6, G = 1e9, T = 1e12, P = 1e15, E = 1e18, Ki = 1024, Mi = 1048576, Gi = 1073741824, Ti = 1099511627776, Pi = 1125899906842624, Ei = 1152921504606846976 }
+  # cpu, memory, ephemeral-storage, hugepages-<size>, or an extended
+  # resource (<domain>/<name>, e.g. nvidia.com/gpu). Also keeps the names
+  # safe to echo in the agent metadata script.
+  resource_name_re = "^(cpu|memory|ephemeral-storage|hugepages-[0-9]+[KMG]i|[a-z0-9]([-a-z0-9.]*[a-z0-9])?/[A-Za-z0-9]([-A-Za-z0-9_.]*[A-Za-z0-9])?)$"
+  k8s_requests_m   = { for k, v in local.k8s_requests_raw : k => regex(local.quantity_re, v) if can(regex(local.resource_name_re, k)) && can(regex(local.quantity_re, v)) }
+  k8s_limits_m     = { for k, v in local.k8s_limits_raw : k => regex(local.quantity_re, v) if can(regex(local.resource_name_re, k)) && can(regex(local.quantity_re, v)) }
+  k8s_requests     = { for k, m in local.k8s_requests_m : k => local.k8s_requests_raw[k] }
+  k8s_limits       = { for k, m in local.k8s_limits_m : k => local.k8s_limits_raw[k] }
+  k8s_requests_n   = { for k, m in local.k8s_requests_m : k => tonumber(startswith(m[0], ".") ? "0${m[0]}" : m[0]) * local.quantity_factors[m[1] == null ? "" : m[1]] }
+  k8s_limits_n     = { for k, m in local.k8s_limits_m : k => tonumber(startswith(m[0], ".") ? "0${m[0]}" : m[0]) * local.quantity_factors[m[1] == null ? "" : m[1]] }
+  k8s_storage_m    = try(regex(local.quantity_re, local.k8s_storage_raw), null)
+  k8s_storage_n    = try(tonumber(startswith(local.k8s_storage_m[0], ".") ? "0${local.k8s_storage_m[0]}" : local.k8s_storage_m[0]) * local.quantity_factors[local.k8s_storage_m[1] == null ? "" : local.k8s_storage_m[1]], null)
+  # Any valid request or limit makes customizations.kubernetes.resources
+  # authoritative for CPU and memory: hostRequirements' cpus/memory (and
+  # runArgs --cpus/--memory) are then ignored.
+  k8s_resources_set = length(local.k8s_requests) + length(local.k8s_limits) > 0
+  k8s_invalid_resources = concat(
+    [for k, v in local.k8s_requests_raw : "customizations.kubernetes.resources.requests: ${can(regex(local.resource_name_re, k)) ? "${k} \"${v}\" is not a Kubernetes quantity" : "\"${k}\" is not a Kubernetes resource name"} - ignored" if !contains(keys(local.k8s_requests), k)],
+    [for k, v in local.k8s_limits_raw : "customizations.kubernetes.resources.limits: ${can(regex(local.resource_name_re, k)) ? "${k} \"${v}\" is not a Kubernetes quantity" : "\"${k}\" is not a Kubernetes resource name"} - ignored" if !contains(keys(local.k8s_limits), k)],
+    local.k8s_storage_raw != null && local.k8s_storage_n == null ? ["customizations.kubernetes.storage \"${local.k8s_storage_raw}\" is not a Kubernetes quantity - ignored"] : [],
   )
-  # What the workspace got, for the agent metadata: reserved/limit, and
-  # whether devcontainer.json's hostRequirements set the reservation.
-  resources_summary = join(" · ", [
-    "CPU ${local.cpu_request} / ${local.cpu_limit}",
-    "memory ${local.memory_request} / ${local.memory_limit}",
-    "disk ${local.disk_size}",
-    local.required_cpu != null || local.required_mem != null || local.required_disk != null ? "from hostRequirements" : "from the parameters",
-  ])
-  gpu_json = try(local.host_requirements.gpu_json, null)
-  # gpu: true or {cores, memory} -> one GPU; "optional" or unset -> none.
+
+  # The minimums: customizations.kubernetes' requests when it sets any
+  # resources, else hostRequirements (ADR-0014), which are minimums as in
+  # the spec. The scheduler reserves them (requests, capped by
+  # var.max_cpu/max_memory). Limits are customizations.kubernetes' own,
+  # else the larger of the request and the CPU/Memory parameters, and never
+  # below the request. Storage (customizations.kubernetes.storage, else
+  # hostRequirements.storage) is the larger of it and the Disk parameter,
+  # so the PVC never shrinks. Where the parameter wins, values stay "<n>Gi"
+  # as before (no spurious diffs).
+  gib           = 1073741824
+  param_cpu     = tonumber(data.coder_parameter.cpu.value)
+  param_memory  = tonumber(data.coder_parameter.memory.value) * local.gib
+  param_disk    = tonumber(data.coder_parameter.disk_size.value) * local.gib
+  hr_cpu        = try(local.host_requirements.cpus, null)
+  hr_mem        = try(local.host_requirements.memory_bytes, null)
+  hr_disk       = try(local.host_requirements.storage_bytes, null)
+  required_cpu  = local.k8s_resources_set ? lookup(local.k8s_requests_n, "cpu", null) : local.hr_cpu
+  required_mem  = local.k8s_resources_set ? lookup(local.k8s_requests_n, "memory", null) : local.hr_mem
+  required_disk = local.k8s_storage_n != null ? local.k8s_storage_n : local.hr_disk
+  cpu_capped    = local.required_cpu != null && try(local.required_cpu > var.max_cpu, false)
+  mem_capped    = local.required_mem != null && try(local.required_mem > var.max_memory * local.gib, false)
+  reserved_cpu  = local.required_cpu != null ? min(local.required_cpu, var.max_cpu) : null
+  reserved_mem  = local.required_mem != null ? floor(min(local.required_mem, var.max_memory * local.gib)) : null
+  k8s_cpu_limit = lookup(local.k8s_limits_n, "cpu", null)
+  k8s_mem_limit = lookup(local.k8s_limits_n, "memory", null)
+  # Without a reservation: 250m / 512Mi, or a smaller limit the repository
+  # set (a request can't exceed its limit).
+  cpu_request_n    = local.reserved_cpu != null ? local.reserved_cpu : try(min(local.k8s_cpu_limit, 0.25), 0.25)
+  memory_request_n = local.reserved_mem != null ? local.reserved_mem : try(min(local.k8s_mem_limit, 536870912), 536870912)
+  cpu_request = (
+    local.reserved_cpu == null ? (try(local.k8s_cpu_limit < 0.25, false) ? lookup(local.k8s_limits, "cpu", "") : "250m") :
+    local.cpu_capped ? tostring(var.max_cpu) :
+    local.k8s_resources_set ? lookup(local.k8s_requests, "cpu", "") : tostring(local.reserved_cpu)
+  )
+  memory_request = (
+    local.reserved_mem == null ? (try(local.k8s_mem_limit < 536870912, false) ? lookup(local.k8s_limits, "memory", "") : "512Mi") :
+    local.mem_capped ? (local.k8s_resources_set ? "${var.max_memory}Gi" : tostring(local.reserved_mem)) :
+    local.k8s_resources_set ? lookup(local.k8s_requests, "memory", "") : tostring(local.reserved_mem)
+  )
+  cpu_limit_low = try(local.k8s_cpu_limit < local.cpu_request_n, false)
+  mem_limit_low = try(local.k8s_mem_limit < local.memory_request_n, false)
+  cpu_limit = (
+    local.k8s_cpu_limit != null ? (local.cpu_limit_low ? local.cpu_request : lookup(local.k8s_limits, "cpu", "")) :
+    local.reserved_cpu != null && try(local.reserved_cpu > local.param_cpu, false) ? local.cpu_request : data.coder_parameter.cpu.value
+  )
+  memory_limit = (
+    local.k8s_mem_limit != null ? (local.mem_limit_low ? local.memory_request : lookup(local.k8s_limits, "memory", "")) :
+    local.reserved_mem != null && try(local.reserved_mem > local.param_memory, false) ? local.memory_request : "${data.coder_parameter.memory.value}Gi"
+  )
+  disk_size = local.required_disk != null && try(local.required_disk > local.param_disk, false) ? (local.k8s_storage_n != null ? local.k8s_storage_raw : tostring(floor(local.required_disk))) : "${data.coder_parameter.disk_size.value}Gi"
+
+  # ephemeral-storage: passed through (no template cap), limit never below
+  # the request.
+  ephemeral_request   = lookup(local.k8s_requests, "ephemeral-storage", null)
+  ephemeral_limit_low = try(local.k8s_limits_n["ephemeral-storage"] < local.k8s_requests_n["ephemeral-storage"], false)
+  ephemeral_limit     = local.ephemeral_limit_low ? local.ephemeral_request : lookup(local.k8s_limits, "ephemeral-storage", null)
+  # Extended resources (nvidia.com/gpu, ...) and hugepages can't be
+  # overcommitted: Kubernetes needs request == limit, and defaults the
+  # request to the limit. So they're set as limits only - the limit if
+  # given, else the request.
+  k8s_extended_names  = distinct([for k in concat(keys(local.k8s_requests), keys(local.k8s_limits)) : k if !contains(["cpu", "memory", "ephemeral-storage"], k)])
+  k8s_extended_limits = { for k in local.k8s_extended_names : k => lookup(local.k8s_limits, k, lookup(local.k8s_requests, k, null)) }
+  gpu_json            = try(local.host_requirements.gpu_json, null)
+  # hostRequirements.gpu: true or {cores, memory} -> one GPU; "optional" or
+  # unset -> none. customizations.kubernetes' nvidia.com/gpu wins.
   gpu_limit = local.gpu_json != null && local.gpu_json != "\"optional\"" && local.gpu_json != "false" ? { "nvidia.com/gpu" = "1" } : {}
+  pod_requests = { for k, v in {
+    "cpu"               = local.cpu_request
+    "memory"            = local.memory_request
+    "ephemeral-storage" = local.ephemeral_request
+  } : k => v if v != null }
+  pod_limits = { for k, v in merge({
+    "cpu"               = local.cpu_limit
+    "memory"            = local.memory_limit
+    "ephemeral-storage" = local.ephemeral_limit
+  }, local.gpu_limit, local.k8s_extended_limits) : k => v if v != null }
+
+  resource_warnings = concat(
+    local.k8s_invalid_resources,
+    local.k8s_resources_set && (local.hr_cpu != null || local.hr_mem != null) ? [
+      "hostRequirements ${join(" and ", compact([local.hr_cpu != null ? "cpus ${local.hr_cpu}" : "", local.hr_mem != null ? "memory ${format("%.1f", local.hr_mem / local.gib)} GiB" : ""]))} (or runArgs --cpus/--memory) ignored - customizations.kubernetes.resources sets the workspace's resources"
+    ] : [],
+    local.k8s_storage_n != null && local.hr_disk != null ? ["hostRequirements.storage ${format("%.1f", local.hr_disk / local.gib)} GiB ignored - customizations.kubernetes.storage ${local.k8s_storage_raw} sets the volume's minimum size"] : [],
+    local.cpu_capped ? ["${local.k8s_resources_set ? "customizations.kubernetes.resources.requests.cpu ${lookup(local.k8s_requests, "cpu", "")}" : "hostRequirements.cpus ${local.required_cpu}"} is more than this template allows (max_cpu ${var.max_cpu}) - reserving ${var.max_cpu}"] : [],
+    local.mem_capped ? ["${local.k8s_resources_set ? "customizations.kubernetes.resources.requests.memory ${lookup(local.k8s_requests, "memory", "")}" : "hostRequirements.memory ${format("%.1f", local.required_mem / local.gib)} GiB"} is more than this template allows (max_memory ${var.max_memory} GiB) - reserving ${var.max_memory} GiB"] : [],
+    local.cpu_limit_low ? ["customizations.kubernetes.resources.limits.cpu ${lookup(local.k8s_limits, "cpu", "")} is below the request ${local.cpu_request} - the limit is ${local.cpu_request}"] : [],
+    local.mem_limit_low ? ["customizations.kubernetes.resources.limits.memory ${lookup(local.k8s_limits, "memory", "")} is below the request ${local.memory_request} - the limit is ${local.memory_request}"] : [],
+    local.ephemeral_limit_low ? ["customizations.kubernetes.resources.limits.ephemeral-storage ${lookup(local.k8s_limits, "ephemeral-storage", "")} is below the request ${local.ephemeral_request} - the limit is ${local.ephemeral_request}"] : [],
+    [for k in local.k8s_extended_names : "customizations.kubernetes.resources: ${k} request ${local.k8s_requests[k]} differs from its limit ${local.k8s_limits[k]} - Kubernetes needs them equal; using the limit" if contains(keys(local.k8s_requests), k) && contains(keys(local.k8s_limits), k) && try(local.k8s_requests_n[k] != local.k8s_limits_n[k], false)],
+  )
+
+  # Node placement, only with var.allow_node_placement: the repository's
+  # nodeSelector under the template's own (which always wins), and its
+  # tolerations. Tolerations Kubernetes would reject are dropped.
+  template_node_selector = { "kubernetes.io/arch" = local.arch }
+  node_selector          = merge({ for k, v in local.k8s_node_selector : k => v if var.allow_node_placement }, local.template_node_selector)
+  toleration_valid = [for t in local.k8s_tolerations :
+    contains(["Equal", "Exists"], t.operator == null ? "Equal" : t.operator) &&
+    contains(["", "NoSchedule", "PreferNoSchedule", "NoExecute"], t.effect == null ? "" : t.effect) &&
+    ((t.key == null ? "" : t.key) != "" || t.operator == "Exists") &&
+    !(t.operator == "Exists" && (t.value == null ? "" : t.value) != "") &&
+    (t.toleration_seconds == null || (t.effect == "NoExecute" && can(regex("^-?[0-9]+$", t.toleration_seconds))))
+  ]
+  tolerations = [for i, t in local.k8s_tolerations : t if var.allow_node_placement && local.toleration_valid[i]]
+  placement_warnings = concat(
+    [for i, t in local.k8s_tolerations : "customizations.kubernetes.tolerations: ${jsonencode(t)} is not a valid toleration - ignored" if var.allow_node_placement && !local.toleration_valid[i]],
+    [for k, v in local.template_node_selector : "customizations.kubernetes.nodeSelector ${k}=${local.k8s_node_selector[k]} ignored - the template sets ${k}=${v}" if var.allow_node_placement && lookup(local.k8s_node_selector, k, v) != v],
+    !var.allow_node_placement && length(local.k8s_node_selector) + length(local.k8s_tolerations) > 0 ? [
+      "customizations.kubernetes ${join(" and ", compact([length(local.k8s_node_selector) > 0 ? "nodeSelector" : "", length(local.k8s_tolerations) > 0 ? "tolerations" : ""]))} ignored, allow_node_placement is off (a template variable)"
+    ] : [],
+  )
+
+  # What the workspace got, for the agent metadata: request / limit, and
+  # where they came from.
+  resources_source = join(" and ", compact([
+    local.k8s_resources_set || local.k8s_storage_n != null ? "customizations.kubernetes" : "",
+    (!local.k8s_resources_set && (local.hr_cpu != null || local.hr_mem != null)) || (local.k8s_storage_n == null && local.hr_disk != null) ? "hostRequirements" : "",
+  ]))
+  resources_summary = join(" · ", concat(
+    [
+      "CPU ${local.cpu_request} / ${local.cpu_limit}",
+      "memory ${local.memory_request} / ${local.memory_limit}",
+      "disk ${local.disk_size}",
+    ],
+    [for k in sort(distinct(concat(keys(local.pod_requests), keys(local.pod_limits)))) : "${k} ${lookup(local.pod_requests, k, lookup(local.pod_limits, k, ""))} / ${lookup(local.pod_limits, k, "none")}" if !contains(["cpu", "memory"], k)],
+    ["from ${local.resources_source != "" ? local.resources_source : "the parameters"}"],
+  ))
 
   # Pod Security "baseline" (the usual namespace level) only allows these
   # added capabilities; anything else (SYS_PTRACE, NET_ADMIN, ...) would get
@@ -403,7 +551,7 @@ locals {
   requested_capabilities = try(local.runtime.cap_add, [])
   capabilities           = var.allow_privileged ? local.requested_capabilities : [for c in local.requested_capabilities : c if contains(local.baseline_capabilities, c)]
   skipped_capabilities   = var.allow_privileged ? [] : [for c in local.requested_capabilities : c if !contains(local.baseline_capabilities, c)]
-  all_warnings = concat(local.warnings, local.resource_warnings, local.mount_warnings, length(local.skipped_capabilities) > 0 ? [
+  all_warnings = concat(local.warnings, local.resource_warnings, local.placement_warnings, local.mount_warnings, length(local.skipped_capabilities) > 0 ? [
     "capAdd ${join(", ", local.skipped_capabilities)} not added - Pod Security baseline forbids it (template variable allow_privileged enables it)"
     ] : [], local.dc != null && local.recorded_uid == null ? [
     "the image doesn't record its remote user's uid/gid (built by devcontainer-builder older than 0.3.0) - running as uid/gid 1000; bump the Rebuild parameter to rebuild it"
@@ -558,7 +706,7 @@ resource "coder_agent" "main" {
   metadata {
     display_name = "Resources (reserved / limit)"
     key          = "9_resources"
-    script       = "echo '${local.resources_summary}'"
+    script       = "echo '${replace(local.resources_summary, "'", "'\\''")}'"
     interval     = 3600
     timeout      = 1
   }
@@ -1033,10 +1181,11 @@ resource "kubernetes_persistent_volume_claim_v1" "data" {
   }
 
   # The size is decided when the workspace is created. Later it would come
-  # from the image's hostRequirements while the workspace runs and from the
-  # parameter while it's stopped, so changes are ignored: never shrink (or
-  # churn) the claim over that. A larger hostRequirements.storage after a
-  # rebuild doesn't grow it (not every storage class can expand volumes).
+  # from the image (customizations.kubernetes.storage or hostRequirements)
+  # while the workspace runs and from the parameter while it's stopped, so
+  # changes are ignored: never shrink (or churn) the claim over that. A
+  # larger storage after a rebuild doesn't grow it (not every storage class
+  # can expand volumes).
   lifecycle {
     ignore_changes = [spec[0].resources[0].requests]
   }
@@ -1114,9 +1263,20 @@ resource "kubernetes_deployment_v1" "main" {
         share_process_namespace = try(local.runtime.init, false)
         hostname                = try(local.runtime.hostname, null)
 
-        # Only nodes of the agent's (and the image's) architecture.
-        node_selector = {
-          "kubernetes.io/arch" = local.arch
+        # Only nodes of the agent's (and the image's) architecture, plus
+        # customizations.kubernetes' nodeSelector with allow_node_placement.
+        node_selector = local.node_selector
+
+        # customizations.kubernetes' tolerations, with allow_node_placement.
+        dynamic "toleration" {
+          for_each = local.tolerations
+          content {
+            key                = toleration.value.key
+            operator           = toleration.value.operator
+            value              = toleration.value.value
+            effect             = toleration.value.effect
+            toleration_seconds = toleration.value.toleration_seconds
+          }
         }
 
         dynamic "host_aliases" {
@@ -1285,14 +1445,8 @@ resource "kubernetes_deployment_v1" "main" {
             value = base64encode(lookup(local.env_scripts, "remoteEnv", ""))
           }
           resources {
-            requests = {
-              "cpu"    = local.cpu_request
-              "memory" = local.memory_request
-            }
-            limits = merge({
-              "cpu"    = local.cpu_limit
-              "memory" = local.memory_limit
-            }, local.gpu_limit)
+            requests = local.pod_requests
+            limits   = local.pod_limits
           }
           volume_mount {
             mount_path = local.home_dir

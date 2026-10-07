@@ -66,6 +66,7 @@ nav:
       - "0012. Dev Container → Kubernetes runtime mapping": decisions/0012-dev-container-to-kubernetes-runtime-mapping.md
       - "0013. Fallback image for repositories without a config": decisions/0013-fallback-config-for-repos-without-one.md
       - "0014. hostRequirements are minimums": decisions/0014-host-requirements-are-minimums.md
+      - "0015. customizations.kubernetes for pod resources and node placement": decisions/0015-kubernetes-customizations.md
 
 theme:
   name: material
