@@ -149,7 +149,7 @@ API. For the real end-to-end shape — a Coder user types in a git repo URL
 when creating a workspace, and a template turns that into a running pod,
 no separate CI/CD pipeline of your own to build and track every project's
 own image variant — see the
-[Coder Workspace Template guide](../guides/coder-workspace-template.md).
+[Set up the platform](../getting-started/platform.md) guide.
 
 ## If something goes wrong
 

@@ -16,21 +16,28 @@ not_in_nav: |
 nav:
   - Home:
     - Welcome: home/index.md
-    - Quickstart: home/quickstart.md
+  - Getting started:
+      - Set up the platform: getting-started/platform.md
+      - Your first workspace: getting-started/first-workspace.md
   - Guides:
-      - Coder Workspace Template: guides/coder-workspace-template.md
-  - Application:
-      - Architecture: concepts/architecture.md
-      - Credential handling: concepts/credential-handling.md
-      - Configuration: reference/CONFIGURATION.md
+      - Working in a workspace: guides/working-in-a-workspace.md
+      - Operating the template: guides/coder-workspace-template.md
+  - Reference:
+      - devcontainer.json support: reference/devcontainer-json.md
+      - Coder template: reference/template.md
+      - VS Code extension: reference/vscode-extension.md
+      - Helm chart: reference/HELM.md
+      - Service configuration: reference/CONFIGURATION.md
       - HTTP API (Redoc): api-reference.html
       - HTTP API (Swagger UI): api-swagger-ui/index.html
-  - Helm Chart:
-      - Reference: reference/HELM.md
-  - Terraform:
-      - Module (deprecated): reference/TERRAFORM.md
-      - Provider: reference/TERRAFORM-PROVIDER.md
+      - Terraform provider: reference/TERRAFORM-PROVIDER.md
+      - Terraform module (deprecated): reference/TERRAFORM.md
+  - Build service:
+      - Architecture: concepts/architecture.md
+      - Credential handling: concepts/credential-handling.md
+      - Quickstart (service only): home/quickstart.md
   - Project:
+      - Versioning and upgrades: project/versioning.md
       - Installing: project/installing.md
       - Running the tests: project/testing.md
       - Testing philosophy: concepts/testing.md

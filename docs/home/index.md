@@ -1,113 +1,95 @@
 <title>devcontainer-builder</title>
 
-# devcontainer-builder
+# Dev Containers for Coder on Kubernetes
 
-Builds a container image from a git repository's `.devcontainer.json`
-using a remote [BuildKit](https://github.com/moby/buildkit) builder, and
-pushes it to a registry — so a [Coder](https://github.com/coder/coder)
-Workspace Template running on Kubernetes can boot a workspace straight
-from a repo URL. You don't roll your own CI/CD pipeline to build and keep
-track of every project's own image variant — point devcontainer-builder at
-the repo and it handles the rest.
+**Self-hosted Codespaces.** Pick a git repository, and get a
+[Coder](https://coder.com) workspace built from that repository's own
+`devcontainer.json`, running on your own Kubernetes cluster. You get its
+image, Features, Dockerfile, lifecycle commands, environment, ports and VS Code
+extensions. There's no local Docker and no per-core-hour bill, and the code
+never leaves your network.
 
-## The whole idea, in one request
+## How it works for a developer
 
-Say you already have a repo with a `.devcontainer.json` at its root —
-`example/example-devcontainer.git`, one of this project's own real BDD
-fixtures, works as a stand-in. Point a running devcontainer-builder
-instance at it:
+1. **Pick a repository.** In VS Code, **Coder: Clone Repository in
+   Workspace…** lists your GitHub repositories like *Git: Clone* does. You can
+   also use the Coder dashboard, or an **Open in Coder** badge in a README.
+2. **The image is built from its Dev Container configuration**, on BuildKit
+   inside your cluster, and pushed to your registry tagged with the commit
+   (`sha-<commit>`). The workspace starts on it.
+3. **Code** in VS Code Desktop or VS Code in the browser, opened on the
+   cloned repository. Home and repository persist across restarts.
+4. **Push a change to `.devcontainer/`** and the workspace offers **Rebuild
+   available**. One click moves it onto the new image. A repository without
+   a configuration gets a generic image and a prompt to add one.
 
-### Request
+## What's in the box
 
-```console
-$ curl -s -X POST http://devcontainer-builder.internal:8080/build \
-    -H 'Content-Type: application/json' \
-    -d @payload.json
+```mermaid
+flowchart LR
+    dev[VS Code<br/>+ extension] -->|create / rebuild| coder[Coder]
+    coder -->|terraform apply| tpl[Coder template<br/>+ Terraform provider]
+    tpl -->|POST /build| svc[devcontainer-builder<br/>service]
+    svc -->|devcontainer build| bk[BuildKit]
+    bk -->|push| reg[(Registry)]
+    tpl -->|pod from the image| pod[Workspace pod<br/>on Kubernetes]
+    reg -->|pull| pod
+    dev -.->|VS Code Desktop / browser| pod
 ```
 
-### Payload
-
-```json
-{
-  "repository": "https://github.com/example/example-devcontainer.git",
-  "image": {
-    "registry": "ghcr.io/example"
-  }
-}
-```
-
-### Response
-
-```json
-{
-  "image":"ghcr.io/example/example-devcontainer:sha-a1b2c3d"
-}
-```
-
-That's the entire contract: a git `repository` (and whatever's needed
-to clone/push it) in, a real, pushed image reference out. What happened
-in between — a shallow clone, `docker buildx` pointed at a remote
-BuildKit daemon (no local `dockerd`), `devcontainer build --push` — is
-covered in [Architecture](../concepts/architecture.md); the exact shape of
-this request and its error responses are in the
-[HTTP API reference](../api-reference.html){:target="_blank" rel="noopener"}.
+| Piece | What it does |
+|---|---|
+| **devcontainer-builder** (service + [Helm chart](../reference/HELM.md)) | Clones the repository and builds its Dev Container image with the official Dev Containers CLI on a remote BuildKit, then pushes it. It also reads a built image's merged configuration back for the template. Runs once per cluster. |
+| **The Coder template** ([reference](../reference/template.md)) | Turns a repository and branch into a workspace pod: the build, the user, the clone, the hooks, env, mounts, ports, resources, VS Code. |
+| **The Terraform provider** ([reference](../reference/TERRAFORM-PROVIDER.md)) | `deepspacecartel/devcontainer-builder`, which the template uses to call the service. |
+| **The VS Code extension** ([reference](../reference/vscode-extension.md)) | *Dev Containers for Coder in K8S*: clone a repository into a workspace, rebuild when the configuration changes, add one where there's none. |
 
 <div class="grid cards" markdown>
 
--   :material-application-braces:{ .lg .middle } **Application**
+-   :material-server-network:{ .lg .middle } **Platform admins**
 
     ---
 
-    How a request becomes a pushed image, credential handling, the HTTP
-    API, and every configuration source.
+    Install devcontainer-builder and BuildKit, push the template, and
+    optionally enable private repositories. About 15 minutes.
 
-    [:octicons-arrow-right-24: Read the docs](../concepts/architecture.md)
+    [:octicons-arrow-right-24: Set up the platform](../getting-started/platform.md)
 
--   :simple-helm:{ .lg .middle } **Helm Chart**
-
-    ---
-
-    Deploy the service into a Kubernetes cluster — every value, including
-    the optional bundled BuildKit dependency.
-
-    [:octicons-arrow-right-24: Chart reference](../reference/HELM.md)
-
--   :simple-terraform:{ .lg .middle } **Terraform**
+-   :material-laptop:{ .lg .middle } **Developers**
 
     ---
 
-    The module a Workspace Template calls, and the provider giving it
-    plan-time safety.
+    Install the extension, open a repository in a workspace, and rebuild
+    when its configuration changes.
 
-    [:octicons-arrow-right-24: Terraform reference](../reference/TERRAFORM.md)
+    [:octicons-arrow-right-24: Your first workspace](../getting-started/first-workspace.md)
 
--   :material-hammer-wrench:{ .lg .middle } **Project**
-
-    ---
-
-    Running it locally, running the real BDD suite, and what CI checks
-    on every PR.
-
-    [:octicons-arrow-right-24: Get set up](../project/installing.md)
-
--   :material-history:{ .lg .middle } **Decisions**
+-   :material-file-table:{ .lg .middle } **devcontainer.json support**
 
     ---
 
-    Why BuildKit is remote-only, why credentials never touch argv, and
-    the other architectural calls this project has made — and why.
+    Every property and what it becomes in a Kubernetes workspace, including
+    what can't work there and why.
 
-    [:octicons-arrow-right-24: Read the decision log](../decisions/index.md)
+    [:octicons-arrow-right-24: Support matrix](../reference/devcontainer-json.md)
+
+-   :material-tag-check:{ .lg .middle } **Versioning and upgrades**
+
+    ---
+
+    What 1.x promises to keep stable, and how to upgrade from 0.x.
+
+    [:octicons-arrow-right-24: Versioning](../project/versioning.md)
 
 </div>
 
-## Why this exists
+## Why a build service
 
-Coder Workspace Templates on Kubernetes need a container image at
-pod-scheduling time. Templates are applied by coderd's own isolated
-Terraform provisioner, which can't install tools once and reuse that
-across workspace provisions — so building the devcontainer image has to
-happen in a separate, long-running service, called from the template the
-same way it already calls out to Kubernetes to provision a
-`PersistentVolumeClaim` before the pod.
-
+A Coder template on Kubernetes needs a container image when the pod is
+scheduled. Templates are applied by coderd's own isolated Terraform
+provisioner, which can't build images itself. So building the Dev Container
+image happens in a separate, long-running service in the cluster. The
+template calls it the same way it calls Kubernetes to provision a volume
+before the pod. How that service works is in [Architecture](../concepts/architecture.md);
+calling it directly, without Coder, is in the
+[build service quickstart](quickstart.md).
