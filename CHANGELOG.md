@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- Chart values for the service's new settings: `build.cloneTimeoutSeconds`, `build.timeoutSeconds`,
+  `build.maxConcurrent` and `git.allowInsecureProtocols` (they were only reachable through
+  `extraEnv`).
 - **Chart: `values.schema.json`.** Unknown keys, wrong types, and values outside an enum
   (`build.mode`: `auto`|`never`, `sshHostKeyPolicy`: `tofu`|`pinned`) fail `helm install` up front.
   `replicaCount` is capped at 1: captured build output (`GET /logs/{id}`) lives on the pod's own

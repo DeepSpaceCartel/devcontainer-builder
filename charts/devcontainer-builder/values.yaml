@@ -151,6 +151,18 @@ build:
   # on it and offer to add a configuration (ADR-0013). Empty: such builds
   # fail, as with the Dev Containers CLI.
   fallbackImage: mcr.microsoft.com/devcontainers/base:ubuntu
+  # Per-phase timeouts, in seconds, and how many builds run at once (past
+  # it, POST /build answers 429 with Retry-After). null keeps the
+  # service's defaults: 600, 3600 and 4 (0 = no limit). See
+  # docs/reference/CONFIGURATION.md.
+  cloneTimeoutSeconds: null
+  timeoutSeconds: null
+  maxConcurrent: null
+
+git:
+  # Allow git:// and http:// repository URLs (unencrypted, and open to SSRF
+  # against in-cluster hosts). Off by default; for test git servers only.
+  allowInsecureProtocols: false
 
 registryAuth:
   # Name of an existing kubernetes.io/dockerconfigjson-shaped Secret. If

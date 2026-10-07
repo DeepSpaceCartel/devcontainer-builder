@@ -6,10 +6,15 @@
   "definitions": {
     "stringList": {
       "type": "array",
-      "items": { "type": "string" }
+      "items": {
+        "type": "string"
+      }
     },
     "quantity": {
-      "type": ["string", "integer"]
+      "type": [
+        "string",
+        "integer"
+      ]
     },
     "freeObject": {
       "type": "object"
@@ -57,36 +62,60 @@
       "type": "array",
       "items": {
         "type": "object",
-        "required": ["name"],
-        "properties": { "name": { "type": "string", "minLength": 1 } }
+        "required": [
+          "name"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
       }
     },
     "podAnnotations": {
       "type": "object",
-      "additionalProperties": { "type": "string" }
+      "additionalProperties": {
+        "type": "string"
+      }
     },
     "nodeSelector": {
       "type": "object",
-      "additionalProperties": { "type": "string" }
+      "additionalProperties": {
+        "type": "string"
+      }
     },
     "tolerations": {
       "type": "array",
-      "items": { "type": "object" }
+      "items": {
+        "type": "object"
+      }
     },
-    "affinity": { "$ref": "#/definitions/freeObject" },
+    "affinity": {
+      "$ref": "#/definitions/freeObject"
+    },
     "image": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["repository"],
+      "required": [
+        "repository"
+      ],
       "properties": {
-        "repository": { "type": "string", "minLength": 1 },
+        "repository": {
+          "type": "string",
+          "minLength": 1
+        },
         "tag": {
           "type": "string",
           "description": "Empty means the chart's appVersion."
         },
         "pullPolicy": {
           "type": "string",
-          "enum": ["Always", "IfNotPresent", "Never"]
+          "enum": [
+            "Always",
+            "IfNotPresent",
+            "Never"
+          ]
         }
       }
     },
@@ -94,7 +123,11 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "port": { "type": "integer", "minimum": 1, "maximum": 65535 }
+        "port": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535
+        }
       }
     },
     "environment": {
@@ -113,7 +146,9 @@
           "type": "object",
           "additionalProperties": false,
           "properties": {
-            "enabled": { "type": "boolean" }
+            "enabled": {
+              "type": "boolean"
+            }
           }
         },
         "manageNamespace": {
@@ -126,12 +161,21 @@
       "type": "object",
       "description": "Values passed to the bundled buildkit-service dependency (alias buildkitBundled); only the keys this chart relies on are constrained.",
       "properties": {
-        "fullnameOverride": { "type": "string", "minLength": 1 },
+        "fullnameOverride": {
+          "type": "string",
+          "minLength": 1
+        },
         "service": {
           "type": "object",
           "properties": {
-            "type": { "type": "string" },
-            "port": { "type": "integer", "minimum": 1, "maximum": 65535 }
+            "type": {
+              "type": "string"
+            },
+            "port": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 65535
+            }
           }
         }
       }
@@ -140,14 +184,62 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "platforms": { "$ref": "#/definitions/stringList" },
-        "noCache": { "type": "boolean" },
-        "cacheFrom": { "type": "string" },
-        "cacheTo": { "type": "string" },
-        "mode": { "type": "string", "enum": ["auto", "never"] },
+        "platforms": {
+          "$ref": "#/definitions/stringList"
+        },
+        "noCache": {
+          "type": "boolean"
+        },
+        "cacheFrom": {
+          "type": "string"
+        },
+        "cacheTo": {
+          "type": "string"
+        },
+        "mode": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "never"
+          ]
+        },
         "fallbackImage": {
           "type": "string",
           "description": "Image a repository without a devcontainer.json is built from; empty means such builds fail."
+        },
+        "cloneTimeoutSeconds": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0,
+          "description": "Seconds before a clone is killed; null keeps the service default (600)."
+        },
+        "timeoutSeconds": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0,
+          "description": "Seconds before a devcontainer build is killed; null keeps the service default (3600)."
+        },
+        "maxConcurrent": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0,
+          "description": "Builds running at once before POST /build answers 429; 0 = no limit; null keeps the service default (4)."
+        }
+      }
+    },
+    "git": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "allowInsecureProtocols": {
+          "type": "boolean",
+          "description": "Allow git:// and http:// repository URLs (test git servers only)."
         }
       }
     },
@@ -155,17 +247,32 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "existingSecret": { "type": "string" },
+        "existingSecret": {
+          "type": "string"
+        },
         "registries": {
           "type": "array",
           "items": {
             "type": "object",
             "additionalProperties": false,
-            "required": ["registry", "username", "password"],
+            "required": [
+              "registry",
+              "username",
+              "password"
+            ],
             "properties": {
-              "registry": { "type": "string", "minLength": 1 },
-              "username": { "type": "string", "minLength": 1 },
-              "password": { "type": "string", "minLength": 1 }
+              "registry": {
+                "type": "string",
+                "minLength": 1
+              },
+              "username": {
+                "type": "string",
+                "minLength": 1
+              },
+              "password": {
+                "type": "string",
+                "minLength": 1
+              }
             }
           }
         }
@@ -175,20 +282,44 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "enabled": { "type": "boolean" },
-        "existingSecret": { "type": "string" },
+        "enabled": {
+          "type": "boolean"
+        },
+        "existingSecret": {
+          "type": "string"
+        },
         "entries": {
           "type": "array",
           "items": {
             "type": "object",
-            "required": ["host", "kind"],
+            "required": [
+              "host",
+              "kind"
+            ],
             "properties": {
-              "host": { "type": "string", "minLength": 1 },
-              "kind": { "type": "string", "enum": ["https", "ssh"] },
-              "username": { "type": "string" },
-              "token": { "type": "string" },
-              "privateKey": { "type": "string" },
-              "pinnedHostKey": { "type": "string" }
+              "host": {
+                "type": "string",
+                "minLength": 1
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "https",
+                  "ssh"
+                ]
+              },
+              "username": {
+                "type": "string"
+              },
+              "token": {
+                "type": "string"
+              },
+              "privateKey": {
+                "type": "string"
+              },
+              "pinnedHostKey": {
+                "type": "string"
+              }
             }
           }
         }
@@ -196,70 +327,120 @@
     },
     "sshHostKeyPolicy": {
       "type": "string",
-      "enum": ["tofu", "pinned"]
+      "enum": [
+        "tofu",
+        "pinned"
+      ]
     },
-    "insecureRegistries": { "$ref": "#/definitions/stringList" },
+    "insecureRegistries": {
+      "$ref": "#/definitions/stringList"
+    },
     "registryMapping": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "enabled": { "type": "boolean" },
-        "existingConfigMap": { "type": "string" },
+        "enabled": {
+          "type": "boolean"
+        },
+        "existingConfigMap": {
+          "type": "string"
+        },
         "rules": {
           "type": "array",
           "items": {
             "type": "object",
-            "required": ["registry"],
+            "required": [
+              "registry"
+            ],
             "properties": {
-              "hostMatch": { "type": "string", "minLength": 1 },
-              "pathPrefix": { "type": "string" },
-              "registry": { "type": "string", "minLength": 1 }
+              "hostMatch": {
+                "type": "string",
+                "minLength": 1
+              },
+              "pathPrefix": {
+                "type": "string"
+              },
+              "registry": {
+                "type": "string",
+                "minLength": 1
+              }
             }
           }
         }
       }
     },
-    "extraArgs": { "$ref": "#/definitions/stringList" },
+    "extraArgs": {
+      "$ref": "#/definitions/stringList"
+    },
     "extraEnv": {
       "type": "array",
       "items": {
         "type": "object",
-        "required": ["name"],
-        "properties": { "name": { "type": "string", "minLength": 1 } }
+        "required": [
+          "name"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
       }
     },
     "extraVolumes": {
       "type": "array",
       "items": {
         "type": "object",
-        "required": ["name"],
-        "properties": { "name": { "type": "string", "minLength": 1 } }
+        "required": [
+          "name"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
       }
     },
     "extraVolumeMounts": {
       "type": "array",
       "items": {
         "type": "object",
-        "required": ["name", "mountPath"],
+        "required": [
+          "name",
+          "mountPath"
+        ],
         "properties": {
-          "name": { "type": "string", "minLength": 1 },
-          "mountPath": { "type": "string", "minLength": 1 }
+          "name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "mountPath": {
+            "type": "string",
+            "minLength": 1
+          }
         }
       }
     },
-    "resources": { "$ref": "#/definitions/freeObject" },
+    "resources": {
+      "$ref": "#/definitions/freeObject"
+    },
     "scratchVolume": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "sizeLimit": { "$ref": "#/definitions/quantity" }
+        "sizeLimit": {
+          "$ref": "#/definitions/quantity"
+        }
       }
     },
     "dockerConfigVolume": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "sizeLimit": { "$ref": "#/definitions/quantity" }
+        "sizeLimit": {
+          "$ref": "#/definitions/quantity"
+        }
       }
     }
   }

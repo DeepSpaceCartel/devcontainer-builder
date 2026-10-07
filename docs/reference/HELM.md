@@ -114,6 +114,10 @@ used whenever a `/build` request doesn't specify its own `platforms` or
 | `build.cacheTo` | `""` | Passed as `--cache-to <value>`, e.g. `type=registry,ref=ghcr.io/example/app:buildcache,mode=max`. Points BuildKit's own layer cache at the same registry the image is pushed to — persistent and shared across replicas, unlike a per-pod cache. |
 | `build.mode` | `auto` | `auto` or `never` — passed as `--buildkit <value>`, controlling whether BuildKit is used at all. |
 | `build.fallbackImage` | `mcr.microsoft.com/devcontainers/base:ubuntu` | The image a repository without any `devcontainer.json` is built from, as if it had `{"image": "<fallbackImage>"}` ([ADR-0013](../decisions/0013-fallback-config-for-repos-without-one.md)). Empty: such builds fail, as with the Dev Containers CLI. |
+| `build.cloneTimeoutSeconds` | `null` | Seconds before a clone is killed. `null` keeps the service's default, 600. |
+| `build.timeoutSeconds` | `null` | Seconds before a Dev Container build is killed. `null` keeps the service's default, 3600. |
+| `build.maxConcurrent` | `null` | Builds running at once; past it, `POST /build` answers 429 with `Retry-After`. `0` means no limit; `null` keeps the service's default, 4. |
+| `git.allowInsecureProtocols` | `false` | Allow `git://` and `http://` repository URLs. They're unencrypted and can reach in-cluster hosts; for test git servers only. |
 
 ```yaml
 build:
