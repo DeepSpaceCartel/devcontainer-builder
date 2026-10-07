@@ -184,12 +184,23 @@ done
 # Elsewhere (install.sh on a plain machine), fall back to Coder's installer.
 # Log in separately: `coder login <url>`, or export CODER_URL and
 # CODER_SESSION_TOKEN.
-if ! command -v coder >/dev/null 2>&1; then
+# The agent puts its own binary (e.g. /tmp/coder.XXXXXX/coder) on PATH for
+# the scripts it runs, but not for other shells, so that copy doesn't count.
+coder_path="$(command -v coder 2>/dev/null || true)"
+case "$coder_path" in
+  "" | */coder.*/coder) coder_path="" ;;
+esac
+if [ -z "$coder_path" ]; then
   echo "Installing Coder CLI..."
   if [ -n "${CODER_AGENT_URL:-}" ]; then
     tmp_coder="$(mktemp)"
-    curl -fsSL -o "$tmp_coder" "${CODER_AGENT_URL%/}/bin/coder-linux-${arch}"
-    $SUDO install -m 0755 "$tmp_coder" /usr/local/bin/coder
+    # Only install a complete download - an empty file left by a failed
+    # one would satisfy `command -v coder` from then on.
+    if curl -fsSL -o "$tmp_coder" "${CODER_AGENT_URL%/}/bin/coder-linux-${arch}" && [ -s "$tmp_coder" ]; then
+      $SUDO install -m 0755 "$tmp_coder" /usr/local/bin/coder
+    else
+      echo "Coder CLI download from ${CODER_AGENT_URL} failed - skipping" >&2
+    fi
     rm -f "$tmp_coder"
   else
     curl -fsSL https://coder.com/install.sh | sh
@@ -266,10 +277,16 @@ fi
 # namespace switching (e.g. `w`, the 1-9 namespace bar) falls back to
 # `default` instead of tracking the real namespace. Build a real kubeconfig
 # from the ServiceAccount so kubectl/k9s have an explicit context.
+#
+# The credentials point at the token *file*, never a copy of the token: the
+# ServiceAccount token is bound to this pod and rotated, and $HOME (with
+# ~/.kube) persists across workspace restarts - a copied token goes stale
+# with the pod it came from ("Unauthorized" after a restart). They're
+# rewritten on every start (also replacing a token copied by an older
+# version of this script); the context is only created - and made current -
+# when there's none yet, so a context the user picked is left alone.
 sa_dir=/var/run/secrets/kubernetes.io/serviceaccount
-if [ -n "${KUBERNETES_SERVICE_HOST:-}" ] && [ -f "$sa_dir/token" ] && [ -f "$sa_dir/ca.crt" ] \
-  && ! kubectl config current-context >/dev/null 2>&1; then
-  echo "Generating kubeconfig from in-cluster ServiceAccount..."
+if [ -n "${KUBERNETES_SERVICE_HOST:-}" ] && [ -f "$sa_dir/token" ] && [ -f "$sa_dir/ca.crt" ]; then
   ns="$(cat "$sa_dir/namespace")"
   kubeconfig="$HOME/.kube/config"
   mkdir -p "$HOME/.kube"
@@ -277,16 +294,18 @@ if [ -n "${KUBERNETES_SERVICE_HOST:-}" ] && [ -f "$sa_dir/token" ] && [ -f "$sa_
     --server="https://${KUBERNETES_SERVICE_HOST}:${KUBERNETES_SERVICE_PORT_HTTPS}" \
     --certificate-authority="$sa_dir/ca.crt" \
     --embed-certs=true \
-    --kubeconfig="$kubeconfig"
-  kubectl config set-credentials in-cluster-sa \
-    --token="$(cat "$sa_dir/token")" \
-    --kubeconfig="$kubeconfig"
-  kubectl config set-context "$ns" \
-    --cluster=in-cluster \
-    --user=in-cluster-sa \
-    --namespace="$ns" \
-    --kubeconfig="$kubeconfig"
-  kubectl config use-context "$ns" --kubeconfig="$kubeconfig"
+    --kubeconfig="$kubeconfig" >/dev/null
+  kubectl config unset users.in-cluster-sa.token --kubeconfig="$kubeconfig" >/dev/null 2>&1 || true
+  kubectl config set users.in-cluster-sa.tokenFile "$sa_dir/token" --kubeconfig="$kubeconfig" >/dev/null
+  if ! kubectl config current-context --kubeconfig="$kubeconfig" >/dev/null 2>&1; then
+    echo "Generating kubeconfig context from in-cluster ServiceAccount..."
+    kubectl config set-context "$ns" \
+      --cluster=in-cluster \
+      --user=in-cluster-sa \
+      --namespace="$ns" \
+      --kubeconfig="$kubeconfig" >/dev/null
+    kubectl config use-context "$ns" --kubeconfig="$kubeconfig" >/dev/null
+  fi
   chmod 600 "$kubeconfig"
 fi
 
