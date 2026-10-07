@@ -66,6 +66,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- **Breaking:** **Extension: requires VS Code 1.140 or newer** (was 1.90), to build against current
+  VS Code APIs. Editors on an older VS Code base can keep using 0.5.0.
 - **Service: an image per devcontainer.json in sub-folders** ([ADR-0016](docs/decisions/0016-one-image-per-devcontainer-json.md)).
   Each `.devcontainer/<folder>/devcontainer.json` is built with `--config` as an image of its own,
   `<name>-<folder id>`, after the root config's `main` image. `POST /build` lists them all in a new

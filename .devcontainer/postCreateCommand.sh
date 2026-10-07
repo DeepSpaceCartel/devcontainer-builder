@@ -22,9 +22,9 @@ fi
 
 arch="$(dpkg --print-architecture)"
 
-# --- Node 20 + npm + git --------------------------------------------------
+# --- Node 26 + npm + git --------------------------------------------------
 # devcontainer.json's `image` is supposed to already provide these
-# (mcr.microsoft.com/devcontainers/typescript-node:1-20-bookworm) - this
+# (mcr.microsoft.com/devcontainers/typescript-node:26-trixie) - this
 # call is a fast no-op there. It only does real work when the workspace
 # actually booted from something else (e.g. a Coder Workspace Template not
 # overriding its image), which otherwise breaks every npm-based step below.

@@ -10,8 +10,8 @@ Opening this repo in the provided
 everything below for free — its `postCreateCommand.sh` installs Helm,
 Terraform, the GitHub CLI, `kubectl`, the Docker CLI + `buildx` plugin,
 and the `@devcontainers/cli`, on top of the base
-`mcr.microsoft.com/devcontainers/typescript-node:1-20-bookworm` image
-(Node 20 already included). Versions are deliberately unpinned there,
+`mcr.microsoft.com/devcontainers/typescript-node:26-trixie` image
+(Node 26 already included). Versions are deliberately unpinned there,
 matching CI's own unpinned `setup-helm`/`setup-terraform` actions.
 
 Outside a Dev Container, you need real, working installs of: Node 22 or

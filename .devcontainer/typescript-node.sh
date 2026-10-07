@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Installs what devcontainer.json's `image` (a typescript-node base image)
-# is expected to already provide - Node 20, npm, git - for when the
+# is expected to already provide - Node 26, npm, git - for when the
 # workspace actually boots from something else instead (e.g. a Coder
 # Workspace Template pointed at a plain base image by mistake, with no Node
 # runtime at all). Idempotent: a no-op fast-path when the expected image is
@@ -17,11 +17,12 @@ if [ "$(id -u)" -ne 0 ] && command -v sudo >/dev/null 2>&1; then
   SUDO="sudo"
 fi
 
-# --- Node 20 + npm (NodeSource apt repo, matching service/Dockerfile's
-#     pinned major version and CI's actions/setup-node node-version) -------
-if ! command -v node >/dev/null 2>&1 || [ "$(node -v | cut -d. -f1 | tr -d v)" -ne 20 ]; then
-  echo "Installing Node.js 20..."
-  curl -fsSL https://deb.nodesource.com/setup_20.x | $SUDO bash -
+# --- Node + npm (NodeSource apt repo, the same major as devcontainer.json's
+#     image). Only when Node is missing or older: a newer one is kept. ---
+node_major=26
+if ! command -v node >/dev/null 2>&1 || [ "$(node -v | cut -d. -f1 | tr -d v)" -lt "$node_major" ]; then
+  echo "Installing Node.js ${node_major}..."
+  curl -fsSL "https://deb.nodesource.com/setup_${node_major}.x" | $SUDO bash -
   $SUDO apt-get install -y --no-install-recommends nodejs
 fi
 
