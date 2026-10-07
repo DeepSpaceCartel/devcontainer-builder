@@ -157,7 +157,15 @@ else the image's `USER`) — **as that user from the start**:
 recorded from the image's `/etc/passwd` at build time, so nothing starts as
 root and any uid works. `fsGroup` (with `OnRootMismatch`) keeps the PVC
 writable for it. An image without that record (built by devcontainer-builder
-older than 0.3.0) stops the start with a message to bump **Rebuild**.
+older than 0.3.0) runs as uid/gid 1000 instead — what earlier template
+versions did — with a warning to bump **Rebuild**.
+
+!!! note "Upgrading a workspace from an older template version"
+    **Rebuild** only takes effect once a start has succeeded on this
+    template version: the rebuild is triggered when its tracker *changes*,
+    and the first start on this version only *creates* it. So update the
+    workspace, let that first start finish (on its old image, as uid 1000),
+    then bump **Rebuild**.
 
 ## The repository clone
 
