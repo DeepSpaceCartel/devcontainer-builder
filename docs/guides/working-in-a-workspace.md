@@ -29,6 +29,8 @@ shows the result:
 | **Add Dev Container config** | The repository has no `devcontainer.json`; the workspace runs on a generic image. | Add configuration (below) |
 | `?` | It couldn't check, e.g. the fetch failed. The tooltip says why. | Check again |
 
+![Rebuild available](../assets/screenshots/vscode-rebuild-available.png)
+
 When it becomes **Rebuild available**, a notification offers:
 
 - **Rebuild** restarts the workspace on a new image built from
@@ -118,6 +120,8 @@ window that connects before that's done picks up the rest after
   workspace can't honor (bind mounts, `--network`, …) is listed as a warning
   in the build log and counted in the dashboard's **Dev Container warnings**
   item. See [devcontainer.json support](../reference/devcontainer-json.md).
+- **No status bar item from the extension.** VS Code doesn't run it in
+  Restricted Mode: trust the folder (**Workspaces: Manage Workspace Trust**).
 - **The workspace stays Pending.** The repository's `hostRequirements` reserve
   CPU and memory, and no node has that much free. The dashboard's
   **Resources** item shows what was requested; ask your platform admin.

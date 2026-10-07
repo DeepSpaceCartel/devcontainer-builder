@@ -9,6 +9,8 @@ image, Features, Dockerfile, lifecycle commands, environment, ports and VS Code
 extensions. There's no local Docker and no per-core-hour bill, and the code
 never leaves your network.
 
+![VS Code in a workspace, offering to rebuild after the Dev Container configuration changed on the branch](../assets/screenshots/vscode-rebuild-available.png)
+
 ## How it works for a developer
 
 1. **Pick a repository.** In VS Code, **Coder: Clone Repository in
