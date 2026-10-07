@@ -167,6 +167,8 @@ Feature: End-to-end build scenarios
       | --set              | image.tag=test                                                     |
       | --set              | image.pullPolicy=Always                                            |
       | --set              | buildkit.endpoint=<BuildkitEndpoint>                               |
+      | --set              | extraEnv[0].name=ALLOW_INSECURE_GIT_PROTOCOLS                      |
+      | --set-string       | extraEnv[0].value=true                                             |
       | -f                 | .cache/fixtures/end-to-end-build-w<WorkerId>/mapping-1.yaml                    |
       | --wait             | True                                                               |
       | --timeout          | 120s                                                               |
@@ -222,6 +224,8 @@ Feature: End-to-end build scenarios
       | --set              | image.tag=test                                                     |
       | --set              | image.pullPolicy=Always                                            |
       | --set              | buildkit.endpoint=<BuildkitEndpoint>                               |
+      | --set              | extraEnv[0].name=ALLOW_INSECURE_GIT_PROTOCOLS                      |
+      | --set-string       | extraEnv[0].value=true                                             |
       | -f                 | .cache/fixtures/end-to-end-build-w<WorkerId>/mapping-2.yaml                    |
       | --wait             | True                                                               |
       | --timeout          | 120s                                                               |
@@ -277,6 +281,8 @@ Feature: End-to-end build scenarios
       | --set              | image.tag=test                                                     |
       | --set              | image.pullPolicy=Always                                            |
       | --set              | buildkit.endpoint=<BuildkitEndpoint>                               |
+      | --set              | extraEnv[0].name=ALLOW_INSECURE_GIT_PROTOCOLS                      |
+      | --set-string       | extraEnv[0].value=true                                             |
       | -f                 | .cache/fixtures/end-to-end-build-w<WorkerId>/mapping-3.yaml                    |
       | --wait             | True                                                               |
       | --timeout          | 120s                                                               |
@@ -323,6 +329,8 @@ Feature: End-to-end build scenarios
       | --set              | image.tag=test                                                                     |
       | --set              | image.pullPolicy=Always                                                            |
       | --set              | buildkit.endpoint=<BuildkitEndpoint>                                               |
+      | --set              | extraEnv[0].name=ALLOW_INSECURE_GIT_PROTOCOLS                                      |
+      | --set-string       | extraEnv[0].value=true                                                             |
       | --set              | gitCredentials.entries[0].host=<GitHost>                                           |
       | --set              | gitCredentials.entries[0].kind=ssh                                                |
       | --set-file         | gitCredentials.entries[0].privateKey=.cache/fixtures/end-to-end-build-w<WorkerId>/git-ssh-authorized/id_ed25519 |
@@ -396,6 +404,8 @@ Feature: End-to-end build scenarios
       | --set              | image.tag=test                                                     |
       | --set              | image.pullPolicy=Always                                            |
       | --set              | buildkit.endpoint=<BuildkitEndpoint>                               |
+      | --set              | extraEnv[0].name=ALLOW_INSECURE_GIT_PROTOCOLS                      |
+      | --set-string       | extraEnv[0].value=true                                             |
       | -f                 | .cache/fixtures/end-to-end-build-w<WorkerId>/mapping-5.yaml                    |
       | --wait             | True                                                               |
       | --timeout          | 120s                                                               |
@@ -451,6 +461,8 @@ Feature: End-to-end build scenarios
       | --set              | image.tag=test                                                     |
       | --set              | image.pullPolicy=Always                                            |
       | --set              | buildkit.endpoint=<BuildkitEndpoint>                               |
+      | --set              | extraEnv[0].name=ALLOW_INSECURE_GIT_PROTOCOLS                      |
+      | --set-string       | extraEnv[0].value=true                                             |
       | --set              | gitCredentials.enabled=false                                       |
       | --wait             | True                                                               |
       | --timeout          | 120s                                                               |

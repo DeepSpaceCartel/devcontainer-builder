@@ -3,17 +3,20 @@ Feature: POST /build request shape validation
   I want a clear 400 for a malformed request
   So that I can distinguish "my request was wrong" from "the build failed"
 
-  This feature only covers the up-front shape check performed before any
-  clone/build work starts (server.ts's isValidBuildRequest). It does not
-  cover whether the *values* given are usable (unparseable git URLs,
-  unresolvable registries, etc.) - see git_source_resolution.feature and
+  This feature covers the up-front checks performed before any clone/build
+  work starts: the request shape (schemas.ts) and the request values that
+  can be refused without cloning (repository URL scheme and credentials,
+  cache backends). It does not cover values only a clone can judge
+  (unresolvable registries, etc.) - see git_source_resolution.feature and
   image_resolution.feature for that. Scenarios documenting that a request
-  "passes validation" deliberately use a nonexistent local file:// path as
-  the repository, so the real clone attempt that follows fails fast and
-  deterministically with no network dependency - src/server.ts's own
-  catch-all turns any such downstream failure into a real 500, so "the
-  response status is 500" here is real, direct proof shape validation let
-  the request through, not a workaround for a missing assertion.
+  "passes validation" deliberately use a repository on the reserved
+  `.invalid` domain (RFC 6761, never resolves), so the real clone attempt
+  that follows fails fast and deterministically with no real git server
+  involved - src/server.ts's own catch-all turns any such downstream
+  failure into a real 500, so "the response status is 500" here is real,
+  direct proof validation let the request through, not a workaround for a
+  missing assertion. (A local file:// repository used to play this part;
+  file:// is now refused outright.)
 
   Every scenario shares the exact same server configuration (unlike
   health.feature, where server config itself is what varies) - the Helm
@@ -142,11 +145,75 @@ Feature: POST /build request shape validation
     When I uninstall Helm Release "<NamespaceRelease>" with --wait --timeout 120s
     Then the command exited with 0
 
+  @negative @client-request
+  Scenario: Credentials embedded in the repository URL are rejected without being echoed
+    When I send a POST request to Endpoint known as "<AppApi>" path "/build" with:
+      | TYPE | KEY | VALUE                                                                              |
+      | BODY |     | {"repository":"https://svc-bot:ghp_example@github.com/example/example-devcontainer.git"} |
+    Then the response status is 400:
+      | SOURCE | CONDITION | VALUE                                                                                                           |
+      | BODY   | equals    | {"error":"repository URL must not contain credentials (user:token@...) - pass them in gitCredentials instead"} |
+
+    When I remove Docker Buildx Builder known as "<Builder>"
+    Then the command exited with 0
+    When I uninstall Helm Release known as "<Release>"
+    Then the command exited with 0
+    When I uninstall Helm Release "<NamespaceRelease>" with --wait --timeout 120s
+    Then the command exited with 0
+
+  @negative @client-request
+  Scenario Outline: A repository URL scheme outside https/ssh is rejected
+    # git:// and http:// are accepted only with the server's opt-in
+    # allowInsecureGitProtocols - which this feature's release doesn't set
+    # (the features cloning from the git:// test git server do).
+    When I send a POST request to Endpoint known as "<AppApi>" path "/build" with:
+      | TYPE | KEY | VALUE                          |
+      | BODY |     | {"repository":"<repository>"} |
+    Then the response status is 400:
+      | SOURCE | CONDITION | VALUE          |
+      | BODY   | contains  | is not allowed |
+
+    When I remove Docker Buildx Builder known as "<Builder>"
+    Then the command exited with 0
+    When I uninstall Helm Release known as "<Release>"
+    Then the command exited with 0
+    When I uninstall Helm Release "<NamespaceRelease>" with --wait --timeout 120s
+    Then the command exited with 0
+
+    Examples:
+      | repository                                             |
+      | file:///nonexistent-repo-for-validation-tests.git      |
+      | git://git.invalid/example/example-devcontainer.git     |
+      | http://git.invalid/example/example-devcontainer.git    |
+      | ftp://git.invalid/example/example-devcontainer.git     |
+
+  @negative @client-request
+  Scenario Outline: A cache backend outside registry/gha/inline is rejected
+    When I send a POST request to Endpoint known as "<AppApi>" path "/build" with:
+      | TYPE | KEY | VALUE                                                                                                     |
+      | BODY |     | {"repository":"https://git.invalid/nonexistent-repo-for-validation-tests.git","buildOptions":<buildOptions>} |
+    Then the response status is 400:
+      | SOURCE | CONDITION | VALUE                |
+      | BODY   | contains  | is not allowed       |
+
+    When I remove Docker Buildx Builder known as "<Builder>"
+    Then the command exited with 0
+    When I uninstall Helm Release known as "<Release>"
+    Then the command exited with 0
+    When I uninstall Helm Release "<NamespaceRelease>" with --wait --timeout 120s
+    Then the command exited with 0
+
+    Examples:
+      | buildOptions                                      |
+      | {"cacheTo":"type=local,dest=/home/builder"}       |
+      | {"cacheFrom":"type=local,src=/home/builder"}      |
+      | {"cacheTo":"type=s3,bucket=b,region=r"}           |
+
   @client-request
   Scenario: repository alone is a valid request shape
     When I send a POST request to Endpoint known as "<AppApi>" path "/build" with:
       | TYPE | KEY | VALUE                                                                  |
-      | BODY |     | {"repository":"file:///nonexistent-repo-for-validation-tests.git"}    |
+      | BODY |     | {"repository":"https://git.invalid/nonexistent-repo-for-validation-tests.git"}    |
     Then the response status is 500
 
     When I remove Docker Buildx Builder known as "<Builder>"
@@ -174,7 +241,7 @@ Feature: POST /build request shape validation
   Scenario: An omitted branch is a valid request shape
     When I send a POST request to Endpoint known as "<AppApi>" path "/build" with:
       | TYPE | KEY | VALUE                                                               |
-      | BODY |     | {"repository":"file:///nonexistent-repo-for-validation-tests.git"} |
+      | BODY |     | {"repository":"https://git.invalid/nonexistent-repo-for-validation-tests.git"} |
     Then the response status is 500
 
     When I remove Docker Buildx Builder known as "<Builder>"
@@ -188,7 +255,7 @@ Feature: POST /build request shape validation
   Scenario Outline: A null value for an optional image field is treated as "not provided"
     When I send a POST request to Endpoint known as "<AppApi>" path "/build" with:
       | TYPE | KEY | VALUE                                                                               |
-      | BODY |     | {"repository":"file:///nonexistent-repo-for-validation-tests.git","image":<image>}  |
+      | BODY |     | {"repository":"https://git.invalid/nonexistent-repo-for-validation-tests.git","image":<image>}  |
     Then the response status is 500
 
     When I remove Docker Buildx Builder known as "<Builder>"
@@ -205,7 +272,7 @@ Feature: POST /build request shape validation
       | null                                       |
 
   @negative @client-request
-  Scenario Outline: An empty-string image field is rejected (unlike null)
+  Scenario Outline: An empty-string or malformed image field is rejected (unlike null)
     When I send a POST request to Endpoint known as "<AppApi>" path "/build" with:
       | TYPE | KEY | VALUE                                                                                  |
       | BODY |     | {"repository":"https://github.com/example/example-devcontainer.git","image":<image>}  |
@@ -219,10 +286,13 @@ Feature: POST /build request shape validation
     Then the command exited with 0
 
     Examples:
-      | image           |
-      | {"registry":""} |
-      | {"name":""}     |
-      | {"tag":""}      |
+      | image                             |
+      | {"registry":""}                   |
+      | {"name":""}                       |
+      | {"tag":""}                        |
+      | {"registry":"http://ghcr.io/x"}   |
+      | {"name":"MyRepo"}                 |
+      | {"tag":"-not-a-tag"}              |
 
   @negative @client-request
   Scenario Outline: An incomplete or malformed gitCredentials is rejected
@@ -251,7 +321,7 @@ Feature: POST /build request shape validation
     # fields, not non-empty-ness - this documents that as current behavior.
     When I send a POST request to Endpoint known as "<AppApi>" path "/build" with:
       | TYPE | KEY | VALUE                                                                                                            |
-      | BODY |     | {"repository":"file:///nonexistent-repo-for-validation-tests.git","gitCredentials":{"username":"","token":""}} |
+      | BODY |     | {"repository":"https://git.invalid/nonexistent-repo-for-validation-tests.git","gitCredentials":{"username":"","token":""}} |
     Then the response status is 500
 
     When I remove Docker Buildx Builder known as "<Builder>"
@@ -288,7 +358,7 @@ Feature: POST /build request shape validation
   Scenario: A fully-specified registryCredentials passes shape validation
     When I send a POST request to Endpoint known as "<AppApi>" path "/build" with:
       | TYPE | KEY | VALUE                                                                                                                                |
-      | BODY |     | {"repository":"file:///nonexistent-repo-for-validation-tests.git","registryCredentials":{"registry":"ghcr.io/example","username":"svc-bot","password":"hunter2"}} |
+      | BODY |     | {"repository":"https://git.invalid/nonexistent-repo-for-validation-tests.git","registryCredentials":{"registry":"ghcr.io/example","username":"svc-bot","password":"hunter2"}} |
     Then the response status is 500
 
     When I remove Docker Buildx Builder known as "<Builder>"
@@ -302,7 +372,7 @@ Feature: POST /build request shape validation
   Scenario: Unknown extra top-level fields are tolerated
     When I send a POST request to Endpoint known as "<AppApi>" path "/build" with:
       | TYPE | KEY | VALUE                                                                                                          |
-      | BODY |     | {"repository":"file:///nonexistent-repo-for-validation-tests.git","somethingTheServiceDoesNotKnowAbout":true} |
+      | BODY |     | {"repository":"https://git.invalid/nonexistent-repo-for-validation-tests.git","somethingTheServiceDoesNotKnowAbout":true} |
     Then the response status is 500
 
     When I remove Docker Buildx Builder known as "<Builder>"
@@ -316,7 +386,7 @@ Feature: POST /build request shape validation
   Scenario: platforms and buildOptions fully specified pass shape validation
     When I send a POST request to Endpoint known as "<AppApi>" path "/build" with:
       | TYPE | KEY | VALUE                                                                                                                                                                                                          |
-      | BODY |     | {"repository":"file:///nonexistent-repo-for-validation-tests.git","platforms":["linux/amd64","linux/arm64"],"buildOptions":{"noCache":true,"cacheFrom":"ghcr.io/example:cache","cacheTo":"ghcr.io/example:cache","mode":"never"}} |
+      | BODY |     | {"repository":"https://git.invalid/nonexistent-repo-for-validation-tests.git","platforms":["linux/amd64","linux/arm64"],"buildOptions":{"noCache":true,"cacheFrom":"ghcr.io/example:cache","cacheTo":"ghcr.io/example:cache","mode":"never"}} |
     Then the response status is 500
 
     When I remove Docker Buildx Builder known as "<Builder>"
@@ -341,11 +411,13 @@ Feature: POST /build request shape validation
     Then the command exited with 0
 
     Examples:
-      | platforms         |
-      | "linux/amd64"     |
-      | [123]              |
-      | [""]               |
-      | [null]             |
+      | platforms                   |
+      | "linux/amd64"               |
+      | [123]                       |
+      | [""]                        |
+      | [null]                      |
+      | ["linux/amd64,linux/arm64"] |
+      | ["linux"]                   |
 
   @negative @client-request
   Scenario Outline: An invalid buildOptions field is rejected

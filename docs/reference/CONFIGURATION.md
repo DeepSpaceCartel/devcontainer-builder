@@ -22,6 +22,7 @@ concern documented in
 | Buildx builder name | `--buildx-builder-name` | `BUILDX_BUILDER_NAME` | *(none)* | `devcontainer-builder-remote` |
 | SSH host key policy | `--ssh-host-key-policy` | `SSH_HOST_KEY_POLICY` | `sshHostKeyPolicy` | `tofu` |
 | Plain-HTTP registries | `--insecure-registries` (comma-separated) | `INSECURE_REGISTRIES` (comma-separated) | `insecureRegistries` | `[]` (HTTPS everywhere) |
+| Accept `git://`/`http://` repository URLs | `--allow-insecure-git-protocols` | `ALLOW_INSECURE_GIT_PROTOCOLS` (`"true"`/`"false"`) | `git.allowInsecureProtocols` | `false` (only `https://`, `ssh://`, SCP-style) |
 | Git credentials file path | `--git-credentials-config-path` | `GIT_CREDENTIALS_CONFIG_PATH` | *(none — see below)* | *(unset — empty list)* |
 | Registry mapping file path | `--registry-mapping-config-path` | `REGISTRY_MAPPING_CONFIG_PATH` | *(none — see below)* | *(unset — empty list)* |
 | Default platforms | `--build-platforms` (comma-separated) | `BUILD_PLATFORMS` (comma-separated) | `build.platforms` | `[]` (no `--platform` passed) |
@@ -29,6 +30,9 @@ concern documented in
 | Default cache-from | `--build-cache-from` | `BUILD_CACHE_FROM` | `build.cacheFrom` | *(unset)* |
 | Default cache-to | `--build-cache-to` | `BUILD_CACHE_TO` | `build.cacheTo` | *(unset)* |
 | Default BuildKit mode | `--buildkit-mode` | `BUILDKIT_MODE` | `build.mode` | `auto` |
+| Clone timeout (seconds) | `--clone-timeout` | `CLONE_TIMEOUT_SECONDS` | `build.cloneTimeoutSeconds` | `600` |
+| Build+push timeout (seconds) | `--build-timeout` | `BUILD_TIMEOUT_SECONDS` | `build.timeoutSeconds` | `3600` |
+| Concurrent builds per instance | `--max-concurrent-builds` | `MAX_CONCURRENT_BUILDS` | `build.maxConcurrent` | `4` (`0` = no limit) |
 | Fallback image (repos without a devcontainer.json, [ADR-0013](../decisions/0013-fallback-config-for-repos-without-one.md)) | `--fallback-image` | `FALLBACK_IMAGE` | `build.fallbackImage` | *(unset — such builds fail)*; the chart sets `mcr.microsoft.com/devcontainers/base:ubuntu` |
 | Sentry/GlitchTip DSN | `--sentry-dsn` | `SENTRY_DSN` | `sentry.dsn` | *(unset — error tracking off)* |
 | Service name | `--service-name` | `SERVICE_NAME` | `observability.serviceName` | `devcontainer-builder` |
@@ -53,6 +57,12 @@ invocation rather than the pod's own stdout (see
 [HTTP API (Redoc)](../api-reference.html){:target="_blank" rel="noopener"}) -
 `commandLogRetention` caps how many of these are kept per kind (`git`/
 `docker`) before the oldest are pruned.
+
+Tracing's `service.name` is `OTEL_SERVICE_NAME` if set, else the same
+`SERVICE_NAME` env var the logs use (so the two agree by default), else
+`devcontainer-builder`. Like `DEPLOYMENT_ENVIRONMENT` below, it's read
+before this config loads, so `--service-name`/`observability.serviceName`
+only affect the logs - set `OTEL_SERVICE_NAME` too if you use those.
 
 OpenTelemetry tracing is deliberately **not** in this table — it's
 bootstrapped from the standard `OTEL_EXPORTER_OTLP_ENDPOINT`/
@@ -88,8 +98,12 @@ immediately:
     "noCache": false,
     "cacheFrom": "type=registry,ref=ghcr.io/example/app:buildcache",
     "cacheTo": "type=registry,ref=ghcr.io/example/app:buildcache,mode=max",
-    "mode": "auto"
+    "mode": "auto",
+    "cloneTimeoutSeconds": 600,
+    "timeoutSeconds": 3600,
+    "maxConcurrent": 4
   },
+  "git": { "allowInsecureProtocols": false },
   "service": { "port": 8080 },
   "sshHostKeyPolicy": "pinned",
   "gitCredentials": {
@@ -117,7 +131,10 @@ never re-templated back into the chart.
     object, or a wrong-typed known field (`buildkit.endpoint` not a
     string, `build.platforms` not an array of strings, `build.noCache`
     not a boolean, `build.cacheFrom`/`build.cacheTo` not a string,
-    `build.mode` not `"auto"`/`"never"`, `service.port` not a number,
+    `build.mode` not `"auto"`/`"never"`, `build.cloneTimeoutSeconds`/
+    `build.timeoutSeconds`/`build.maxConcurrent` not a number (or not a
+    positive integer - `0` is allowed for `maxConcurrent`),
+    `git.allowInsecureProtocols` not a boolean, `service.port` not a number,
     `gitCredentials`/`registryMapping` not an object, `.entries`/`.rules`
     not an array) all throw synchronously at startup — the same "fail
     loud, fail immediately" behavior as every other config source, not a
@@ -176,6 +193,35 @@ in-cluster `registry:2` without TLS. Builds aren't affected: whether
 BuildKit pushes to a plain-HTTP registry is BuildKit's own config
 (`buildkitd.toml`). There is deliberately no automatic HTTPS-to-HTTP
 fallback — see [0011](../decisions/0011-devcontainer-metadata-endpoint.md).
+
+An explicit `http://` prefix on a request's `registry` is only honored for
+a host listed here - for any other host it's a `400`, so a caller can't
+send the service's (or its own) registry credentials over cleartext. An
+`https://` prefix is always accepted.
+
+## `ALLOW_INSECURE_GIT_PROTOCOLS`
+
+Off by default: `POST /build` accepts only `https://`, `ssh://` and
+SCP-style `[user@]host:path` repository URLs, and every `git` the service
+runs gets `GIT_ALLOW_PROTOCOL=https:ssh`. Set to `true` to also accept
+`git://` and `http://` (unauthenticated and unencrypted, meant for test git
+servers - the BDD suite sets it through the chart's `extraEnv`). Other
+schemes (`file://`, `ftp://`, git's `ext::` helpers, ...) are always
+rejected with `400`.
+
+## Timeouts and concurrency
+
+`CLONE_TIMEOUT_SECONDS` bounds the `git clone`; `BUILD_TIMEOUT_SECONDS`
+bounds everything after it (remote builder setup, `devcontainer build
+--push`, the config-label build). When one runs out, the running command
+and its child processes are killed (`SIGTERM`, then `SIGKILL` after 10s)
+and the build fails with a `500` whose `error` names the phase, e.g.
+`... was killed by SIGTERM: git clone timed out after 600s`. The service's
+own registry calls (`/image`, `/devcontainer`, the post-push user probe)
+time out after 30s each.
+
+`MAX_CONCURRENT_BUILDS` caps builds running at once in one instance; past
+it, `POST /build` answers `429` with `Retry-After: 30` instead of queueing.
 
 ## `SSH_HOST_KEY_POLICY`
 

@@ -1,4 +1,3 @@
-import { spawn } from "node:child_process";
 import { mkdtemp, mkdir, rm, writeFile, chmod, cp, readFile } from "node:fs/promises";
 import { tmpdir, homedir } from "node:os";
 import { join } from "node:path";
@@ -9,6 +8,12 @@ import { logger } from "./logger.js";
 import { openCommandLog, closeCommandLog, type CommandLogKind } from "./command-log.js";
 import { CONFIG_LABEL, METADATA_LABEL, configLabelValue, parsePasswdEntry, remoteUserFor } from "./devcontainer-metadata.js";
 import { readImageConfig } from "./registry-client.js";
+import { BuildRequestError } from "./errors.js";
+import { checkRepositoryUrl, gitAllowProtocol, redactUrlCredentials, type ParsedGitUrl } from "./git-url.js";
+import { checkCacheOption, deriveImageName } from "./image-ref.js";
+import { phaseTimeout, run, runCapture } from "./process.js";
+
+export { BuildRequestError };
 
 export function fallbackConfig(image: string): string {
   return JSON.stringify({ image }, null, 2) + "\n";
@@ -78,12 +83,6 @@ async function withCommandLog<T>(
   }
 }
 
-// Thrown for user-fixable request problems discovered mid-build (can't be
-// caught by server.ts's up-front shape validation alone, e.g. no registry
-// resolves for a repository) - server.ts maps this to 400, everything else
-// to 500.
-export class BuildRequestError extends Error {}
-
 export function isReady(): { ready: boolean; reason?: string } {
   if (!serviceConfig.buildkitEndpoint) {
     return { ready: false, reason: "BUILDKIT_ENDPOINT not configured" };
@@ -91,82 +90,59 @@ export function isReady(): { ready: boolean; reason?: string } {
   return { ready: true };
 }
 
-// `logStream`, when given, replaces "inherit" a plain `run("git"|"docker", ...)`
-// call would otherwise use - the two callers that matter (git clone,
-// devcontainer build --push) always pass one; anything still calling this
-// without one (ssh-keyscan's single benign line via runCapture) keeps
-// today's inherited behavior, out of scope for this change.
-function run(cmd: string, args: string[], env: NodeJS.ProcessEnv = process.env, logStream?: NodeJS.WritableStream): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const child = spawn(cmd, args, { stdio: logStream ? ["ignore", "pipe", "pipe"] : "inherit", env });
-    if (logStream) {
-      child.stdout?.pipe(logStream, { end: false });
-      child.stderr?.pipe(logStream, { end: false });
-    }
-    child.on("error", reject);
-    child.on("exit", (code) => {
-      if (code === 0) {
-        resolve();
-      } else {
-        reject(new Error(`${cmd} ${args.join(" ")} exited with code ${code}`));
-      }
+// Runs `fn` at most once at a time and remembers its success: concurrent
+// callers share the one in-flight attempt (made with the first caller's
+// arguments), later callers get the settled result, and a failure is
+// forgotten so the next caller retries.
+export function onceUntilFailure<A extends unknown[], T>(fn: (...args: A) => Promise<T>): (...args: A) => Promise<T> {
+  let pending: Promise<T> | undefined;
+  return (...args) => {
+    pending ??= fn(...args).catch((err) => {
+      pending = undefined;
+      throw err;
     });
-  });
-}
-
-function runCapture(
-  cmd: string,
-  args: string[],
-  opts: { cwd?: string; env?: NodeJS.ProcessEnv; logStream?: NodeJS.WritableStream } = {},
-): Promise<{ stdout: string }> {
-  return new Promise((resolve, reject) => {
-    const child = spawn(cmd, args, {
-      stdio: ["ignore", "pipe", opts.logStream ? "pipe" : "inherit"],
-      cwd: opts.cwd,
-      env: opts.env ?? process.env,
-    });
-    let stdout = "";
-    child.stdout!.on("data", (chunk) => {
-      stdout += chunk;
-      opts.logStream?.write(chunk);
-    });
-    if (opts.logStream) {
-      child.stderr?.pipe(opts.logStream, { end: false });
-    }
-    child.on("error", reject);
-    child.on("exit", (code) => {
-      if (code === 0) {
-        resolve({ stdout: stdout.trim() });
-      } else {
-        reject(new Error(`${cmd} ${args.join(" ")} exited with code ${code}`));
-      }
-    });
-  });
+    return pending;
+  };
 }
 
 // `docker buildx create --driver remote` talks straight to the remote
-// BuildKit daemon over TCP - no local dockerd is needed. `--use` makes it
-// the active builder so plain `docker build` (which the devcontainer CLI
-// shells out to) is transparently routed through it. `env` lets a caller
-// point this at a scratch DOCKER_CONFIG (see withRegistryAuthEnv) while
-// still finding the builder state copied into that scratch dir.
-async function ensureRemoteBuilder(env: NodeJS.ProcessEnv = process.env, logStream?: NodeJS.WritableStream): Promise<void> {
-  if (!serviceConfig.buildkitEndpoint) {
+// BuildKit daemon over TCP - no local dockerd is needed. Created once per
+// process in the ambient DOCKER_CONFIG and serialized - two concurrent
+// first builds used to both run `buildx create`, and one of them failed.
+// Builds select it per child process via BUILDX_BUILDER (see builderEnv)
+// instead of `buildx use`, which rewrote shared state on every request.
+// withRegistryAuthEnv's scratch DOCKER_CONFIG copies the ambient one, so
+// it finds the builder there too. Setup output lands in the log of the
+// build that triggered it.
+const ensureRemoteBuilder = onceUntilFailure(async (logStream: NodeJS.WritableStream, signal: AbortSignal) => {
+  const endpoint = serviceConfig.buildkitEndpoint;
+  if (!endpoint) {
     throw new Error("BUILDKIT_ENDPOINT is not configured");
   }
-
   try {
-    await run("docker", ["buildx", "inspect", serviceConfig.buildxBuilderName], env, logStream);
+    await run("docker", ["buildx", "inspect", serviceConfig.buildxBuilderName], { logStream, signal });
   } catch {
-    await run(
-      "docker",
-      ["buildx", "create", "--name", serviceConfig.buildxBuilderName, "--driver", "remote", serviceConfig.buildkitEndpoint],
-      env,
+    await run("docker", ["buildx", "create", "--name", serviceConfig.buildxBuilderName, "--driver", "remote", endpoint], {
       logStream,
-    );
+      signal,
+    });
   }
+});
 
-  await run("docker", ["buildx", "use", serviceConfig.buildxBuilderName], env, logStream);
+function builderEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  return { ...env, BUILDX_BUILDER: serviceConfig.buildxBuilderName };
+}
+
+// The environment every git child process starts from: never prompt (a
+// backend service has nobody to answer), and only the protocols a
+// repository URL may use (GIT_ALLOW_PROTOCOL) - git then refuses others
+// even when a redirect or remote config points elsewhere.
+function gitBaseEnv(): NodeJS.ProcessEnv {
+  return {
+    ...process.env,
+    GIT_TERMINAL_PROMPT: "0",
+    GIT_ALLOW_PROTOCOL: gitAllowProtocol(serviceConfig.allowInsecureGitProtocols),
+  };
 }
 
 // Git credentials go into a scratch `.netrc` (never argv or the remote URL)
@@ -175,6 +151,7 @@ async function withNetrcEnv<T>(
   hostname: string,
   username: string,
   password: string,
+  baseEnv: NodeJS.ProcessEnv,
   fn: (env: NodeJS.ProcessEnv) => Promise<T>,
 ): Promise<T> {
   const scratchHome = await mkdtemp(join(tmpdir(), "git-creds-"));
@@ -183,7 +160,7 @@ async function withNetrcEnv<T>(
   await chmod(netrcPath, 0o600);
 
   try {
-    return await fn({ ...process.env, HOME: scratchHome, GIT_TERMINAL_PROMPT: "0" });
+    return await fn({ ...baseEnv, HOME: scratchHome });
   } finally {
     await rm(scratchHome, { recursive: true, force: true });
   }
@@ -198,6 +175,8 @@ async function withSshKeyEnv<T>(
   host: string,
   entry: Extract<GitCredentialEntry, { kind: "ssh" }>,
   hostKeyPolicy: SshHostKeyPolicy,
+  baseEnv: NodeJS.ProcessEnv,
+  signal: AbortSignal,
   fn: (env: NodeJS.ProcessEnv) => Promise<T>,
 ): Promise<T> {
   if (hostKeyPolicy === "pinned" && !entry.pinnedHostKey) {
@@ -215,14 +194,14 @@ async function withSshKeyEnv<T>(
     if (hostKeyPolicy === "pinned") {
       await writeFile(knownHostsPath, `${entry.pinnedHostKey!.trim()}\n`);
     } else {
-      const scan = await runCapture("ssh-keyscan", ["-H", host]);
+      const scan = await runCapture("ssh-keyscan", ["-H", "--", host], { signal });
       await writeFile(knownHostsPath, `${scan.stdout}\n`);
     }
     await chmod(knownHostsPath, 0o600);
 
     const gitSshCommand = `ssh -i ${keyPath} -o UserKnownHostsFile=${knownHostsPath} -o StrictHostKeyChecking=yes -o IdentitiesOnly=yes -o BatchMode=yes`;
 
-    return await fn({ ...process.env, GIT_SSH_COMMAND: gitSshCommand, GIT_TERMINAL_PROMPT: "0" });
+    return await fn({ ...baseEnv, GIT_SSH_COMMAND: gitSshCommand });
   } finally {
     await rm(scratchDir, { recursive: true, force: true });
   }
@@ -230,9 +209,9 @@ async function withSshKeyEnv<T>(
 
 // Per-request registry push credentials get a scratch DOCKER_CONFIG, seeded
 // from the ambient one (config.json *and* buildx/ builder state) before
-// merging in the override entry - seeding from ambient means
-// ensureRemoteBuilder still finds the already-created "remote" builder
-// under the scratch dir instead of recreating it on every such request.
+// merging in the override entry - seeding from ambient means BUILDX_BUILDER
+// still names a builder that exists under the scratch dir (ensureRemoteBuilder
+// creates it in the ambient one before this copy is made).
 async function withRegistryAuthEnv<T>(
   creds: RegistryCredentials,
   fn: (env: NodeJS.ProcessEnv) => Promise<T>,
@@ -264,31 +243,6 @@ async function withRegistryAuthEnv<T>(
   } finally {
     await rm(scratchDir, { recursive: true, force: true });
   }
-}
-
-interface ParsedGitUrl {
-  host: string;
-  path: string;
-}
-
-const SCHEME_RE = /^[a-z][a-z0-9+.-]*:\/\//i;
-const SCP_RE = /^(?:[^@/]+@)?([^:/]+):(?!\/\/)(.+)$/;
-
-// Accepts `https://host/path`, `ssh://[user@]host[:port]/path`, and git's
-// own SCP-style shorthand `[user@]host:path` - the third form is not a
-// valid `URL` and previously crashed `new URL(repository)` unconditionally.
-function parseGitUrl(repository: string): ParsedGitUrl {
-  if (SCHEME_RE.test(repository)) {
-    const url = new URL(repository);
-    return { host: url.hostname, path: url.pathname.replace(/^\//, "") };
-  }
-
-  const match = SCP_RE.exec(repository);
-  if (match) {
-    return { host: match[1], path: match[2] };
-  }
-
-  throw new BuildRequestError(`unable to parse git repository URL: ${repository}`);
 }
 
 type GitCredentialKind = "https" | "ssh" | "none";
@@ -334,64 +288,92 @@ function resolveRegistry(parsed: ParsedGitUrl, rules: RegistryMappingRule[]): st
   return undefined;
 }
 
-function deriveImageName(path: string): string {
-  const segments = path.replace(/\.git$/, "").split("/").filter(Boolean);
-  return segments[segments.length - 1] ?? path;
+// No --branch when none was asked for: git then checks out the remote's
+// own default branch (its HEAD), whatever that's called. `--` keeps a URL
+// starting with "-" from being read as an option.
+export function gitCloneArgs(branch: string | null | undefined, cloneUrl: string, dir: string): string[] {
+  const branchArgs = branch ? ["--branch", branch] : [];
+  return ["clone", ...branchArgs, "--single-branch", "--depth", "1", "--", cloneUrl, dir];
+}
+
+// The branch a clone made by gitCloneArgs checked out: the one asked for
+// (which may also be a tag, leaving HEAD detached), else the remote's
+// default branch, which is then the clone's current branch.
+export async function clonedBranch(
+  requested: string | null | undefined,
+  repoDir: string,
+  opts: { logStream?: NodeJS.WritableStream; signal?: AbortSignal } = {},
+): Promise<string> {
+  if (requested) return requested;
+  return (await runCapture("git", ["symbolic-ref", "--short", "HEAD"], { cwd: repoDir, ...opts })).stdout;
+}
+
+// Everything about a request that can be rejected without touching the
+// network or disk - checked before any clone starts, so a bad request is
+// a 400 rather than a failure halfway through.
+function checkBuildRequest(req: BuildRequest): ParsedGitUrl {
+  const parsed = checkRepositoryUrl(req.repository, serviceConfig.allowInsecureGitProtocols);
+  if (req.buildOptions?.cacheFrom) checkCacheOption("buildOptions.cacheFrom", req.buildOptions.cacheFrom);
+  if (req.buildOptions?.cacheTo) checkCacheOption("buildOptions.cacheTo", req.buildOptions.cacheTo);
+  return parsed;
 }
 
 export async function buildDevcontainer(req: BuildRequest): Promise<BuildResponse> {
-  const branch = req.branch ?? "main";
-  const parsed = parseGitUrl(req.repository);
+  const parsed = checkBuildRequest(req);
+  const name = req.image?.name ?? deriveImageName(parsed.path);
   const gitCredential = resolveGitCredential(parsed.host, req);
   const cloneUrl = toCloneUrl(req.repository, parsed, gitCredential.kind);
+  // Redacted although checkBuildRequest already refuses URLs with
+  // credentials in them - defense in depth for every log/span/error below.
+  const repositoryForLogs = redactUrlCredentials(req.repository);
 
   const workDir = await mkdtemp(join(tmpdir(), "devcontainer-build-"));
   const repoDir = join(workDir, "repo");
 
   try {
-    const cloneArgs = ["clone", "--branch", branch, "--single-branch", "--depth", "1", cloneUrl, repoDir];
+    const cloneArgs = gitCloneArgs(req.branch, cloneUrl, repoDir);
+    const cloneSpanAttributes: Record<string, string> = { "git.repository.url": repositoryForLogs };
+    if (req.branch) cloneSpanAttributes["git.branch"] = req.branch;
 
-    const { result: headSha, logId: gitCloneLogId } = await withSpan(
-      "git.clone",
-      { "git.repository.url": req.repository, "git.branch": branch },
-      () =>
-        withCommandLog("git", "git.clone.output_captured", async (logStream) => {
-          if (gitCredential.kind === "https") {
-            await withNetrcEnv(parsed.host, gitCredential.username, gitCredential.token, (env) =>
-              run("git", cloneArgs, env, logStream),
-            );
-          } else if (gitCredential.kind === "ssh") {
-            await withSshKeyEnv(parsed.host, gitCredential.entry, serviceConfig.sshHostKeyPolicy, (env) =>
-              run("git", cloneArgs, env, logStream),
-            );
-          } else {
-            // GIT_TERMINAL_PROMPT=0 only suppresses git's own (HTTPS-style)
-            // credential prompts - it does nothing for the `ssh` subprocess git
-            // spawns underneath for an ssh://SCP-style URL with no credential
-            // configured. Without BatchMode=yes, an unrecognized host or a
-            // rejected identity lets ssh fall through to an interactive host-key
-            // confirmation or password prompt - invisible in automated testing
-            // (no TTY attached, so ssh just fails immediately instead), but a
-            // real hang risk for a backend service if one ever is attached.
-            await run(
-              "git",
-              cloneArgs,
-              { ...process.env, GIT_TERMINAL_PROMPT: "0", GIT_SSH_COMMAND: "ssh -o BatchMode=yes" },
-              logStream,
-            );
-          }
+    const cloneTimeout = phaseTimeout("git clone", serviceConfig.cloneTimeoutSeconds);
+    const {
+      result: { headSha, branch },
+      logId: gitCloneLogId,
+    } = await withSpan("git.clone", cloneSpanAttributes, () =>
+      withCommandLog("git", "git.clone.output_captured", async (logStream) => {
+        const { signal } = cloneTimeout;
+        if (gitCredential.kind === "https") {
+          await withNetrcEnv(parsed.host, gitCredential.username, gitCredential.token, gitBaseEnv(), (env) =>
+            run("git", cloneArgs, { env, logStream, signal }),
+          );
+        } else if (gitCredential.kind === "ssh") {
+          await withSshKeyEnv(parsed.host, gitCredential.entry, serviceConfig.sshHostKeyPolicy, gitBaseEnv(), signal, (env) =>
+            run("git", cloneArgs, { env, logStream, signal }),
+          );
+        } else {
+          // GIT_TERMINAL_PROMPT=0 only suppresses git's own (HTTPS-style)
+          // credential prompts - it does nothing for the `ssh` subprocess git
+          // spawns underneath for an ssh://SCP-style URL with no credential
+          // configured. Without BatchMode=yes, an unrecognized host or a
+          // rejected identity lets ssh fall through to an interactive host-key
+          // confirmation or password prompt - invisible in automated testing
+          // (no TTY attached, so ssh just fails immediately instead), but a
+          // real hang risk for a backend service if one ever is attached.
+          await run("git", cloneArgs, { env: { ...gitBaseEnv(), GIT_SSH_COMMAND: "ssh -o BatchMode=yes" }, logStream, signal });
+        }
 
-          const { stdout } = await runCapture("git", ["rev-parse", "HEAD"], { cwd: repoDir, logStream });
-          return stdout;
-        }),
-    );
+        const { stdout: sha } = await runCapture("git", ["rev-parse", "HEAD"], { cwd: repoDir, logStream, signal });
+        // The branch actually cloned: the one asked for, else the remote's
+        // default branch, which a --branch-less clone checks out.
+        return { headSha: sha, branch: await clonedBranch(req.branch, repoDir, { logStream, signal }) };
+      }),
+    ).finally(cloneTimeout.dispose);
 
-    const name = req.image?.name ?? deriveImageName(parsed.path);
     const tag = req.image?.tag ?? `sha-${headSha.slice(0, 7)}`;
     const registry = req.image?.registry ?? resolveRegistry(parsed, serviceConfig.registryMappingRules);
     if (!registry) {
       throw new BuildRequestError(
-        `no registry resolved for repository ${req.repository}: provide image.registry or configure a matching registry mapping rule`,
+        `no registry resolved for repository ${repositoryForLogs}: provide image.registry or configure a matching registry mapping rule`,
       );
     }
     const image = `${registry}/${name}:${tag}`;
@@ -422,7 +404,7 @@ export async function buildDevcontainer(req: BuildRequest): Promise<BuildRespons
       configText = fallbackConfig(serviceConfig.fallbackImage);
       await mkdir(join(repoDir, ".devcontainer"), { recursive: true });
       await writeFile(join(repoDir, ".devcontainer", "devcontainer.json"), configText);
-      logger.info({ event: "build.config.fallback", "git.repository.url": req.repository, "container.image.name": serviceConfig.fallbackImage });
+      logger.info({ event: "build.config.fallback", "git.repository.url": repositoryForLogs, "container.image.name": serviceConfig.fallbackImage });
     }
     const configLabel = configText !== undefined ? configLabelValue(configText) : undefined;
 
@@ -432,7 +414,7 @@ export async function buildDevcontainer(req: BuildRequest): Promise<BuildRespons
     // back to this service. Recorded in the config label so a pod can run
     // as that user from the start (ADR-0012). Best effort: an image without
     // a shell, or a user missing from /etc/passwd, just gets no account.
-    const probeRemoteUserAccount = async (env: NodeJS.ProcessEnv, logStream: NodeJS.WritableStream) => {
+    const probeRemoteUserAccount = async (env: NodeJS.ProcessEnv, logStream: NodeJS.WritableStream, signal: AbortSignal) => {
       try {
         const platform = platforms[0] ?? "linux/amd64";
         const auth = req.registryCredentials ? { username: req.registryCredentials.username, password: req.registryCredentials.password } : undefined;
@@ -457,7 +439,7 @@ export async function buildDevcontainer(req: BuildRequest): Promise<BuildRespons
         );
         const probeArgs = ["buildx", "build", "--build-arg", `DEVCONTAINER_USER=${user}`, "--platform", platform];
         probeArgs.push("--output", `type=local,dest=${outDir}`, probeDir);
-        await run("docker", probeArgs, env, logStream);
+        await run("docker", probeArgs, { env, logStream, signal });
         const account = parsePasswdEntry(await readFile(join(outDir, "devcontainer-user"), "utf8"));
         return account ? { remoteUserAccount: account } : {};
       } catch (err) {
@@ -466,40 +448,46 @@ export async function buildDevcontainer(req: BuildRequest): Promise<BuildRespons
       }
     };
 
-    const runBuild = async (env: NodeJS.ProcessEnv, logStream: NodeJS.WritableStream) => {
-      await ensureRemoteBuilder(env, logStream);
+    const runBuild = async (baseEnv: NodeJS.ProcessEnv, logStream: NodeJS.WritableStream, signal: AbortSignal) => {
+      const env = builderEnv(baseEnv);
       const args = ["build", "--workspace-folder", repoDir, "--image-name", image, "--push"];
       if (platforms.length > 0) args.push("--platform", platforms.join(","));
       if (noCache) args.push("--no-cache");
       if (cacheFrom) args.push("--cache-from", cacheFrom);
       if (cacheTo) args.push("--cache-to", cacheTo);
       if (mode) args.push("--buildkit", mode);
-      await run("devcontainer", args, env, logStream);
+      await run("devcontainer", args, { env, logStream, signal });
 
       if (configLabel !== undefined) {
-        const label = { ...JSON.parse(configLabel), ...(await probeRemoteUserAccount(env, logStream)) };
+        const label = { ...JSON.parse(configLabel), ...(await probeRemoteUserAccount(env, logStream, signal)) };
         const labelDir = join(workDir, "config-label");
         await mkdir(labelDir, { recursive: true });
         await writeFile(join(labelDir, "Dockerfile"), `FROM ${image}\n`);
         const labelArgs = ["buildx", "build", "--push", "--label", `${CONFIG_LABEL}=${JSON.stringify(label)}`, "-t", image];
         if (platforms.length > 0) labelArgs.push("--platform", platforms.join(","));
         labelArgs.push(labelDir);
-        await run("docker", labelArgs, env, logStream);
+        await run("docker", labelArgs, { env, logStream, signal });
       }
     };
 
+    const buildTimeout = phaseTimeout("image build and push", serviceConfig.buildTimeoutSeconds);
     const { logId: imageBuildLogId } = await withSpan(
       "image.build_push",
       { "image.registry": registry, "image.name": name, "image.tag": tag },
       () =>
-        withCommandLog("docker", "image.build_push.output_captured", (logStream) =>
-          req.registryCredentials
-            ? withRegistryAuthEnv(req.registryCredentials, (env) => runBuild(env, logStream))
-            : runBuild(process.env, logStream),
-        ),
-    );
+        withCommandLog("docker", "image.build_push.output_captured", async (logStream) => {
+          const { signal } = buildTimeout;
+          // Before withRegistryAuthEnv copies the ambient DOCKER_CONFIG, so
+          // the copy already has the builder in it.
+          await ensureRemoteBuilder(logStream, signal);
+          logStream.write(`using remote buildx builder ${serviceConfig.buildxBuilderName}\n`);
+          await (req.registryCredentials
+            ? withRegistryAuthEnv(req.registryCredentials, (env) => runBuild(env, logStream, signal))
+            : runBuild(process.env, logStream, signal));
+        }),
+    ).finally(buildTimeout.dispose);
 
-    return { image, registry, name, tag, commit: headSha.trim(), gitCloneLogId, imageBuildLogId };
+    return { image, registry, name, tag, branch, commit: headSha.trim(), gitCloneLogId, imageBuildLogId };
   } finally {
     await rm(workDir, { recursive: true, force: true });
   }

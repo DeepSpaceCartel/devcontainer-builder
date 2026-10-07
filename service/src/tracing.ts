@@ -20,6 +20,25 @@ const packageVersion: string = require("../package.json").version;
 
 const endpoint = process.env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT ?? process.env.OTEL_EXPORTER_OTLP_ENDPOINT;
 
+// service.name for traces: OTEL_SERVICE_NAME (the standard OTel variable)
+// wins, else the SERVICE_NAME logger.ts's log lines use (the chart always
+// sets it), so traces and logs agree on the name by default. Read from the
+// environment directly for the same reason as DEPLOYMENT_ENVIRONMENT below;
+// a --service-name flag or settings-file observability.serviceName is
+// therefore not seen here - set OTEL_SERVICE_NAME alongside it.
+export function tracingServiceName(env: NodeJS.ProcessEnv = process.env): string {
+  return env.OTEL_SERVICE_NAME || env.SERVICE_NAME || "devcontainer-builder";
+}
+
+let sdk: NodeSDK | undefined;
+
+// Flushes and stops the OTel SDK (a no-op when tracing is off) - index.ts
+// awaits this on SIGTERM before exiting, so the last spans are exported
+// rather than dropped with the process.
+export async function shutdownTracing(): Promise<void> {
+  await sdk?.shutdown();
+}
+
 if (endpoint) {
   // This project is "type": "module" - auto-instrumentation's own
   // require() hook alone (installed by `instrumentations` below) only
@@ -37,9 +56,9 @@ if (endpoint) {
   // in index.ts.
   register("@opentelemetry/instrumentation/hook.mjs", import.meta.url);
 
-  const sdk = new NodeSDK({
+  sdk = new NodeSDK({
     resource: resourceFromAttributes({
-      [ATTR_SERVICE_NAME]: process.env.OTEL_SERVICE_NAME ?? "devcontainer-builder",
+      [ATTR_SERVICE_NAME]: tracingServiceName(),
       [ATTR_SERVICE_VERSION]: packageVersion,
       // Read directly from the env var, not config.ts's ServiceConfig -
       // this module runs (and must finish starting instrumentation)
@@ -70,8 +89,4 @@ if (endpoint) {
   });
 
   sdk.start();
-
-  process.on("SIGTERM", () => {
-    void sdk.shutdown();
-  });
 }

@@ -194,6 +194,8 @@ Feature: Git source resolution - URL parsing, credential precedence, and protoco
       | --set              | image.tag=test                                                     |
       | --set              | image.pullPolicy=Always                                            |
       | --set              | buildkit.endpoint=<BuildkitEndpoint>                               |
+      | --set              | extraEnv[0].name=ALLOW_INSECURE_GIT_PROTOCOLS                      |
+      | --set-string       | extraEnv[0].value=true                                             |
       | --set              | gitCredentials.enabled=false                                       |
       | --wait             | True                                                               |
       | --timeout          | 120s                                                               |
@@ -245,6 +247,8 @@ Feature: Git source resolution - URL parsing, credential precedence, and protoco
       | --set              | image.tag=test                                                     |
       | --set              | image.pullPolicy=Always                                            |
       | --set              | buildkit.endpoint=<BuildkitEndpoint>                               |
+      | --set              | extraEnv[0].name=ALLOW_INSECURE_GIT_PROTOCOLS                      |
+      | --set-string       | extraEnv[0].value=true                                             |
       | --set              | gitCredentials.enabled=false                                       |
       | --wait             | True                                                               |
       | --timeout          | 120s                                                               |
@@ -297,6 +301,8 @@ Feature: Git source resolution - URL parsing, credential precedence, and protoco
       | --set              | image.tag=test                                                     |
       | --set              | image.pullPolicy=Always                                            |
       | --set              | buildkit.endpoint=<BuildkitEndpoint>                               |
+      | --set              | extraEnv[1].name=ALLOW_INSECURE_GIT_PROTOCOLS                      |
+      | --set-string       | extraEnv[1].value=true                                             |
       | --set              | gitCredentials.enabled=false                                       |
       | --set              | extraEnv[0].name=GIT_SSL_CAINFO                                    |
       | --set              | extraEnv[0].value=/etc/git-tls/ca-cert.pem                         |
@@ -352,6 +358,8 @@ Feature: Git source resolution - URL parsing, credential precedence, and protoco
       | --set              | image.tag=test                                                     |
       | --set              | image.pullPolicy=Always                                            |
       | --set              | buildkit.endpoint=<BuildkitEndpoint>                               |
+      | --set              | extraEnv[1].name=ALLOW_INSECURE_GIT_PROTOCOLS                      |
+      | --set-string       | extraEnv[1].value=true                                             |
       | --set              | gitCredentials.entries[0].host=<GitHost>                           |
       | --set              | gitCredentials.entries[0].kind=https                               |
       | --set              | gitCredentials.entries[0].username=svc-bot                         |
@@ -408,6 +416,8 @@ Feature: Git source resolution - URL parsing, credential precedence, and protoco
       | --set              | image.tag=test                                                                    |
       | --set              | image.pullPolicy=Always                                                           |
       | --set              | buildkit.endpoint=<BuildkitEndpoint>                                              |
+      | --set              | extraEnv[0].name=ALLOW_INSECURE_GIT_PROTOCOLS                                     |
+      | --set-string       | extraEnv[0].value=true                                                            |
       | --set              | gitCredentials.entries[0].host=<GitHost>                                          |
       | --set              | gitCredentials.entries[0].kind=ssh                                               |
       | --set-file         | gitCredentials.entries[0].privateKey=.cache/fixtures/git-source-resolution-w<WorkerId>/git-ssh-authorized/id_ed25519 |
@@ -462,6 +472,8 @@ Feature: Git source resolution - URL parsing, credential precedence, and protoco
       | --set              | image.tag=test                                                                      |
       | --set              | image.pullPolicy=Always                                                             |
       | --set              | buildkit.endpoint=<BuildkitEndpoint>                                                |
+      | --set              | extraEnv[1].name=ALLOW_INSECURE_GIT_PROTOCOLS                                       |
+      | --set-string       | extraEnv[1].value=true                                                              |
       | --set              | gitCredentials.entries[0].host=<GitHost>                                            |
       | --set              | gitCredentials.entries[0].kind=ssh                                                 |
       | --set-file         | gitCredentials.entries[0].privateKey=.cache/fixtures/git-source-resolution-w<WorkerId>/git-ssh-unauthorized/id_ed25519 |
@@ -522,6 +534,8 @@ Feature: Git source resolution - URL parsing, credential precedence, and protoco
       | --set              | image.tag=test                                                     |
       | --set              | image.pullPolicy=Always                                            |
       | --set              | buildkit.endpoint=<BuildkitEndpoint>                               |
+      | --set              | extraEnv[1].name=ALLOW_INSECURE_GIT_PROTOCOLS                      |
+      | --set-string       | extraEnv[1].value=true                                             |
       | --set              | gitCredentials.entries[0].host=<GitHost>                           |
       | --set              | gitCredentials.entries[0].kind=https                               |
       | --set              | gitCredentials.entries[0].username=svc-bot                         |
@@ -594,6 +608,8 @@ Feature: Git source resolution - URL parsing, credential precedence, and protoco
       | --set              | image.tag=test                                                     |
       | --set              | image.pullPolicy=Always                                            |
       | --set              | buildkit.endpoint=<BuildkitEndpoint>                               |
+      | --set              | extraEnv[0].name=ALLOW_INSECURE_GIT_PROTOCOLS                      |
+      | --set-string       | extraEnv[0].value=true                                             |
       | --set              | gitCredentials.entries[0].host=example.com                        |
       | --set              | gitCredentials.entries[0].kind=https                               |
       | --set              | gitCredentials.entries[0].username=svc-bot                         |
@@ -639,6 +655,8 @@ Feature: Git source resolution - URL parsing, credential precedence, and protoco
       | --set              | image.tag=test                                                                    |
       | --set              | image.pullPolicy=Always                                                           |
       | --set              | buildkit.endpoint=<BuildkitEndpoint>                                              |
+      | --set              | extraEnv[0].name=ALLOW_INSECURE_GIT_PROTOCOLS                                     |
+      | --set-string       | extraEnv[0].value=true                                                            |
       | --set              | gitCredentials.entries[0].host=<GitHost>                                          |
       | --set              | gitCredentials.entries[0].kind=ssh                                               |
       | --set-file         | gitCredentials.entries[0].privateKey=.cache/fixtures/git-source-resolution-w<WorkerId>/git-ssh-unauthorized/id_ed25519 |
@@ -697,6 +715,8 @@ Feature: Git source resolution - URL parsing, credential precedence, and protoco
       | --set              | image.tag=test                                                                    |
       | --set              | image.pullPolicy=Always                                                           |
       | --set              | buildkit.endpoint=<BuildkitEndpoint>                                              |
+      | --set              | extraEnv[0].name=ALLOW_INSECURE_GIT_PROTOCOLS                                     |
+      | --set-string       | extraEnv[0].value=true                                                            |
       | --set              | gitCredentials.entries[0].host=<GitHost>                                          |
       | --set              | gitCredentials.entries[0].kind=ssh                                               |
       | --set-file         | gitCredentials.entries[0].privateKey=.cache/fixtures/git-source-resolution-w<WorkerId>/git-ssh-unauthorized/id_ed25519 |
@@ -750,6 +770,8 @@ Feature: Git source resolution - URL parsing, credential precedence, and protoco
       | --set              | image.tag=test                                                                    |
       | --set              | image.pullPolicy=Always                                                           |
       | --set              | buildkit.endpoint=<BuildkitEndpoint>                                              |
+      | --set              | extraEnv[0].name=ALLOW_INSECURE_GIT_PROTOCOLS                                     |
+      | --set-string       | extraEnv[0].value=true                                                            |
       | --set              | gitCredentials.entries[0].host=<GitHost>                                          |
       | --set              | gitCredentials.entries[0].kind=ssh                                               |
       | --set-file         | gitCredentials.entries[0].privateKey=.cache/fixtures/git-source-resolution-w<WorkerId>/git-ssh-unauthorized/id_ed25519 |
@@ -819,6 +841,8 @@ Feature: Git source resolution - URL parsing, credential precedence, and protoco
       | --set              | image.tag=test                                                                  |
       | --set              | image.pullPolicy=Always                                                         |
       | --set              | buildkit.endpoint=<BuildkitEndpoint>                                            |
+      | --set              | extraEnv[0].name=ALLOW_INSECURE_GIT_PROTOCOLS                                   |
+      | --set-string       | extraEnv[0].value=true                                                          |
       | --set              | gitCredentials.entries[0].host=<GitHost>                                        |
       | --set              | gitCredentials.entries[0].kind=ssh                                             |
       | --set-file         | gitCredentials.entries[0].privateKey=.cache/fixtures/git-source-resolution-w<WorkerId>/git-ssh-authorized/id_ed25519 |
@@ -873,6 +897,8 @@ Feature: Git source resolution - URL parsing, credential precedence, and protoco
       | --set              | image.tag=test                                                                |
       | --set              | image.pullPolicy=Always                                                       |
       | --set              | buildkit.endpoint=<BuildkitEndpoint>                                          |
+      | --set              | extraEnv[0].name=ALLOW_INSECURE_GIT_PROTOCOLS                                 |
+      | --set-string       | extraEnv[0].value=true                                                        |
       | --set              | gitCredentials.entries[0].host=<GitHost>                                      |
       | --set              | gitCredentials.entries[0].kind=ssh                                           |
       | --set-file         | gitCredentials.entries[0].privateKey=.cache/fixtures/git-source-resolution-w<WorkerId>/git-ssh-authorized/id_ed25519 |
@@ -932,6 +958,8 @@ Feature: Git source resolution - URL parsing, credential precedence, and protoco
       | --set              | image.tag=test                                                     |
       | --set              | image.pullPolicy=Always                                            |
       | --set              | buildkit.endpoint=<BuildkitEndpoint>                               |
+      | --set              | extraEnv[0].name=ALLOW_INSECURE_GIT_PROTOCOLS                      |
+      | --set-string       | extraEnv[0].value=true                                             |
       | --set              | gitCredentials.entries[0].host=<GitHost>                           |
       | --set              | gitCredentials.entries[0].kind=ssh                                |
       | --set              | gitCredentials.entries[0].privateKey=this is not a real private key at all |
@@ -987,6 +1015,8 @@ Feature: Git source resolution - URL parsing, credential precedence, and protoco
       | --set              | image.tag=test                                                     |
       | --set              | image.pullPolicy=Always                                            |
       | --set              | buildkit.endpoint=<BuildkitEndpoint>                               |
+      | --set              | extraEnv[0].name=ALLOW_INSECURE_GIT_PROTOCOLS                      |
+      | --set-string       | extraEnv[0].value=true                                             |
       | --set              | gitCredentials.enabled=false                                       |
       | --wait             | True                                                               |
       | --timeout          | 120s                                                               |

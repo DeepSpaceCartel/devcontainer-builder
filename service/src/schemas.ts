@@ -1,4 +1,5 @@
 import { Type, type Static } from "@sinclair/typebox";
+import { IMAGE_NAME_PATTERN, IMAGE_REGISTRY_PATTERN, IMAGE_TAG_PATTERN, PLATFORM_PATTERN } from "./image-ref.js";
 
 // TypeBox schemas for every route this service exposes - the single source
 // of truth for both real Fastify request validation and the OpenAPI
@@ -52,18 +53,20 @@ export const RegistryCredentialsSchema = Type.Object(
 export const ImageTargetSchema = Type.Object(
   {
     registry: Type.Optional(
-      Type.Union([Type.Null(), Type.String({ minLength: 1 })], {
-        description: "Non-empty if given. Wins over any server-side registry mapping rule.",
+      Type.Union([Type.Null(), Type.String({ minLength: 1, pattern: IMAGE_REGISTRY_PATTERN })], {
+        description:
+          "Wins over any server-side registry mapping rule. A registry host with optional port and namespace path (`ghcr.io/org`, `registry.local:5000`) - no `http://`/`https://` scheme.",
       }),
     ),
     name: Type.Optional(
-      Type.Union([Type.Null(), Type.String({ minLength: 1 })], {
-        description: "Non-empty if given. Defaults to the repository path's last segment, with a trailing .git stripped.",
+      Type.Union([Type.Null(), Type.String({ minLength: 1, pattern: IMAGE_NAME_PATTERN })], {
+        description:
+          "A valid OCI repository name (lower-case `[a-z0-9]` components joined by `.`, `_`, `__` or `-`, optionally `/`-separated). Defaults to the repository path's last segment, with a trailing .git stripped, lower-cased and with any other character replaced by `-`.",
       }),
     ),
     tag: Type.Optional(
-      Type.Union([Type.Null(), Type.String({ minLength: 1 })], {
-        description: 'Non-empty if given. Defaults to "sha-<short HEAD sha>".',
+      Type.Union([Type.Null(), Type.String({ minLength: 1, pattern: IMAGE_TAG_PATTERN })], {
+        description: 'A valid OCI tag (up to 128 of `[A-Za-z0-9_.-]`, not starting with `.` or `-`). Defaults to "sha-<short HEAD sha>".',
       }),
     ),
   },
@@ -75,12 +78,13 @@ export const BuildOptionsSchema = Type.Object(
     noCache: Type.Optional(Type.Boolean({ description: 'Overrides the chart\'s build.noCache - passed as "--no-cache" when true.' })),
     cacheFrom: Type.Optional(
       Type.Union([Type.Null(), Type.String({ minLength: 1 })], {
-        description: "Non-empty if given. Overrides the chart's build.cacheFrom.",
+        description:
+          "Overrides the chart's build.cacheFrom. A plain image reference, or buildx `key=value` pairs whose `type` is `registry`, `gha` or `inline` - other cache types (`local`, `s3`, ...) are rejected with 400.",
       }),
     ),
     cacheTo: Type.Optional(
       Type.Union([Type.Null(), Type.String({ minLength: 1 })], {
-        description: "Non-empty if given. Overrides the chart's build.cacheTo.",
+        description: "Overrides the chart's build.cacheTo. Same rules as `cacheFrom`.",
       }),
     ),
     mode: Type.Optional(
@@ -94,16 +98,19 @@ export const BuildRequestSchema = Type.Object(
   {
     repository: Type.String({
       minLength: 1,
-      description: "Non-empty. `https://`, `ssh://`, or git's own SCP-style `[user@]host:path` shorthand.",
+      description:
+        "`https://`, `ssh://`, or git's own SCP-style `[user@]host:path` shorthand. Any other scheme is rejected with 400 (`git://` and `http://` only when the server enables `allowInsecureGitProtocols`), and so are credentials in the URL (`https://user:token@...`) - use `gitCredentials`.",
     }),
     branch: Type.Optional(
-      Type.Union([Type.Null(), Type.String({ minLength: 1 })], { description: 'Defaults to "main". Omitted or a non-empty string only.' }),
+      Type.Union([Type.Null(), Type.String({ minLength: 1 })], {
+        description: "Branch (or tag) to build. Omitted or null: the repository's default branch. Non-empty if given.",
+      }),
     ),
     image: Type.Optional(Type.Union([Type.Null(), ImageTargetSchema])),
     gitCredentials: Type.Optional(GitCredentialsSchema),
     registryCredentials: Type.Optional(RegistryCredentialsSchema),
     platforms: Type.Optional(
-      Type.Array(Type.String({ minLength: 1 }), {
+      Type.Array(Type.String({ minLength: 1, pattern: PLATFORM_PATTERN }), {
         description:
           'Overrides the chart\'s build.platforms for this request, e.g. ["linux/amd64", "linux/arm64"]. Omitted or empty means today\'s behavior (no --platform flag).',
       }),
@@ -144,6 +151,7 @@ export const BuildResponseSchema = Type.Object(
     registry: Type.String({ description: "Decomposed from `image` - kept separate since re-parsing it generically is ambiguous (registry ports, default-registry conventions, tag-vs-digest forms)." }),
     name: Type.String(),
     tag: Type.String(),
+    branch: Type.String({ description: "The branch built - the requested one, or the repository's default branch when none was given." }),
     commit: Type.String({ description: "Full SHA of the commit the image was built from - check this out to get the working copy that matches the image." }),
     gitCloneLogId: Type.Optional(Type.String({ description: "Fetch the full `git clone` output via `GET /logs/{id}`." })),
     imageBuildLogId: Type.Optional(
@@ -411,6 +419,20 @@ export const ErrorResponseSchema = Type.Object({
   ),
 });
 
+export const LogContentResponseSchema = Type.String({
+  description: "The captured output, as `text/plain; charset=utf-8`.",
+});
+
+export const NoContentResponseSchema = Type.Null({ description: "Deleted." });
+
+export const BusyResponseSchema = Type.Object(
+  { error: Type.String() },
+  {
+    description:
+      "The server is already running its maximum number of concurrent builds (`build.maxConcurrent`). Retry after the `Retry-After` header's number of seconds.",
+  },
+);
+
 // Matches command-log.ts's own id format exactly (kind-uuid) - validated
 // here too (defense in depth, not a substitute) so a malformed id 400s
 // instead of silently falling through to command-log.ts's own check and a
@@ -476,6 +498,10 @@ export const ConfigResponseSchema = Type.Object(
     insecureRegistries: Type.Array(Type.String(), {
       description: "Registry hosts this service's own registry calls (`/image`, `/devcontainer`) reach over plain HTTP instead of HTTPS.",
     }),
+    allowInsecureGitProtocols: Type.Boolean({ description: "Whether `git://` and `http://` repository URLs are accepted." }),
+    cloneTimeoutSeconds: Type.Number(),
+    buildTimeoutSeconds: Type.Number(),
+    maxConcurrentBuilds: Type.Number({ description: "0 means no limit." }),
     registryAuth: Type.Array(ConfigRegistryAuthEntrySchema, {
       description:
         "Registries this instance has ambient push credentials for (from the mounted Docker config, e.g. the chart's registryAuth.registries) - hostnames only, never the credential material. Empty when relying entirely on per-request registryCredentials instead.",
@@ -494,6 +520,10 @@ export const ConfigResponseSchema = Type.Object(
         gitCredentials: [{ host: "github.com", kind: "https" }],
         registryMappingRules: [{ registry: "ghcr.io/deepspacecartel" }],
         insecureRegistries: [],
+        allowInsecureGitProtocols: false,
+        cloneTimeoutSeconds: 600,
+        buildTimeoutSeconds: 3600,
+        maxConcurrentBuilds: 4,
         registryAuth: [{ registry: "ghcr.io" }],
       },
     ],

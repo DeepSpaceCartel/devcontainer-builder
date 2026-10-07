@@ -133,6 +133,8 @@ Feature: devcontainer.json discovery after clone
       | --set              | image.tag=test                                                     |
       | --set              | image.pullPolicy=Always                                            |
       | --set              | buildkit.endpoint=<BuildkitEndpoint>                               |
+      | --set              | extraEnv[0].name=ALLOW_INSECURE_GIT_PROTOCOLS                      |
+      | --set-string       | extraEnv[0].value=true                                             |
       | --wait             | True                                                               |
       | --timeout          | 120s                                                               |
     Then the command exited with 0

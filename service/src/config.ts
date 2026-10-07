@@ -120,7 +120,18 @@ function loadSshHostKeyPolicy(raw: string | undefined): SshHostKeyPolicy {
 // meaning here and are simply ignored if present.
 interface RawSettingsFile {
   buildkit?: { endpoint?: string };
-  build?: { platforms?: string[]; noCache?: boolean; cacheFrom?: string; cacheTo?: string; mode?: string; fallbackImage?: string };
+  build?: {
+    platforms?: string[];
+    noCache?: boolean;
+    cacheFrom?: string;
+    cacheTo?: string;
+    mode?: string;
+    fallbackImage?: string;
+    cloneTimeoutSeconds?: number;
+    timeoutSeconds?: number;
+    maxConcurrent?: number;
+  };
+  git?: { allowInsecureProtocols?: boolean };
   service?: { port?: number };
   sshHostKeyPolicy?: string;
   insecureRegistries?: string[];
@@ -194,7 +205,25 @@ function loadSettingsFile(path: string | undefined): RawSettingsFile {
       }
       build.fallbackImage = parsed.build.fallbackImage;
     }
+    for (const key of ["cloneTimeoutSeconds", "timeoutSeconds", "maxConcurrent"] as const) {
+      if (parsed.build[key] !== undefined) {
+        if (typeof parsed.build[key] !== "number") {
+          throw new Error(`settings file field "build.${key}" must be a number`);
+        }
+        build[key] = parsed.build[key];
+      }
+    }
     settings.build = build;
+  }
+
+  if (parsed.git !== undefined) {
+    if (!isPlainObject(parsed.git)) throw new Error(`settings file field "git" must be an object`);
+    if (parsed.git.allowInsecureProtocols !== undefined) {
+      if (typeof parsed.git.allowInsecureProtocols !== "boolean") {
+        throw new Error(`settings file field "git.allowInsecureProtocols" must be a boolean`);
+      }
+      settings.git = { allowInsecureProtocols: parsed.git.allowInsecureProtocols };
+    }
   }
 
   if (parsed.service !== undefined) {
@@ -312,17 +341,31 @@ function loadCliOptions(argv: string[]) {
       "service-name": { type: "string" },
       environment: { type: "string" },
       "command-log-retention": { type: "string" },
+      "allow-insecure-git-protocols": { type: "boolean" },
+      "clone-timeout": { type: "string" },
+      "build-timeout": { type: "string" },
+      "max-concurrent-builds": { type: "string" },
     },
     strict: true,
   });
   return values;
 }
 
-function parseRetentionCount(name: string, raw: string | number | undefined): number | undefined {
+function parsePositiveInteger(name: string, raw: string | number | undefined): number | undefined {
   if (raw === undefined) return undefined;
   const value = typeof raw === "number" ? raw : Number(raw);
   if (!Number.isInteger(value) || value <= 0) {
     throw new Error(`${name} must be a positive integer, got ${JSON.stringify(raw)}`);
+  }
+  return value;
+}
+
+// Like parsePositiveInteger, but 0 is allowed (meaning "no limit").
+function parseNonNegativeInteger(name: string, raw: string | number | undefined): number | undefined {
+  if (raw === undefined) return undefined;
+  const value = typeof raw === "number" ? raw : Number(raw);
+  if (!Number.isInteger(value) || value < 0) {
+    throw new Error(`${name} must be a non-negative integer, got ${JSON.stringify(raw)}`);
   }
   return value;
 }
@@ -378,6 +421,16 @@ export interface ServiceConfig {
   // mounted Docker config (see loadRegistryAuthRegistries) - hostnames
   // only, never read for any other purpose than reporting via GET /config.
   registryAuthRegistries: string[];
+  // Accept git:// and http:// repository URLs (unauthenticated,
+  // unencrypted). Off by default - meant for test git servers.
+  allowInsecureGitProtocols: boolean;
+  // Per-phase wall-clock limits; the phase's child processes are killed
+  // when one is exceeded. cloneTimeoutSeconds covers the clone,
+  // buildTimeoutSeconds the whole build+push (builder setup included).
+  cloneTimeoutSeconds: number;
+  buildTimeoutSeconds: number;
+  // Builds running at once before POST /build answers 429. 0 = no limit.
+  maxConcurrentBuilds: number;
 }
 
 function parseCommaList(raw: string | undefined): string[] | undefined {
@@ -468,10 +521,27 @@ export function loadServiceConfig(argv: string[] = process.argv.slice(2)): Servi
     serviceName: cli["service-name"] ?? process.env.SERVICE_NAME ?? settings.observability?.serviceName ?? "devcontainer-builder",
     environment: cli.environment ?? process.env.DEPLOYMENT_ENVIRONMENT ?? settings.observability?.environment ?? "development",
     commandLogRetention:
-      parseRetentionCount("COMMAND_LOG_RETENTION", cli["command-log-retention"] ?? process.env.COMMAND_LOG_RETENTION) ??
-      parseRetentionCount("logs.retention", settings.logs?.retention) ??
+      parsePositiveInteger("COMMAND_LOG_RETENTION", cli["command-log-retention"] ?? process.env.COMMAND_LOG_RETENTION) ??
+      parsePositiveInteger("logs.retention", settings.logs?.retention) ??
       10,
     registryAuthRegistries: loadRegistryAuthRegistries(),
+    allowInsecureGitProtocols:
+      cli["allow-insecure-git-protocols"] ??
+      parseBooleanEnv("ALLOW_INSECURE_GIT_PROTOCOLS", process.env.ALLOW_INSECURE_GIT_PROTOCOLS) ??
+      settings.git?.allowInsecureProtocols ??
+      false,
+    cloneTimeoutSeconds:
+      parsePositiveInteger("CLONE_TIMEOUT_SECONDS", cli["clone-timeout"] ?? process.env.CLONE_TIMEOUT_SECONDS) ??
+      parsePositiveInteger("build.cloneTimeoutSeconds", settings.build?.cloneTimeoutSeconds) ??
+      600,
+    buildTimeoutSeconds:
+      parsePositiveInteger("BUILD_TIMEOUT_SECONDS", cli["build-timeout"] ?? process.env.BUILD_TIMEOUT_SECONDS) ??
+      parsePositiveInteger("build.timeoutSeconds", settings.build?.timeoutSeconds) ??
+      3600,
+    maxConcurrentBuilds:
+      parseNonNegativeInteger("MAX_CONCURRENT_BUILDS", cli["max-concurrent-builds"] ?? process.env.MAX_CONCURRENT_BUILDS) ??
+      parseNonNegativeInteger("build.maxConcurrent", settings.build?.maxConcurrent) ??
+      4,
   };
 }
 

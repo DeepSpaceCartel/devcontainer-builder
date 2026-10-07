@@ -25,7 +25,7 @@ process.on("unhandledRejection", (reason) => {
 // Must load (and, if OTEL_EXPORTER_OTLP_ENDPOINT is set, start
 // instrumenting) before server.js pulls in fastify/node:http - see
 // tracing.ts's own header comment for why.
-await import("./tracing.js");
+const { shutdownTracing } = await import("./tracing.js");
 
 const { buildApp } = await import("./server.js");
 const { serviceConfig } = await import("./config.js");
@@ -38,6 +38,12 @@ await app.listen({ port: serviceConfig.port, host: "0.0.0.0" });
 // silently ignored rather than terminating the process, so a pod would
 // otherwise sit through its full terminationGracePeriodSeconds (30s
 // default) on every rollout/scale-down before kubelet resorts to SIGKILL.
+// Stop accepting requests, then flush the tracing SDK - the exit waits for
+// both, so the spans of the last requests aren't dropped.
 process.on("SIGTERM", () => {
-  void app.close().finally(() => process.exit(0));
+  void app
+    .close()
+    .then(shutdownTracing)
+    .catch(logFatal)
+    .finally(() => process.exit(0));
 });
