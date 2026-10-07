@@ -112,6 +112,21 @@ TypeScript compiles; ask the user to verify or run it themselves.
 
 ## Conventions
 
+- **The Coder template has three copies:** `templates/coder-kubernetes/main.tf`
+  (the source), the Coder Registry's
+  `registry/deepspacecartel/templates/kubernetes-devcontainer/main.tf`
+  (DeepSpaceCartel/registry fork → coder/registry PR), and rts-terraform's
+  `environments/dev/kubernetes/coder-templates/templates/kubernetes-devcontainer/main.tf`
+  (no `git_credentials_*`, plus a service account and node placement).
+  A template change lands here first, then gets a PR to each copy.
+- **Docs follow Divio** (`mkdocs.yml` nav): *Getting started* (tutorials
+  for admins and developers), *Guides* (how-tos), *Reference* (the
+  devcontainer.json support matrix, template, extension, chart,
+  configuration, API, provider), *Build service* (explanation), *Project*
+  (including `project/versioning.md`, the 1.x stability promise; update it
+  when adding or deprecating a public surface). CI builds with
+  `mkdocs build --strict`.
+
 - The Terraform module (deprecated) keeps the Coder Registry's
   variable/output conventions until it's removed: variable block field order `description → type → default →
   validation → sensitive`; every `output` has a `description`; secrets

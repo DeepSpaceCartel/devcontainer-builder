@@ -83,4 +83,4 @@ per use case, not as a migration from one to the other:
   want its `Read`-based drift detection, or you're already comfortable
   managing providers directly (as
   [`templates/coder-kubernetes/`](https://github.com/DeepSpaceCartel/devcontainer-builder/tree/main/templates/coder-kubernetes)
-  does — see the [Coder Workspace Template guide](../guides/coder-workspace-template.md)).
+  does — see [Operating the template](../guides/coder-workspace-template.md)).

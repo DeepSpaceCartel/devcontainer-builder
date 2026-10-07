@@ -14,7 +14,7 @@ plan is kept as the record of the starting point; the current design lives in:
   the image's merged metadata, lifecycle scripts, VS Code customizations.
 - [ADR-0012](../../decisions/0012-dev-container-to-kubernetes-runtime-mapping.md): the
   runtime mapping, variables, the build's config label, the recorded remote-user uid.
-- The guide's support table: [devcontainer.json in a Kubernetes workspace](../../guides/coder-workspace-template.md#devcontainerjson-in-a-kubernetes-workspace).
+- The guide's support table: [devcontainer.json in a Kubernetes workspace](../../reference/devcontainer-json.md).
 
 | Feature | Outcome |
 |---|---|

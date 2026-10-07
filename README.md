@@ -2,39 +2,38 @@
 
 [![Open in Coder](https://coder.deepspacecartel.com/open-in-coder.svg)](https://coder.deepspacecartel.com/templates/coder/kubernetes-devcontainer-dsc/workspace?mode=manual&param.repository=https%3A%2F%2Fgithub.com%2FDeepSpaceCartel%2Fdevcontainer-builder.git&param.branch=main)
 
-Builds a container image from a git repository's `.devcontainer.json` using a
-remote [BuildKit](https://github.com/moby/buildkit) builder, and pushes it to
-a registry - so a [Coder](https://github.com/coder/coder) Workspace Template
-running on Kubernetes can boot a workspace straight from a repo URL. No
-rolling your own CI/CD pipeline to build and track every project's own image
-variant - point devcontainer-builder at the repo and it handles the rest.
+**Dev Containers for Coder on Kubernetes: self-hosted Codespaces.** Pick a
+git repository and get a [Coder](https://coder.com) workspace built from its
+own `devcontainer.json` (image, Features, Dockerfile, lifecycle commands,
+env, ports, VS Code extensions), on your own cluster. Push a change to the
+Dev Container configuration and the workspace offers to rebuild. A repository
+without one gets a generic image and a prompt to add it.
 
-Full docs: <https://deepspacecartel.github.io/devcontainer-builder/>
+Docs: <https://deepspacecartel.github.io/devcontainer-builder/>
 
-## Why
-
-Coder Workspace Templates on Kubernetes need a container image at
-pod-scheduling time. Templates are applied by coderd's own isolated Terraform
-provisioner, which can't install tools once and reuse that across workspace
-provisions - so building the devcontainer image has to happen in a separate,
-long-running service, called from the template the same way it already calls
-out to Kubernetes to provision a PersistentVolumeClaim before the pod.
+- **Platform admins:** [Set up the platform](https://deepspacecartel.github.io/devcontainer-builder/getting-started/platform/). One Helm chart, one
+  template push.
+- **Developers:** [Your first workspace](https://deepspacecartel.github.io/devcontainer-builder/getting-started/first-workspace/). Install
+  [Dev Containers for Coder in K8S](https://marketplace.visualstudio.com/items?itemName=deepspacecartel.devcontainer-builder)
+  and run **Coder: Clone Repository in Workspace…**.
 
 ## Layout
 
-- [`service/`](service) - the HTTP service: clones the repo, configures
-  `docker buildx` against a remote BuildKit endpoint, runs `devcontainer
-  build --push`, and returns the resulting image reference.
-- [`charts/devcontainer-builder/`](charts/devcontainer-builder) - a Helm
-  chart that deploys the service into a Kubernetes cluster.
-- [`terraform/devcontainer-build/`](terraform/devcontainer-build) -
-  **deprecated** (removed in 2.0; use the Terraform provider directly), a
-  Terraform module that calls an already-running instance of the service and
-  exposes the built image as an output, for use from a Workspace Template.
-- [`templates/coder-kubernetes/`](templates/coder-kubernetes) - a real Coder
-  Workspace Template that builds from a git URL a user types in when
-  creating a workspace. See the
-  [Coder Workspace Template guide](https://github.com/DeepSpaceCartel/devcontainer-builder/blob/main/docs/guides/coder-workspace-template.md).
+- [`service/`](service) - devcontainer-builder, the build service: clones a repository, builds its
+  Dev Container image with the Dev Containers CLI on a remote BuildKit, pushes it, and reads a
+  built image's merged configuration back.
+- [`charts/devcontainer-builder/`](charts/devcontainer-builder) - the Helm chart for the service
+  (optionally with BuildKit).
+- [`templates/coder-kubernetes/`](templates/coder-kubernetes) - the Coder template: a repository
+  and branch in, a workspace pod built from its `devcontainer.json` out.
+- [`vscode-extension/`](vscode-extension) - *Dev Containers for Coder in K8S*: clone into a
+  workspace, rebuild prompt, add a configuration.
+- [`terraform/devcontainer-build/`](terraform/devcontainer-build) - **deprecated** (removed in
+  2.0); use the [Terraform provider](https://github.com/DeepSpaceCartel/terraform-provider-devcontainer-builder)
+  directly.
+
+The Terraform provider (`deepspacecartel/devcontainer-builder`) lives in
+[its own repository](https://github.com/DeepSpaceCartel/terraform-provider-devcontainer-builder).
 
 ## Documentation
 

@@ -63,7 +63,7 @@
         "devcontainerBuilder.coderUrl": {
           "type": "string",
           "default": "",
-          "description": "Coder deployment for Clone Repository in Coder Workspace. Empty: the one you're logged in to with the Coder CLI, else asked once."
+          "description": "Coder deployment for Coder: Clone Repository in Workspace. Empty: the one you're logged in to with the Coder CLI, else asked once."
         },
         "devcontainerBuilder.template": {
           "type": "string",
