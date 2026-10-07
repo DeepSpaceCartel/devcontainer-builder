@@ -92,14 +92,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   use the module now show a deprecation warning.
 - The template's uid/gid 1000 fallback for images built before 0.3.0. It's kept through 1.x so an
   upgraded workspace always starts, and removed in 2.0.
-- The Terraform module `terraform/devcontainer-build`. It's removed in 2.0. Use the
-  `deepspacecartel/devcontainer-builder` provider's `devcontainerbuilder_build` resource directly:
-  the module only wraps it, and the provider is the Terraform surface 1.x keeps stable. Plans that
-  use the module now show a deprecation warning.
-- The Terraform module `terraform/devcontainer-build`. It's removed in 2.0. Use the
-  `deepspacecartel/devcontainer-builder` provider's `devcontainerbuilder_build` resource directly:
-  the module only wraps it, and the provider is the Terraform surface 1.x keeps stable. Plans that
-  use the module now show a deprecation warning.
 
 ### Fixed
 
@@ -140,12 +132,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - **Docs: the Helm chart reference's `image.tag` default** is `""` (the chart's `appVersion`), not
   `"0.1.0"`; it now also lists `build.fallbackImage`, `buildkitBundled.*` and every new value. The
   `extraArgs` comment in `values.yaml` names the real entrypoint, `dist/index.js`.
-- **Template: VS Code in the browser and the forwarded-port apps on deployments without a wildcard
-  access URL.** They were always subdomain apps, which Coder can't serve without
-  `CODER_WILDCARD_ACCESS_URL`. The new template variable `subdomain_apps` (default `true`) serves
-  them on paths of the main Coder URL when set to `false`.
-- **Template: workspace parameters in a sensible order.** Git repository and Branch come first,
-  then CPU, Memory, Disk size, Dev Container variables and Rebuild, instead of alphabetical.
 
 ### Security
 
