@@ -94,7 +94,12 @@ test("past maxConcurrentBuilds, POST /build is a 429 with Retry-After", async ()
     for (const socket of sockets) socket.destroy();
     const firstRes = await first;
     assert.equal(firstRes.status, 500);
-    assert.match(firstRes.body.error!, /^git clone --single-branch --depth 1 -- git:\/\/127\.0\.0\.1:\d+\/org\/repo\.git .* exited with code \d+$/);
+    // Usually "exited with code 128"; under load git can still be writing
+    // its request when the socket is destroyed and die of SIGPIPE instead.
+    assert.match(
+      firstRes.body.error!,
+      /^git clone --single-branch --depth 1 -- git:\/\/127\.0\.0\.1:\d+\/org\/repo\.git .* (exited with code \d+|was killed by SIG[A-Z]+)$/,
+    );
   } finally {
     serviceConfig.maxConcurrentBuilds = saved.max;
     serviceConfig.allowInsecureGitProtocols = saved.insecure;
