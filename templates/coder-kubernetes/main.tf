@@ -372,9 +372,11 @@ resource "coder_script" "devcontainer_lifecycle" {
     dir="$HOME/.cache/devcontainer-lifecycle"
     mkdir -p "$dir"
 
-    # git_clone runs alongside this script; the hooks need the working copy.
+    # git_clone runs alongside this script; the hooks need the checked-out
+    # working copy. `.git` appears as soon as a clone starts - the index is
+    # only written once checkout has finished.
     i=0
-    until [ -d "$workspace_folder/.git" ]; do
+    until [ -f "$workspace_folder/.git/index" ] && [ ! -e "$workspace_folder/.git/index.lock" ]; do
       i=$((i + 1))
       if [ "$i" -gt 300 ]; then
         echo "devcontainer: $workspace_folder was not cloned within 10 minutes, skipping lifecycle commands" >&2
@@ -414,7 +416,7 @@ resource "coder_script" "devcontainer_post_attach" {
     hook='${base64encode(lookup(local.lifecycle_scripts, "postAttachCommand", ""))}'
     [ -n "$hook" ] || exit 0
     workspace_folder='${local.workspace_folder}'
-    until [ -d "$workspace_folder/.git" ]; do sleep 2; done
+    until [ -f "$workspace_folder/.git/index" ] && [ ! -e "$workspace_folder/.git/index.lock" ]; do sleep 2; done
     script="$HOME/.cache/devcontainer-lifecycle/postAttachCommand.sh"
     mkdir -p "$(dirname "$script")"
     echo "$hook" | base64 -d > "$script"
