@@ -132,6 +132,13 @@ test("the build-time account record is used only for the same remote user", () =
   assert.equal(other.runtime.remoteUserUid, null);
 });
 
+test("Object.prototype keys are not context variables", () => {
+  for (const name of ["constructor", "toString", "__proto__", "hasOwnProperty"]) {
+    assert.equal(rewriteForShellString(`\${${name}}`), `\${${name}}`, name);
+  }
+  assert.equal(rewriteForShellString("${devcontainerId}"), "${DEVCONTAINER_ID}");
+});
+
 // Keep the sh used above honest: a POSIX shell must exist for these tests.
 test("sh is available", () => {
   assert.equal(execFileSync("sh", ["-c", "echo ok"], { encoding: "utf8" }).trim(), "ok");
