@@ -1,6 +1,6 @@
-<title>Installing</title>
+<title>Developing</title>
 
-# Installing
+# Developing
 
 ## Prerequisites
 
