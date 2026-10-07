@@ -68,28 +68,6 @@ seedRepos:
     configPath: .devcontainer/gamma/devcontainer.json
     devcontainerJson: |
       { "image": "mcr.microsoft.com/devcontainers/base:alpine-3.20" }
-  # Several devcontainer.json files in one repo - one image per config
-  # (ADR-0015). extraConfigPaths copies the same devcontainer.json to more
-  # locations. The colliding one's two folders sanitize to the same id
-  # ("back-end"), which the service rejects before building anything.
-  - name: devcontainer-json-two-folders
-    path: location/devcontainer-json-two-folders.git
-    configPath: .devcontainer/frontend/devcontainer.json
-    extraConfigPaths: [.devcontainer/backend/devcontainer.json]
-    devcontainerJson: |
-      { "image": "mcr.microsoft.com/devcontainers/base:alpine-3.20" }
-  - name: devcontainer-json-root-and-folder
-    path: location/devcontainer-json-root-and-folder.git
-    configPath: .devcontainer/devcontainer.json
-    extraConfigPaths: [.devcontainer/tools/devcontainer.json]
-    devcontainerJson: |
-      { "image": "mcr.microsoft.com/devcontainers/base:alpine-3.20" }
-  - name: devcontainer-json-colliding-folders
-    path: location/devcontainer-json-colliding-folders.git
-    configPath: .devcontainer/Back_End/devcontainer.json
-    extraConfigPaths: [.devcontainer/back-end/devcontainer.json]
-    devcontainerJson: |
-      { "image": "mcr.microsoft.com/devcontainers/base:alpine-3.20" }
   # No devcontainer.json anywhere - the "not found at all" case, distinct
   # from (and adjacent to) the location-discovery repos above.
   - name: devcontainer-json-missing

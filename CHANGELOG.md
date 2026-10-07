@@ -66,17 +66,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
-- **Service: an image per devcontainer.json in sub-folders** ([ADR-0016](docs/decisions/0016-one-image-per-devcontainer-json.md)).
-  Each `.devcontainer/<folder>/devcontainer.json` is built with `--config` as an image of its own,
-  `<name>-<folder id>`, after the root config's `main` image. `POST /build` lists them all in a new
-  `images` field. The existing `image`/`registry`/`name`/`tag`/`imageBuildLogId` fields describe
-  `images[0]`, so a repository with a root config gets the same response as before. A repository with
-  only sub-folder configs used to fall back to `fallbackImage` (or fail); now it builds those configs,
-  and the top-level fields describe the first one. The fallback image is used only when there's no
-  config anywhere. Without a `fallbackImage`, that case is now a 400 (`no devcontainer.json found`)
-  instead of a 500. New optional request fields: `instances` builds only the listed ids (an unknown
-  id is a 400 listing the valid ones), and `dryRun` resolves the list and image names without building
-  or pushing. Two sub-folders that map to the same id are a 400.
 - **Breaking:** **Template: `hostRequirements` are minimums**, as in the Dev Container spec, instead of overriding
 - **Image: Node 24 LTS** (was Node 20, end-of-life since April 2026), base image pinned by digest.
   The npm package's `engines` is now `node >=22`.
