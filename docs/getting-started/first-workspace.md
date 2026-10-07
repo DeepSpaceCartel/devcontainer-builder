@@ -41,8 +41,8 @@ to open it instead, starting it if it's stopped.
 
 !!! tip "Without VS Code"
     The Coder dashboard's **Create workspace** asks for the same **Git
-    repository** and **Branch**, and its workspace page has **VS Code
-    Desktop** and **VS Code Web** buttons.
+    repository** and **Branch**, and its workspace page opens VS Code
+    Desktop or VS Code in the browser (the **VS Code Web** button).
 
     ![The Coder create-workspace page: Git repository and Branch first](../assets/screenshots/coder-create-workspace.png)
 

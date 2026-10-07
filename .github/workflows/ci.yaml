@@ -5,6 +5,15 @@ on:
     branches: [main]
   pull_request:
 
+permissions:
+  contents: read
+
+# One run per branch/PR: a new push to a PR cancels its superseded run;
+# pushes to main always finish.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   service:
     runs-on: ubuntu-latest
@@ -12,8 +21,8 @@ jobs:
       run:
         working-directory: service
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: "20"
       - run: npm install
@@ -22,14 +31,30 @@ jobs:
       # (npm test) needs a real cluster and runs separately.
       - run: npm run test:unit
 
+  # The service image's `dev` target (built from this checkout's source),
+  # built but never pushed, so a Dockerfile break shows up on the PR
+  # instead of at release time.
+  service-image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
+      - uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
+        with:
+          context: service
+          target: dev
+          push: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=max,ignore-error=true
+
   vscode-extension:
     runs-on: ubuntu-latest
     defaults:
       run:
         working-directory: vscode-extension
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: "20"
       - run: npm install
@@ -40,8 +65,8 @@ jobs:
   chart:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: azure/setup-helm@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: azure/setup-helm@1a275c3b69536ee54be43f2070a358922e12c8d4 # v4.3.1
       - run: helm lint charts/devcontainer-builder
       # The optional bundled BuildKit dependency (buildkit.deploy.enabled)
       # means the chart declares a subchart in Chart.yaml - `helm template`
@@ -56,9 +81,23 @@ jobs:
       run:
         working-directory: terraform/devcontainer-build
     steps:
-      - uses: actions/checkout@v4
-      - uses: hashicorp/setup-terraform@v3
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3.1.2
       - run: terraform fmt -check -recursive
       - run: terraform init
       - run: terraform validate
       - run: terraform test
+
+  # The Coder template: formatting and a provider-schema validate. No
+  # backend (Coder owns state) and no plan - that needs a Coder deployment.
+  template:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: templates/coder-kubernetes
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3.1.2
+      - run: terraform fmt -check -recursive
+      - run: terraform init -backend=false
+      - run: terraform validate

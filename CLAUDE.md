@@ -41,7 +41,7 @@ TypeScript compiles; ask the user to verify or run it themselves.
   schemas from `src/schemas.ts`, which double as real request validation
   and the generated OpenAPI document at `GET /documentation/json` — never
   hand-authored, bundled statically into the docs site (see
-  [Installing](docs/project/installing.md#this-documentation-site))),
+  [Developing](docs/project/installing.md#this-documentation-site))),
   `src/index.ts` (the real entrypoint — `tracing.ts` first, then crash
   handlers, then `buildApp().listen()`), `src/build.ts` (clone → configure
   remote buildx builder → `devcontainer build --push`, both wrapped in an
@@ -61,7 +61,7 @@ TypeScript compiles; ask the user to verify or run it themselves.
   with no `--target`, for local iteration); `release` installs a specific
   version of the published npm package instead, so the shipped image and
   the published package are the same artifact — see
-  [Installing](docs/project/installing.md#the-container-image). `npm
+  [Developing](docs/project/installing.md#the-container-image). `npm
   publish` runs before the `release` image build in
   `.github/workflows/release.yaml`, not in parallel with it.
 - `vscode-extension/` — "Dev Containers for Coder" (`cd vscode-extension &&

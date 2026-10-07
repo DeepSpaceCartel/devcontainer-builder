@@ -67,23 +67,34 @@ using these ambient credentials unless it supplies its own
 
 ## 2. Install the chart
 
+Install into its own namespace, never `default`. The bundled BuildKit runs
+privileged (inherent to how it does OCI builds), so the namespace needs the
+`privileged` [Pod Security](https://kubernetes.io/docs/concepts/security/pod-security-admission/)
+level. Create and label it first, so the BuildKit pod is admitted on the
+first try:
+
 ```bash
+kubectl create namespace devcontainer-builder
+kubectl label namespace devcontainer-builder \
+  pod-security.kubernetes.io/enforce=privileged
+
 helm install devcontainer-builder oci://ghcr.io/deepspacecartel/charts/devcontainer-builder \
+  --namespace devcontainer-builder --create-namespace \
   -f quickstart-values.yaml
 ```
 
-!!! warning "No `--create-namespace`"
-    `buildkit.deploy.enabled: true` makes the chart create *and label*
-    its own release namespace — see the
-    [Helm chart reference](../reference/HELM.md#buildkit) for why passing
-    both conflicts.
+`--create-namespace` is harmless here (the namespace already exists) and
+keeps the command copy-pasteable on its own. The privileged level only
+widens what the namespace *allows*; devcontainer-builder's own pod stays
+unprivileged. See [Security model](../concepts/security.md) and the
+[Helm chart reference](../reference/HELM.md#buildkit).
 
 Confirm it's actually ready — not just that the Pod is `Running`, but
 that BuildKit was picked up (see
 [`/health/ready`](../api-reference.html){:target="_blank" rel="noopener"}):
 
 ```bash
-kubectl port-forward svc/devcontainer-builder 8080:8080 &
+kubectl -n devcontainer-builder port-forward svc/devcontainer-builder 8080:8080 &
 curl -s http://localhost:8080/health/ready
 # {"status":"ready"}
 ```
@@ -110,7 +121,15 @@ curl -s -X POST http://localhost:8080/build \
 ```
 
 ```json
-{"image":"ghcr.io/deepspacecartel/devcontainer-builder-examples:sha-a1b2c3d"}
+{
+  "image": "ghcr.io/deepspacecartel/devcontainer-builder-examples:sha-a1b2c3d",
+  "registry": "ghcr.io/deepspacecartel",
+  "name": "devcontainer-builder-examples",
+  "tag": "sha-a1b2c3d",
+  "commit": "a1b2c3d…",
+  "gitCloneLogId": "…",
+  "imageBuildLogId": "…"
+}
 ```
 
 `image.name` defaulted to the repo's own last path segment
@@ -153,9 +172,33 @@ own image variant — see the
 
 ## If something goes wrong
 
-A `500` response only ever contains the failing command and its exit
-code, never the real underlying error text (that's in the pod's own
-logs) — see the
-[warning in the API reference](../api-reference.html){:target="_blank" rel="noopener"} before
-assuming a `500` is a devcontainer-builder bug rather than, say, a
-typo'd `registryAuth.registries` entry in step 1.
+A failed build returns `500` with the failing command, its exit code and a
+`logId` — not the underlying error text:
+
+```json
+{"error": "devcontainer build ... exited with code 1", "logId": "…"}
+```
+
+Fetch the command's full captured output with that id (see
+[`GET /logs/{id}`](../api-reference.html){:target="_blank" rel="noopener"}):
+
+```bash
+curl -s http://localhost:8080/logs/<logId>
+```
+
+That's where a registry's real `401`, git's "Permission denied" or a
+`devcontainer.json` error shows up — often a typo'd
+`registryAuth.registries` entry from step 1 rather than a
+devcontainer-builder bug. A successful build returns `gitCloneLogId` and
+`imageBuildLogId` the same way. More in
+[Troubleshooting](../guides/troubleshooting.md).
+
+If `/health/ready` never reports ready, check that the BuildKit pod exists:
+
+```bash
+kubectl -n devcontainer-builder get pods
+kubectl -n devcontainer-builder get events --sort-by=.lastTimestamp
+```
+
+An event like `violates PodSecurity "baseline"` means the namespace label
+from step 2 is missing.

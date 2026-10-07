@@ -126,7 +126,7 @@ repository** and **Branch**. The first build of a repository takes a minute
 or two. The workspace page shows progress, then the apps: VS Code Desktop,
 VS Code in the browser, and any forwarded ports.
 
-![A workspace in the Coder dashboard: VS Code Desktop and Web, a forwarded port, and the Dev Container items](../assets/screenshots/coder-workspace-page.png)
+![A workspace in the Coder dashboard: VS Code Desktop, VS Code in the browser (the VS Code Web button), a forwarded port, and the Dev Container items](../assets/screenshots/coder-workspace-page.png)
 
 !!! note "No wildcard access URL?"
     VS Code in the browser and the port apps are subdomain apps by default,

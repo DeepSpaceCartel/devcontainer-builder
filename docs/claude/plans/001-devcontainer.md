@@ -5,6 +5,13 @@ created: 2026-09-05
 
 # Add .devcontainer.json + manual-mode bootstrap scripts
 
+## Status: historical
+
+Done, and superseded by later work: the repository's Dev Container setup and
+the Coder template have changed since. Kept as a record of the starting point;
+see the [published docs](https://deepspacecartel.github.io/devcontainer-builder/)
+for the current design.
+
 ## Context
 
 This repo (`devcontainer-builder`) exists to let a Coder Workspace Template on

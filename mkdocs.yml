@@ -22,6 +22,8 @@ nav:
   - Guides:
       - Working in a workspace: guides/working-in-a-workspace.md
       - Operating the template: guides/coder-workspace-template.md
+      - Troubleshooting: guides/troubleshooting.md
+      - Uninstall: guides/uninstall.md
   - Reference:
       - devcontainer.json support: reference/devcontainer-json.md
       - Coder template: reference/template.md
@@ -35,10 +37,11 @@ nav:
   - Build service:
       - Architecture: concepts/architecture.md
       - Credential handling: concepts/credential-handling.md
+      - Security model: concepts/security.md
       - Quickstart (service only): home/quickstart.md
   - Project:
       - Versioning and upgrades: project/versioning.md
-      - Installing: project/installing.md
+      - Developing: project/installing.md
       - Running the tests: project/testing.md
       - Testing philosophy: concepts/testing.md
       - CI: project/ci.md
@@ -57,6 +60,7 @@ nav:
       - "0011. GET /devcontainer: merged Dev Container metadata, read from the image": decisions/0011-devcontainer-metadata-endpoint.md
       - "0012. Dev Container → Kubernetes runtime mapping": decisions/0012-dev-container-to-kubernetes-runtime-mapping.md
       - "0013. Fallback image for repositories without a config": decisions/0013-fallback-config-for-repos-without-one.md
+      - "0014. hostRequirements are minimums": decisions/0014-host-requirements-are-minimums.md
 
 theme:
   name: material

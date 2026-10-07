@@ -1,0 +1,35 @@
+version: 2
+updates:
+  # Workflow actions are pinned to commit SHAs with the version in a
+  # trailing comment; Dependabot updates both together.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      github-actions:
+        patterns: ["*"]
+
+  - package-ecosystem: npm
+    directory: /service
+    schedule:
+      interval: weekly
+    groups:
+      service:
+        patterns: ["*"]
+
+  - package-ecosystem: npm
+    directory: /vscode-extension
+    schedule:
+      interval: weekly
+    groups:
+      vscode-extension:
+        patterns: ["*"]
+
+  - package-ecosystem: npm
+    directory: /tools/screenshots
+    schedule:
+      interval: weekly
+    groups:
+      screenshots:
+        patterns: ["*"]
