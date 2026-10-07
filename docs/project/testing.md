@@ -8,6 +8,53 @@ Kubernetes cluster — see
 [BDD conventions](https://alexander.ilyin.eu/Thomas/concepts/bdd-conventions/)
 for the step vocabulary itself.
 
+There are two suites: fast unit tests (`npm run test:unit`, seconds, no
+cluster — [below](#unit-tests)) and the BDD suite (`npm test`, real
+cluster, the rest of this page).
+
+## Unit tests
+
+```bash
+cd service
+npm run test:unit        # every src/*.test.ts, files in parallel
+npm run test:coverage    # same, plus a per-file coverage table (Node >= 22.5)
+```
+
+`node --test` runs each test file in its own process, several at once
+(one fewer than the CPU count by default). Two things make that safe and
+quiet, both in `src/testing/setup.ts`, which both scripts preload with
+`--import`:
+
+- **A private `TMPDIR` per test process**, removed on exit.
+  `command-log.ts` keeps its logs under `os.tmpdir()` and prunes them, so
+  without this one file's rotation test could delete a log another file
+  is about to read back.
+- **Silent service logs.** Every injected request logs a line; set
+  `TEST_LOGS=1` to see them.
+
+Tests change settings by assigning to the exported `serviceConfig` and
+restoring it afterwards, never through env vars after import, because
+`config.ts` reads its sources once at import time. `config.test.ts` and
+`config-files.test.ts` call `loadServiceConfig()` directly to test the
+sources themselves.
+
+The HTTP routes are tested through `buildApp()` and Fastify's
+`app.inject()`, with no port open and no cluster (`server.test.ts`,
+`server-routes.test.ts`). `GET`/`DELETE /image` and `GET /devcontainer`
+run against `src/testing/fake-registry.ts`. It is a small OCI
+distribution registry on `node:http` on `127.0.0.1` that supports
+anonymous, Basic and Bearer (token exchange) auth, content-addressed
+manifests, indexes and config blobs, `DELETE`, redirected blobs, and an
+`override` hook for injecting failures. List its `host` in
+`serviceConfig.insecureRegistries` so the client uses plain http.
+`src/testing/` is excluded from the `tsc` build, so none of it ships.
+
+!!! note "`test:coverage` needs Node 22.5 or newer"
+    It uses `--test-coverage-include`/`--test-coverage-exclude`, which
+    Node 22.5 added. CI runs Node 24. On older Node, run
+    `node --import tsx --test --experimental-test-coverage src/*.test.ts`
+    instead (that table also lists the test files).
+
 ## Prerequisites
 
 - A real, reachable Kubernetes cluster, with `kubectl`'s current context
@@ -156,3 +203,95 @@ NODE_OPTIONS='--import tsx' npx cucumber-js --parallel 4 features/git_source_res
 
 (subject to the same CLI-path-merging caveat above — pair it with the
 scratch targeted config to actually limit the run to one file).
+
+## Making the suite faster
+
+A full `npm test` runs **140 scenarios** (Scenario Outline example rows
+counted separately). Every one runs its file's whole Background again:
+there is no per-file or per-worker setup, and every scenario ends by
+uninstalling its namespace with `--wait`. Each of those 140 runs:
+
+- creates a Docker Buildx Builder;
+- builds and pushes `ghcr.io/deepspacecartel/devcontainer-builder-test:test`
+  from `.`;
+- installs a fresh namespace.
+
+Of the 140, 59 (in 8 files) also install their own registry or registries
+and a fresh BuildKit, and 44 of those (in 6 files) add a git server too.
+The suggestions below are ordered by how much time they would save. Each
+one comes from what the code does today; none has been measured on the
+cluster yet.
+
+1. **Move HTTP-only scenarios to `inject()` unit tests.** About half of the
+   scenarios never need a real git server, BuildKit or registry:
+    - all 53 rows of `request_validation.feature`;
+    - the seven 404 rows and the readiness and liveness scenarios in
+      `health.feature`;
+    - "An unparseable repository URL is rejected" in
+      `git_source_resolution.feature`;
+    - the config-parsing scenarios in `service_startup_configuration.feature`
+      and `service_settings_file.feature`.
+
+    `server.test.ts`, `server-routes.test.ts` and `config-files.test.ts`
+    already cover most of these rules in milliseconds. Keep one wiring
+    scenario per file in BDD (a real pod answers a 400, a real bad setting
+    crash-loops) and delete the rest. Each scenario removed saves a whole
+    namespace, image build and Helm cycle.
+2. **Build and push the service image once per run, not once per
+   scenario.** The tag is identical every time, and so is the content:
+   the Dockerfile only copies `package*.json`, `tsconfig.json` and
+   `src/`. Yet each Background rebuilds and pushes it, all three workers
+   push the same tag at once, and every release sets
+   `image.pullPolicy=Always`, so every pod pulls it again.
+    - Build it once before cucumber starts, for example in an npm
+      `pretest` script. A cucumber `BeforeAll` runs once per worker, so it
+      would still build three times.
+    - Tag it with the source's content hash or git SHA.
+    - Deploy with `pullPolicy: IfNotPresent`, so kubelet caches the image
+      per node.
+    - This also removes the per-scenario `docker buildx create`/`rm`,
+      which exists only for this build.
+3. **Share fixtures per worker.** The namespace name already depends only
+   on the worker id. Within a file, the registries, BuildKit and git
+   server get the same values in every scenario; only the service release
+   (and, in `git_source_resolution.feature`, a CA ConfigMap) differs.
+   Installing those fixtures once per worker would:
+    - remove three to five Helm installs and uninstalls per scenario;
+    - keep the BuildKit cache warm. Today every fresh BuildKit pulls the
+      Dev Container base image again for each build.
+
+    This trades away part of [Fixture cost is real and
+    accepted](../concepts/testing.md#fixture-cost-is-real-and-accepted),
+    so record that decision in an ADR first.
+4. **Drop redundant uninstalls.** Teardown runs up to five
+   `helm uninstall` calls before the final namespace uninstall with
+   `--wait`, which deletes everything in the namespace anyway (see
+   `image_resolution.feature`). Keep the namespace uninstall only.
+5. **Faster probes and polls for test releases.** The chart's startup and
+   readiness probes check every 5s, so each `helm --wait` for the service
+   finishes in 5–10s steps. The `--set` lines of a test release could
+   shorten those probe periods to 1s. The log and Pod polls use 1–2s
+   intervals, and a shorter interval also ends a poll sooner once its
+   condition is met. The suite has no fixed sleeps.
+6. **Fix `cucumber.mjs`'s support globs.** `cucumber.mjs` only imports
+   `features/support/**/*.ts` and `features/step_definitions/**/*.ts`,
+   but every file there is `.js`. So none of them loads:
+    - `timeouts.js`, so Thomas's own 5-minute default step timeout
+      applies instead;
+    - `cluster_teardown_hooks.js` and its `AfterAll`;
+    - the three local step files.
+
+    Either add the `.js` globs or delete those files.
+7. **Quick profiles.** `@smoke` exists on `end_to_end_build.feature` but
+   nothing selects it. A `smoke` profile (`--tags @smoke`) plus `failFast`
+   for local runs would stop a broken run early instead of finishing all
+   140 scenarios.
+
+The unit suite already runs its files in parallel, and none of its tests
+sleeps. The longest tests are about 200ms each: the 200ms registry timeout
+and the phase-timeout kill test, both deliberately short. Most of its
+wall time is each file's process loading Fastify and `@sentry/node`
+through tsx, about 1.5s for files that import `server.ts`.
+`--test-isolation=none`, which runs all files in one process, doesn't
+work today: `config.ts` parses `process.argv` when it is imported and
+rejects the test runner's file arguments.
