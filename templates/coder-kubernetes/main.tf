@@ -91,6 +91,12 @@ variable "allow_privileged" {
   default     = false
 }
 
+variable "subdomain_apps" {
+  type        = bool
+  description = "Serve VS Code in the browser and the forwarded-port apps on their own subdomains (Coder's recommendation). They need a wildcard access URL on the Coder deployment (CODER_WILDCARD_ACCESS_URL, https://coder.com/docs/admin/networking/wildcard-access-url); set false without one, and they're served on paths of the main Coder URL instead."
+  default     = true
+}
+
 variable "max_forwarded_ports" {
   type        = number
   description = "How many of devcontainer.json's forwardPorts get a dashboard app. Coder needs a fixed number of app slots; unused ones are hidden."
@@ -143,6 +149,7 @@ variable "git_credentials_token" {
 data "coder_parameter" "repository" {
   name         = "repository"
   display_name = "Git repository"
+  order        = 1
   description  = "A git repository containing a .devcontainer.json (or .devcontainer/devcontainer.json) at its root. https://, ssh://, or SCP-style (git@host:path) all work."
   icon         = "/icon/git.svg"
   mutable      = false
@@ -151,6 +158,7 @@ data "coder_parameter" "repository" {
 data "coder_parameter" "branch" {
   name         = "branch"
   display_name = "Branch"
+  order        = 2
   description  = "Branch to build."
   default      = "main"
   icon         = "/icon/git.svg"
@@ -160,6 +168,7 @@ data "coder_parameter" "branch" {
 data "coder_parameter" "cpu" {
   name         = "cpu"
   display_name = "CPU"
+  order        = 3
   description  = "The number of CPU cores"
   default      = "2"
   icon         = "/icon/memory.svg"
@@ -185,6 +194,7 @@ data "coder_parameter" "cpu" {
 data "coder_parameter" "memory" {
   name         = "memory"
   display_name = "Memory"
+  order        = 4
   description  = "The amount of memory in GB"
   default      = "2"
   icon         = "/icon/memory.svg"
@@ -210,6 +220,7 @@ data "coder_parameter" "memory" {
 data "coder_parameter" "disk_size" {
   name         = "disk_size"
   display_name = "Disk size"
+  order        = 5
   description  = "The size of the persistent disk (home + /workspaces) in GB"
   default      = "10"
   type         = "number"
@@ -229,6 +240,7 @@ data "coder_parameter" "disk_size" {
 data "coder_parameter" "devcontainer_variables" {
   name         = "devcontainer_variables"
   display_name = "Dev Container variables"
+  order        = 6
   description  = "Values for $${localEnv:NAME} in the repository's devcontainer.json: one NAME=value per line. Changes apply on the next restart. Visible to anyone who can see this workspace's settings."
   type         = "string"
   form_type    = "textarea"
@@ -242,6 +254,7 @@ data "coder_parameter" "devcontainer_variables" {
 data "coder_parameter" "rebuild" {
   name         = "rebuild"
   display_name = "Rebuild"
+  order        = 7
   description  = "Increase to rebuild the image from the branch's latest commit on the next start (e.g. after devcontainer.json changes). Your working copy is not touched."
   type         = "number"
   default      = 0
@@ -561,6 +574,7 @@ module "vscode_web" {
   folder         = local.workspace_folder
   accept_license = true
   install_prefix = "$HOME/.cache/vscode-web"
+  subdomain      = var.subdomain_apps
 }
 
 # VS Code Desktop, opened on the cloned repo (in place of the agent's
@@ -803,7 +817,7 @@ resource "coder_app" "forwarded_port" {
   display_name = count.index < length(local.ports) ? coalesce(try(local.ports[count.index].label, null), "Port ${try(local.ports[count.index].port, 0)}") : null
   url          = "${try(local.ports[count.index].protocol, "") == "https" ? "https" : "http"}://localhost:${try(local.ports[count.index].port, 0)}"
   icon         = count.index < length(local.ports) ? "/icon/widgets.svg" : null
-  subdomain    = true
+  subdomain    = var.subdomain_apps
   share        = "owner"
   hidden       = count.index >= length(local.ports)
 }
