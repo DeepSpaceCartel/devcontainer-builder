@@ -1,21 +1,28 @@
-import { execFile } from "node:child_process";
+import { homedir } from "node:os";
 import * as vscode from "vscode";
 import {
   CoderApi,
   CoderApiError,
   cliLogin,
   desktopUri,
+  existingStep,
   findExisting,
+  firstWorkingLogin,
+  loginCandidates,
+  migrateLegacyToken,
+  origin,
   parseLsRemote,
-  phase,
+  pollUntilReady,
+  repoUrlProblem,
+  tokenSecretKey,
   trimUrl,
   workspaceName,
   type CoderLogin,
   type Template,
   type Workspace,
 } from "./clone";
+import { git } from "./git";
 
-const TOKEN_SECRET = "devcontainerBuilder.coderToken";
 const URL_KEY = "devcontainerBuilder.coderUrl";
 const CODER_EXTENSION = "coder.coder-remote";
 
@@ -25,12 +32,17 @@ const CODER_EXTENSION = "coder.coder-remote";
 // own (Git: Clone's, as Dev Containers' Clone Repository in Container
 // Volume uses): GitHub repositories you can see, recent ones, or a URL.
 export async function cloneInWorkspace(context: vscode.ExtensionContext, log: vscode.LogOutputChannel): Promise<void> {
-  const api = await connect(context);
+  const api = await connect(context, log);
   if (!api) return;
 
   const source = await pickRemoteSource();
   if (!source) return;
   const repo = source.url;
+  const problem = repoUrlProblem(repo);
+  if (problem) {
+    vscode.window.showErrorMessage(problem);
+    return;
+  }
   const branch = source.branch ?? (await pickBranch(repo));
   if (!branch) return;
 
@@ -62,56 +74,92 @@ export async function cloneInWorkspace(context: vscode.ExtensionContext, log: vs
       { name: "repository", value: repo },
       { name: "branch", value: branch },
     ]);
-  } else if (target.latest_build.transition !== "start" && ["stopped", "failed", "canceled"].includes(target.latest_build.status)) {
-    log.info(`Starting ${target.name}`);
-    await api.startWorkspace(target.id);
+  } else {
+    const started = await startIfNeeded(api, target, log);
+    if (!started) return;
+    target = started;
   }
 
   const ready = await waitUntilReady(api, target, log);
   if (ready) await openInDesktop(api.login, ready);
 }
 
-async function connect(context: vscode.ExtensionContext): Promise<CoderApi | undefined> {
-  const configured = vscode.workspace.getConfiguration("devcontainerBuilder").get<string>("coderUrl");
-  const candidates: (CoderLogin | undefined)[] = [];
-  const storedUrl = configured || context.globalState.get<string>(URL_KEY);
-  const storedToken = await context.secrets.get(TOKEN_SECRET);
-  if (storedUrl && storedToken) candidates.push({ url: trimUrl(storedUrl), token: storedToken });
-  const cli = await cliLogin();
-  if (cli && (!configured || trimUrl(configured) === cli.url)) candidates.push(cli);
-
-  for (const login of candidates) {
-    const api = new CoderApi(login!);
-    try {
-      await api.me();
-      return api;
-    } catch (e) {
-      if (!(e instanceof CoderApiError && e.status === 401)) throw e;
-    }
+// An existing workspace: let a stop or cancel under way finish, then start
+// it if it isn't starting or running already.
+async function startIfNeeded(api: CoderApi, w: Workspace, log: vscode.LogOutputChannel): Promise<Workspace | undefined> {
+  let current = w;
+  if (existingStep(current) === "settle") {
+    const settled = await vscode.window.withProgress(
+      { location: vscode.ProgressLocation.Notification, title: `Waiting for ${w.name} to finish ${w.latest_build.status}…`, cancellable: true },
+      async (_progress, cancel) => {
+        const deadline = Date.now() + 10 * 60_000;
+        while (existingStep(current) === "settle") {
+          if (cancel.isCancellationRequested || Date.now() > deadline) return false;
+          await new Promise((r) => setTimeout(r, 3000));
+          current = await api.workspace(w.id);
+        }
+        return true;
+      },
+    );
+    if (!settled) return undefined;
   }
+  const step = existingStep(current);
+  if (step === "deleted") {
+    vscode.window.showErrorMessage(`Workspace ${w.name} is being deleted.`);
+    return undefined;
+  }
+  if (step === "start") {
+    log.info(`Starting ${w.name} (it's ${current.latest_build.status})`);
+    await api.startWorkspace(w.id);
+  }
+  return current;
+}
+
+// The deployment's stored token (only ever the one issued by it), else the
+// Coder CLI's session for it, else a log in.
+async function connect(context: vscode.ExtensionContext, log: vscode.LogOutputChannel): Promise<CoderApi | undefined> {
+  // Application-scoped: a folder's .vscode/settings.json can't point this
+  // at another server.
+  const configured = vscode.workspace.getConfiguration("devcontainerBuilder").get<string>("coderUrl")?.trim() || undefined;
+  if (configured && !origin(configured)) throw new Error(`devcontainerBuilder.coderUrl isn't an http(s) URL: ${configured}`);
+  const storedUrl = context.globalState.get<string>(URL_KEY);
+  await migrateLegacyToken(context.secrets, storedUrl);
+
+  const candidates = await loginCandidates(context.secrets, configured, storedUrl, await cliLogin());
+  const { api: working, problems } = await firstWorkingLogin(candidates, context.secrets);
+  if (working) return working;
+  for (const p of problems) log.warn(p);
 
   // Log in like the Coder extension and CLI: the deployment's /cli-auth
   // page shows a session token to paste.
-  const url = await vscode.window.showInputBox({
-    title: "Coder deployment",
-    prompt: "Your Coder URL",
-    value: storedUrl ?? "https://",
-    ignoreFocusOut: true,
-    validateInput: (v) => (/^https?:\/\/[^/]+/.test(v.trim()) ? undefined : "An http(s):// URL"),
-  });
+  const url =
+    configured ??
+    (await vscode.window.showInputBox({
+      title: "Coder deployment",
+      prompt: problems.length ? `${problems.at(-1)} Your Coder URL:` : "Your Coder URL",
+      value: storedUrl ?? "https://",
+      ignoreFocusOut: true,
+      validateInput: (v) => (origin(v) ? undefined : "An http(s):// URL"),
+    }));
   if (!url) return undefined;
-  await vscode.env.openExternal(vscode.Uri.parse(`${trimUrl(url)}/cli-auth`));
+  const login = trimUrl(url);
+  await vscode.env.openExternal(vscode.Uri.parse(`${login}/cli-auth`));
   const token = await vscode.window.showInputBox({
     title: "Coder session token",
-    prompt: `Paste the session token from ${trimUrl(url)}/cli-auth`,
+    prompt: `Paste the session token from ${login}/cli-auth`,
     password: true,
     ignoreFocusOut: true,
   });
-  if (!token) return undefined;
-  const api = new CoderApi({ url: trimUrl(url), token: token.trim() });
-  await api.me();
-  await context.globalState.update(URL_KEY, trimUrl(url));
-  await context.secrets.store(TOKEN_SECRET, token.trim());
+  if (!token?.trim()) return undefined;
+  const api = new CoderApi({ url: login, token: token.trim() });
+  try {
+    await api.me();
+  } catch (e) {
+    if (e instanceof CoderApiError && e.status === 401) throw new Error(`${login} didn't accept that session token.`);
+    throw e;
+  }
+  await context.globalState.update(URL_KEY, login);
+  await context.secrets.store(tokenSecretKey(login)!, token.trim());
   return api;
 }
 
@@ -168,15 +216,9 @@ async function pickRemoteSource(): Promise<{ url: string; branch?: string } | un
 async function pickBranch(repo: string): Promise<string | undefined> {
   const branches = await vscode.window.withProgress(
     { location: vscode.ProgressLocation.Notification, title: "Listing branches…" },
+    // `--`: a repository "URL" starting with - is never an option.
     () =>
-      new Promise<string[]>((resolve) =>
-        execFile(
-          "git",
-          ["ls-remote", "--symref", repo, "HEAD", "refs/heads/*"],
-          { timeout: 30_000, env: { ...process.env, GIT_TERMINAL_PROMPT: "0" } },
-          (error, stdout) => resolve(error ? [] : parseLsRemote(stdout)),
-        ),
-      ),
+      git(homedir(), ["ls-remote", "--symref", "--", repo, "HEAD", "refs/heads/*"], { timeoutMs: 30_000 }).then(parseLsRemote, () => [] as string[]),
   );
   // Private repositories without local credentials list nothing: type it.
   return pickOrType("Branch", branches.length ? "The default branch is first" : "Branch name", branches, branches.length ? "" : "main");
@@ -232,37 +274,44 @@ async function linkExternalAuth(api: CoderApi, template: Template, log: vscode.L
 
 async function waitUntilReady(api: CoderApi, w: Workspace, log: vscode.LogOutputChannel): Promise<Workspace | undefined> {
   const dashboard = `${api.login.url}/@${w.owner_name}/${w.name}`;
-  const result = await vscode.window.withProgress(
-    { location: vscode.ProgressLocation.Notification, title: w.name, cancellable: true },
-    async (progress, cancel) => {
-      let last = "";
-      for (;;) {
-        if (cancel.isCancellationRequested) return undefined;
-        const current = await api.workspace(w.id);
-        const p = phase(current);
-        if (p.kind === "ready" || p.kind === "failed") return { workspace: current, phase: p };
-        if (p.message !== last) {
-          progress.report({ message: p.message });
-          log.info(`${w.name}: ${p.message}`);
-          last = p.message;
-        }
-        await new Promise((r) => setTimeout(r, 3000));
-      }
-    },
-  );
-  if (!result) return undefined;
-  if (result.phase.kind === "ready") return result.workspace;
+  for (;;) {
+    const result = await vscode.window.withProgress(
+      { location: vscode.ProgressLocation.Notification, title: w.name, cancellable: true },
+      (progress, cancel) => {
+        let last = "";
+        return pollUntilReady(() => api.workspace(w.id), {
+          cancelled: () => cancel.isCancellationRequested,
+          onPhase: (p) => {
+            if (p.kind === "ready" || p.kind === "failed" || p.message === last) return;
+            progress.report({ message: p.message });
+            log.info(`${w.name}: ${p.message}`);
+            last = p.message;
+          },
+          onRetry: (e, attempt) => log.warn(`${w.name}: ${e.message} (retry ${attempt})`),
+        });
+      },
+    );
+    if (result.kind === "cancelled") return undefined;
+    if (result.kind === "ready") return result.workspace;
 
-  const message = result.phase.kind === "failed" ? result.phase.message : "";
-  log.error(`${w.name}: ${message}`);
-  const choice = await vscode.window.showErrorMessage(`Workspace ${w.name} didn't start: ${message}`, "Show Build Log", "Open in Dashboard");
-  if (choice === "Show Build Log") {
-    log.info(await api.buildLog(result.workspace.latest_build.id));
-    log.show();
-  } else if (choice === "Open in Dashboard") {
-    await vscode.env.openExternal(vscode.Uri.parse(dashboard));
+    if (result.kind === "deadline") {
+      log.warn(`${w.name}: still not ready after 20 minutes`);
+      const choice = await vscode.window.showWarningMessage(`Workspace ${w.name} still isn't ready after 20 minutes.`, "Keep Waiting", "Open in Dashboard");
+      if (choice === "Keep Waiting") continue;
+      if (choice === "Open in Dashboard") await vscode.env.openExternal(vscode.Uri.parse(dashboard));
+      return undefined;
+    }
+
+    log.error(`${w.name}: ${result.message}`);
+    const choice = await vscode.window.showErrorMessage(`Workspace ${w.name} didn't start: ${result.message}`, "Show Build Log", "Open in Dashboard");
+    if (choice === "Show Build Log") {
+      log.info(await api.buildLog(result.workspace.latest_build.id));
+      log.show();
+    } else if (choice === "Open in Dashboard") {
+      await vscode.env.openExternal(vscode.Uri.parse(dashboard));
+    }
+    return undefined;
   }
-  return undefined;
 }
 
 // Opens the workspace in VS Code Desktop through the Coder extension,

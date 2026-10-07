@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { decidePrompt, localKey } from "./prompt";
+import { decidePrompt, localKey, rebuildMessage } from "./prompt";
 import type { Status } from "./status";
 
 const status = (over: Partial<Status>): Status => ({
@@ -32,4 +32,14 @@ test("push nudge once per set of local changes; nothing otherwise", () => {
   assert.equal(decidePrompt(s, { snoozed: false, nudgedLocal: localKey(s) }).kind, "none");
   assert.equal(decidePrompt(status({ kind: "up-to-date" }), { snoozed: false }).kind, "none");
   assert.equal(decidePrompt(status({ kind: "unknown" }), { snoozed: false }).kind, "none");
+});
+
+test("the rebuild prompt warns about unpushed local changes too", () => {
+  const plain = rebuildMessage(status({}));
+  assert.match(plain, /aaaaaaa → bbbbbbb\): \.devcontainer\/devcontainer\.json\. Rebuild the workspace\?$/);
+  assert.doesNotMatch(plain, /push/);
+  const withLocal = rebuildMessage(status({ local: [".devcontainer/Dockerfile"] }));
+  assert.match(withLocal, /Your changes to \.devcontainer\/Dockerfile aren't on origin\/main yet.*push them first\. Rebuild the workspace\?$/);
+  const gone = rebuildMessage(status({ changed: [], reason: "The image's commit isn't on origin any more." }));
+  assert.match(gone, /\)\. The image's commit isn't on origin any more\. Rebuild/);
 });

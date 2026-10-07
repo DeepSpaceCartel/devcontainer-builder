@@ -116,6 +116,35 @@ test("an image commit missing locally is fetched", async () => {
   assert.equal(s.imageCommit, sha);
 });
 
+test("an image commit that's gone from origin (force-pushed) is rebuild-available, with the reason", async () => {
+  // A commit only ever in the workspace's own clone, never pushed.
+  write(workspace, "src/app.ts", "local\n");
+  const gone = commitAll(workspace, "gone");
+  run(workspace, "reset", "-q", "--hard", "HEAD~1");
+  run(workspace, "reflog", "expire", "--expire=now", "--all");
+  run(workspace, "gc", "-q", "--prune=now");
+  for (const fetch of [true, false]) {
+    const s = await checkStatus({ ...ws(), imageCommit: gone }, { fetch });
+    assert.equal(s.kind, "rebuild-available", `fetch: ${fetch}`);
+    assert.deepEqual(s.changed, []);
+    assert.match(s.reason ?? "", /isn't on origin any more/);
+  }
+  // Unreachable origin stays unknown, rather than claiming a rebuild.
+  run(workspace, "remote", "set-url", "origin", join(root, "missing.git"));
+  assert.equal((await checkStatus({ ...ws(), imageCommit: gone }, { fetch: false })).kind, "unknown");
+  assert.equal((await checkStatus({ ...ws(), imageCommit: "--upload-pack=touch /tmp/x" }, { fetch: true })).kind, "unknown");
+});
+
+test("paths from devcontainer.json are literal, not globs", async () => {
+  const base = push(other, { ".devcontainer/devcontainer.json": `{ "build": { "dockerfile": "../build*/Dockerfile" } }` });
+  // Would match the glob build*/Dockerfile; isn't the file build*/Dockerfile.
+  push(other, { "buildx/Dockerfile": "FROM alpine\n" });
+  run(workspace, "pull", "-q", "origin", "main");
+  const s = await checkStatus({ ...ws(), imageCommit: base }, { fetch: true });
+  assert.deepEqual(s.paths, [".devcontainer", ".devcontainer.json", "build*/Dockerfile"]);
+  assert.equal(s.kind, "up-to-date", `changed: ${s.changed.join(" ")}`);
+});
+
 test("no devcontainer.json anywhere is no-config, until one is added", async () => {
   run(other, "rm", "-q", "-r", ".devcontainer");
   const sha = push(other, {});

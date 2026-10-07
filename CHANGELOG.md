@@ -29,6 +29,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - Docs: [Security model](docs/concepts/security.md), [Troubleshooting](docs/guides/troubleshooting.md)
   and [Uninstall](docs/guides/uninstall.md) pages, and the Terraform provider's
   `devcontainerbuilder_devcontainer` data source and `commit` attribute in its reference.
+- **VS Code extension: Restricted Mode support.** In an untrusted folder the clone command works,
+  and checking for Dev Container changes waits until you trust the folder (a shield in the status
+  bar) - checking runs git there, and a repository's own git config can run commands. Virtual
+  workspaces aren't supported. The extension has its own `CHANGELOG.md` on the Marketplace.
 
 ### Changed
 
@@ -83,6 +87,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   ones the user didn't change.
 - Template: the Memory parameter's options say GiB (what they always applied), and the Git repository
   parameter's description no longer says the repository needs a `devcontainer.json`.
+- **VS Code extension:**
+  - `devcontainerBuilder.coderUrl` and `devcontainerBuilder.template` are user settings only
+    (application scope); a folder's `.vscode/settings.json` no longer sets them.
+  - `devcontainerBuilder.checkIntervalMinutes` is at most 1440 (a day); larger values overflowed
+    `setInterval` into a check every millisecond.
+  - The rebuild prompt also warns about Dev Container changes that aren't pushed yet.
+  - An image commit that's no longer on origin (force-pushed away) shows **Rebuild available** with
+    the reason, instead of an unknown status forever.
 
 ### Deprecated
 
@@ -139,6 +151,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   a read-only root filesystem and no Kubernetes API token (see Changed).
 - The image's Node.js moved off end-of-life Node 20, and its base image and `@devcontainers/cli` are
   pinned, so a rebuild can't silently pick up different code.
+- **VS Code extension:**
+  - **Check for Rebuild** could report the result of a check already running instead of the one it
+    asked for.
+  - **Coder: Clone Repository in Workspace…** starts an existing workspace whose last build failed,
+    and waits for a stop under way to finish before starting it, instead of failing.
+  - Following a workspace's start retries network errors and 5xx with backoff, fails an agent that
+    stays timed out or disconnected for 3 minutes instead of waiting forever, and offers **Keep
+    Waiting** or **Open in Dashboard** after 20 minutes.
+  - Rebuild finds the `coder login` session where the Coder CLI keeps it (`XDG_CONFIG_HOME`, macOS,
+    Windows), not only in `~/.config/coderv2`.
+  - A stored Coder token that no longer works is deleted; an unreachable stored deployment falls back
+    to the Coder CLI's session or a new login instead of failing.
+  - Trailing commas in `devcontainer.json` are removed without touching strings like `"a,]"`, and
+    its paths are passed to git as literal paths, not globs or pathspec magic.
+  - A git command that times out is killed with the processes it started; background fetches stop
+    waiting on `GIT_ASKPASS` once it has hung, until a **Check for Rebuild** succeeds.
+- **VS Code extension: the stored Coder session token is kept per deployment** and only ever sent
+  to the deployment it was issued by. It was one token, sent to whatever `devcontainerBuilder.coderUrl`
+  said, and a repository's `.vscode/settings.json` could set that. The existing token is moved to
+  the URL it was stored with.
+- **VS Code extension: repository URLs with credentials** (`https://user:token@…`) are refused
+  instead of being logged and saved as a workspace parameter.
+- **VS Code extension: every Coder API call times out** after 30 seconds.
 
 ## [0.5.0] - 2026-10-07
 
