@@ -133,7 +133,7 @@ reason - REGISTRY_MAPPING_CONFIG_PATH wins entirely whenever it's set.
 {{- if $build -}}
 {{- $settings = set $settings "build" $build -}}
 {{- end -}}
-{{- if .Values.git.allowInsecureProtocols -}}
+{{- if (.Values.git | default dict).allowInsecureProtocols -}}
 {{- $settings = set $settings "git" (dict "allowInsecureProtocols" true) -}}
 {{- end -}}
 {{- $settings = set $settings "sshHostKeyPolicy" .Values.sshHostKeyPolicy -}}
@@ -144,4 +144,30 @@ reason - REGISTRY_MAPPING_CONFIG_PATH wins entirely whenever it's set.
 {{- $settings = set $settings "registryMapping" (dict "rules" .Values.registryMapping.rules) -}}
 {{- end -}}
 {{- $settings | toJson -}}
+{{- end -}}
+
+{{/*
+Fills in values this chart version added that the release's values don't
+have: `helm upgrade --reuse-values` keeps only the previous release's values,
+so a value added since then would otherwise render as nil (and crash a
+template that reads below it). Only MISSING keys are filled, recursively -
+a value the user set (including false, "" or 0) is never touched, unlike
+sprig's merge/mergeOverwrite, which treat those as empty. Called at the top
+of every template; idempotent.
+*/}}
+{{- define "devcontainer-builder.fillDefaults" -}}
+{{- $dst := .dst -}}
+{{- range $k, $v := .src -}}
+{{- if not (hasKey $dst $k) -}}
+{{- $_ := set $dst $k $v -}}
+{{- else if and (kindIs "map" $v) (kindIs "map" (index $dst $k)) -}}
+{{- include "devcontainer-builder.fillDefaults" (dict "dst" (index $dst $k) "src" $v) -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+
+{{/* defaults/values.yaml is a symlink to values.yaml: Helm hides values.yaml
+itself from .Files, and `helm package` stores the symlink's contents. */}}
+{{- define "devcontainer-builder.defaults" -}}
+{{- include "devcontainer-builder.fillDefaults" (dict "dst" .Values "src" (.Files.Get "defaults/values.yaml" | fromYaml)) -}}
 {{- end -}}

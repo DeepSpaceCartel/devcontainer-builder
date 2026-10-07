@@ -17,6 +17,13 @@ helm lint charts/devcontainer-builder
 helm template charts/devcontainer-builder -f my-values.yaml
 ```
 
+
+!!! note "Upgrading with `--reuse-values`"
+    `helm upgrade --reuse-values` keeps only the previous release's values. The
+    chart fills in values added by newer versions from its own defaults, so
+    that works. Helm 3.14's `--reset-then-reuse-values` is the more explicit
+    way to do it.
+
 ## `image`
 
 | Key | Default | Notes |
