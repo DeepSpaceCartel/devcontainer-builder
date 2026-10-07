@@ -151,7 +151,7 @@ don't re-seed it, and a dotfile deleted by the user stays deleted.
 On a workspace's first start, Coder's
 [`git-clone`](https://registry.coder.com/modules/coder/git-clone) module
 clones the **Git repository**'s **Branch** into `/workspaces/<repo name>`,
-and login waits until it's done. code-server opens in that folder;
+and login waits until it's done. VS Code Desktop and code-server open in that folder;
 terminals and SSH sessions start in `$HOME` (the agent's `dir` setting is
 deprecated and would break Coder Desktop file sync). On later starts the folder isn't empty, so the
 clone is skipped and the working copy is left exactly as it was.
@@ -170,13 +170,49 @@ one of:
 If the clone fails, the folder is left empty and the workspace still
 starts; the error is in the "Git Clone" script's log in the dashboard.
 
-!!! note "Remote user is a parameter, for now"
-    The home path must be known when Terraform plans the pod, but the
-    template doesn't read `devcontainer.json` yet. Until it does, the
-    **Remote user** workspace parameter (default `node`) must match the
-    image's `remoteUser`, with uid 1000. `seed-home` checks it against the
-    image's `/etc/passwd` and fails the pod with a clear message if it
-    doesn't match.
+!!! note "Whose home is persisted"
+    The template reads the image's merged `remoteUser` (falling back to
+    `containerUser`) from devcontainer-builder — see below. Pods still run
+    as uid 1000, so that user must be uid 1000 in the image: `seed-home`
+    checks it against the image's `/etc/passwd` and fails the pod with a
+    clear message if it isn't.
+
+## devcontainer.json: lifecycle commands and VS Code
+
+A `devcontainerbuilder_devcontainer` data source reads the built image's
+merged Dev Container configuration from devcontainer-builder
+(`GET /devcontainer`, service and provider `>= 0.2.0`) — what the repo's
+`devcontainer.json`, its Features and its base image say, merged the way
+the Dev Containers CLI merges them.
+
+**Lifecycle commands.** A login-blocking "Dev Container lifecycle" script
+waits for the clone, then runs `onCreateCommand`, `updateContentCommand`,
+`postCreateCommand` and `postStartCommand`, in that order, from the repo
+folder — each hook already rendered by devcontainer-builder with the CLI's
+semantics (Features before devcontainer.json; string, array and object
+forms; stop at the first failure). Its output is in the agent's startup
+logs. `postAttachCommand` runs once per start in a separate, non-blocking
+script — there's no "attach" event to hook into.
+
+!!! warning "Every start runs every hook"
+    Dev Containers runs the first three once per container. A workspace
+    pod gets a fresh root filesystem on **every** start, so here all four
+    run on every start: they must be idempotent (and anything they install
+    outside `$HOME` or `/workspaces` is gone after a restart anyway — put
+    that in the image or a Feature instead).
+
+**VS Code extensions and settings.** A non-blocking script installs
+`customizations.vscode.extensions` from the **Microsoft Marketplace** into
+`~/.vscode-server/extensions`, and merges `customizations.vscode.settings`
+into `~/.vscode-server/data/Machine/settings.json` — the folder VS Code
+Desktop's own remote server uses, on the persisted home, so the
+**VS Code Desktop** button opens the repo with them already in place. It
+uses Desktop's own server as the installer once Desktop has connected, and
+before that downloads Microsoft's latest VS Code Server once into
+`~/.cache` (used only as an installer, never served). A Desktop window
+that attaches before it finishes picks up the rest after
+**Developer: Reload Window**. code-server, the browser fallback, isn't
+given these extensions.
 
 !!! warning "Upgrading from the first template version"
     Workspaces created before this layout used a `coder-<id>-home` PVC

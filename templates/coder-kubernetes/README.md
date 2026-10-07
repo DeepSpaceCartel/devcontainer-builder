@@ -11,9 +11,10 @@ ever starts.
 
 The workspace's home and `/workspaces` persist on one PVC
 (`coder-<id>-data`); a `seed-home` init container copies the image's own
-home into it on first start. See the guide's *Persistence* section — and
-note the interim **Remote user** parameter, which must match the image's
-`remoteUser`.
+home into it on first start. Whose home that is comes from the image's
+`remoteUser`. The repo's `devcontainer.json` lifecycle commands run on
+every start, and its VS Code extensions/settings are installed for VS Code
+Desktop - see the guide's *Persistence* and *devcontainer.json* sections.
 
 See [the full walkthrough](https://github.com/DeepSpaceCartel/devcontainer-builder/blob/main/docs/guides/coder-workspace-template.md)
 (or `docs/guides/coder-workspace-template.md` in this repo) for
