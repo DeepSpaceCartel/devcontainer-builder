@@ -51,8 +51,8 @@ All merged on `main`, each verified as noted:
 - **Features:**
   - `customizations.kubernetes` for pod resources and node placement #59 (ADR-0015; scratch workspace:
     requests and limits applied, hostRequirements and placement ignored with warnings);
-  - one image per devcontainer.json in sub-folders #60 (ADR-0016, additive API; scratch release:
-    dry run, a folder build, a root build unchanged, unknown ids → 400).
+  - one image per devcontainer.json in sub-folders #60: reverted, the feature is abandoned (see
+    [plan 004](004-devcontainer-instance-list.md)).
 - **Tests:**
   - route tests and a fake registry #61: 87% → 94% lines, 74% → 88% branches, 129 unit tests;
   - BDD `request_validation` on the cluster: 53 of 53 scenarios.
@@ -76,10 +76,6 @@ All merged on `main`, each verified as noted:
 
 ## Still open before tagging
 
-- **Multiple configurations end to end:**
-  - provider `images`/`instances` (PR in progress);
-  - template Phase A, keyed by instance with `moved` blocks (PR in progress);
-  - then Phase B, which needs a provider release.
 - **Harbor tutorial** once rts #37 is applied, including whether `DELETE /image` by digest can remove
   another tag that shares it.
 
@@ -117,6 +113,4 @@ All merged on `main`, each verified as noted:
   `hostRequirements`. Needs: the service exposing it through `GET /devcontainer`, the provider's
   data source, and the template mapping (capped like today), plus an ADR.
 - **Harbor** (rts #37): a self-hosted registry, after which come private-registry tutorials.
-- **Multiple Dev Container configurations** ([plan 004](004-devcontainer-instance-list.md)):
-  - the service side can land additively (`images[]` next to today's single-image fields);
-  - the template side needs a provider release.
+- **Multiple Dev Container configurations:** abandoned ([plan 004](004-devcontainer-instance-list.md)).

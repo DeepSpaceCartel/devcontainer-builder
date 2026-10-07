@@ -33,7 +33,7 @@ concern documented in
 | Clone timeout (seconds) | `--clone-timeout` | `CLONE_TIMEOUT_SECONDS` | `build.cloneTimeoutSeconds` | `600` |
 | Build+push timeout (seconds) | `--build-timeout` | `BUILD_TIMEOUT_SECONDS` | `build.timeoutSeconds` | `3600` |
 | Concurrent builds per instance | `--max-concurrent-builds` | `MAX_CONCURRENT_BUILDS` | `build.maxConcurrent` | `4` (`0` = no limit) |
-| Fallback image (repos without any devcontainer.json, not even in a sub-folder, [ADR-0013](../decisions/0013-fallback-config-for-repos-without-one.md)) | `--fallback-image` | `FALLBACK_IMAGE` | `build.fallbackImage` | *(unset — such builds fail with 400)*; the chart sets `mcr.microsoft.com/devcontainers/base:ubuntu` |
+| Fallback image (repos without a devcontainer.json, [ADR-0013](../decisions/0013-fallback-config-for-repos-without-one.md)) | `--fallback-image` | `FALLBACK_IMAGE` | `build.fallbackImage` | *(unset — such builds fail)*; the chart sets `mcr.microsoft.com/devcontainers/base:ubuntu` |
 | Sentry/GlitchTip DSN | `--sentry-dsn` | `SENTRY_DSN` | `sentry.dsn` | *(unset — error tracking off)* |
 | Service name | `--service-name` | `SERVICE_NAME` | `observability.serviceName` | `devcontainer-builder` |
 | Deployment environment | `--environment` | `DEPLOYMENT_ENVIRONMENT` | `observability.environment` | `development` |

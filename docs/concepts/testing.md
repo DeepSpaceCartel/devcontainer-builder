@@ -49,7 +49,7 @@ and per-domain reference pages.
 |---|---|
 | `health.feature` | Liveness/readiness signals, including a deliberately-never-ready pod |
 | `request_validation.feature` | `/build`'s up-front shape check, independent of whether the values are usable |
-| `devcontainer_config_discovery.feature` | Every devcontainer.json location the spec allows (root, `.devcontainer/`, `.devcontainer/<folder>/`), one image per config, `instances`, `dryRun`, and the 400s for an unbuildable list |
+| `devcontainer_config_discovery.feature` | The devcontainer CLI's real auto-discovery locations (root, `.devcontainer/`, *not* an arbitrary sub-folder) |
 | `devcontainer_config_content.feature` | A discoverable-but-unusable `devcontainer.json` fails clearly, including the `"build":{"dockerfile":...}` path |
 | `image_resolution.feature` | Name/tag/registry defaulting and mapping-rule resolution |
 | `registry_auth.feature` | Ambient vs. per-request registry push credentials against a real auth-enforcing registry |
