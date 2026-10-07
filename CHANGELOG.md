@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- **Coder: Clone Repository in Workspace…** in the VS Code extension (now
+  `extensionKind: ["workspace", "ui"]`, so it also runs in a local window). It works like
+  Dev Containers' *Clone Repository in Container Volume…*:
+  - pick the repository in VS Code's own picker (Git: Clone's: GitHub repositories you can see,
+    recent ones, or a URL), then a branch;
+  - if you already have a workspace on that repository and branch, it opens it, starting it if
+    needed; otherwise it creates `<repo>-<branch>` from the template that asks for a repository
+    and a branch;
+  - it follows the build, then opens VS Code Desktop on the cloned folder through the Coder
+    extension.
+
+  Login uses the Coder CLI's session, or a token from `/cli-auth`, which is stored in VS Code's
+  secret storage.
+- **Repositories without a devcontainer.json:**
+  - The service's new `fallbackImage` setting (`--fallback-image`, `FALLBACK_IMAGE`,
+    `build.fallbackImage`, [ADR-0013](docs/decisions/0013-fallback-config-for-repos-without-one.md))
+    builds them on that image instead of failing. The chart defaults it to
+    `mcr.microsoft.com/devcontainers/base:ubuntu`.
+  - In the workspace, the extension shows **Add Dev Container config**, which runs Dev
+    Containers' own *Add Dev Container Configuration Files…*.
+  - You commit and push it, and the rebuild prompt moves the workspace onto it.
+
 ## [0.4.0] - 2026-10-07
 
 ### Added

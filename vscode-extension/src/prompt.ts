@@ -9,9 +9,11 @@ export interface PromptMemory {
   // Already prompted (or nudged) for this origin commit in this window.
   promptedOrigin?: string;
   nudgedLocal?: string;
+  // "Not Now" / "Don't Ask Again" on adding a configuration.
+  addConfigDismissed?: boolean;
 }
 
-export type Prompt = { kind: "rebuild" } | { kind: "push" } | { kind: "none" };
+export type Prompt = { kind: "rebuild" } | { kind: "push" } | { kind: "add-config" } | { kind: "none" };
 
 // Whether a fresh status should interrupt with a notification. The status
 // bar always shows the state; notifications are once per origin commit.
@@ -21,6 +23,9 @@ export function decidePrompt(status: Status, memory: PromptMemory): Prompt {
       return { kind: "none" };
     }
     return { kind: "rebuild" };
+  }
+  if (status.kind === "no-config") {
+    return memory.addConfigDismissed ? { kind: "none" } : { kind: "add-config" };
   }
   if (status.kind === "unpushed") {
     return memory.nudgedLocal === localKey(status) ? { kind: "none" } : { kind: "push" };

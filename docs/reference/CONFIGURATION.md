@@ -29,6 +29,7 @@ concern documented in
 | Default cache-from | `--build-cache-from` | `BUILD_CACHE_FROM` | `build.cacheFrom` | *(unset)* |
 | Default cache-to | `--build-cache-to` | `BUILD_CACHE_TO` | `build.cacheTo` | *(unset)* |
 | Default BuildKit mode | `--buildkit-mode` | `BUILDKIT_MODE` | `build.mode` | `auto` |
+| Fallback image (repos without a devcontainer.json, [ADR-0013](../decisions/0013-fallback-config-for-repos-without-one.md)) | `--fallback-image` | `FALLBACK_IMAGE` | `build.fallbackImage` | *(unset — such builds fail)*; the chart sets `mcr.microsoft.com/devcontainers/base:ubuntu` |
 | Sentry/GlitchTip DSN | `--sentry-dsn` | `SENTRY_DSN` | `sentry.dsn` | *(unset — error tracking off)* |
 | Service name | `--service-name` | `SERVICE_NAME` | `observability.serviceName` | `devcontainer-builder` |
 | Deployment environment | `--environment` | `DEPLOYMENT_ENVIRONMENT` | `observability.environment` | `development` |

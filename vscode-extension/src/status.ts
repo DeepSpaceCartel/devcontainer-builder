@@ -9,7 +9,7 @@ export interface Workspace {
   branch: string;
 }
 
-export type Kind = "up-to-date" | "rebuild-available" | "unpushed" | "unknown";
+export type Kind = "up-to-date" | "rebuild-available" | "unpushed" | "no-config" | "unknown";
 
 export interface Status {
   kind: Kind;
@@ -42,11 +42,8 @@ export async function checkStatus(ws: Workspace, opts: { fetch: boolean }): Prom
     }
     const imageCommit = (await git(ws.folder, ["rev-parse", "--verify", `${ws.imageCommit}^{commit}`])).trim();
 
-    const paths = unionPaths(
-      await pathsAt(ws.folder, imageCommit),
-      await pathsAt(ws.folder, originCommit),
-      await pathsInWorkingTree(ws.folder),
-    );
+    const configs = [await configAt(ws.folder, imageCommit), await configAt(ws.folder, originCommit), await configInWorkingTree(ws.folder)];
+    const paths = unionPaths(...configs.map((c) => c.paths));
     const changed = lines(await git(ws.folder, ["diff", "--name-only", imageCommit, originCommit, "--", ...paths]));
     const uncommitted = [
       ...lines(await gitOptional(ws.folder, ["diff", "--name-only", "HEAD", "--", ...paths])),
@@ -55,28 +52,36 @@ export async function checkStatus(ws: Workspace, opts: { fetch: boolean }): Prom
     const unpushed = lines(await gitOptional(ws.folder, ["diff", "--name-only", `${originCommit}...HEAD`, "--", ...paths]));
     const local = [...new Set([...uncommitted, ...unpushed])].sort();
 
-    const kind: Kind = changed.length > 0 ? "rebuild-available" : local.length > 0 ? "unpushed" : "up-to-date";
+    // No devcontainer.json anywhere: the image came from the service's
+    // fallback (ADR-0013) - offer to add one.
+    const noConfig = configs.every((c) => !c.found);
+    const kind: Kind = changed.length > 0 ? "rebuild-available" : local.length > 0 ? "unpushed" : noConfig ? "no-config" : "up-to-date";
     return { kind, branch: ws.branch, imageCommit, originCommit, changed, local, paths };
   } catch (e) {
     return { ...base, imageCommit: ws.imageCommit, reason: (e as Error).message };
   }
 }
 
-async function pathsAt(folder: string, commit: string): Promise<string[]> {
-  for (const file of CONFIG_FILES) {
-    const text = await gitOptional(folder, ["show", `${commit}:${file}`]);
-    if (text !== undefined) return rebuildPaths(file, text);
-  }
-  return rebuildPaths(CONFIG_FILES[0], undefined);
+interface Config {
+  found: boolean;
+  paths: string[];
 }
 
-async function pathsInWorkingTree(folder: string): Promise<string[]> {
+async function configAt(folder: string, commit: string): Promise<Config> {
+  for (const file of CONFIG_FILES) {
+    const text = await gitOptional(folder, ["show", `${commit}:${file}`]);
+    if (text !== undefined) return { found: true, paths: rebuildPaths(file, text) };
+  }
+  return { found: false, paths: rebuildPaths(CONFIG_FILES[0], undefined) };
+}
+
+async function configInWorkingTree(folder: string): Promise<Config> {
   for (const file of CONFIG_FILES) {
     try {
-      return rebuildPaths(file, await readFile(join(folder, file), "utf8"));
+      return { found: true, paths: rebuildPaths(file, await readFile(join(folder, file), "utf8")) };
     } catch {
       // Not this one.
     }
   }
-  return rebuildPaths(CONFIG_FILES[0], undefined);
+  return { found: false, paths: rebuildPaths(CONFIG_FILES[0], undefined) };
 }

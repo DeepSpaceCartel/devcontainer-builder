@@ -120,7 +120,7 @@ function loadSshHostKeyPolicy(raw: string | undefined): SshHostKeyPolicy {
 // meaning here and are simply ignored if present.
 interface RawSettingsFile {
   buildkit?: { endpoint?: string };
-  build?: { platforms?: string[]; noCache?: boolean; cacheFrom?: string; cacheTo?: string; mode?: string };
+  build?: { platforms?: string[]; noCache?: boolean; cacheFrom?: string; cacheTo?: string; mode?: string; fallbackImage?: string };
   service?: { port?: number };
   sshHostKeyPolicy?: string;
   insecureRegistries?: string[];
@@ -187,6 +187,12 @@ function loadSettingsFile(path: string | undefined): RawSettingsFile {
         throw new Error(`settings file field "build.mode" must be "auto" or "never"`);
       }
       build.mode = parsed.build.mode;
+    }
+    if (parsed.build.fallbackImage !== undefined) {
+      if (typeof parsed.build.fallbackImage !== "string") {
+        throw new Error(`settings file field "build.fallbackImage" must be a string`);
+      }
+      build.fallbackImage = parsed.build.fallbackImage;
     }
     settings.build = build;
   }
@@ -301,6 +307,7 @@ function loadCliOptions(argv: string[]) {
       "build-cache-from": { type: "string" },
       "build-cache-to": { type: "string" },
       "buildkit-mode": { type: "string" },
+      "fallback-image": { type: "string" },
       "sentry-dsn": { type: "string" },
       "service-name": { type: "string" },
       environment: { type: "string" },
@@ -343,6 +350,10 @@ export interface ServiceConfig {
   // only, never an automatic https->http fallback, so credentials can't be
   // downgraded to cleartext by a network failure.
   insecureRegistries: string[];
+  // The image a repository without any devcontainer.json is built from,
+  // as if it had `{"image": fallbackImage}` (ADR-0013). Unset: such a
+  // build fails, as the Dev Containers CLI does.
+  fallbackImage?: string;
   // Sentry/GlitchTip DSN - error tracking is entirely opt-in, off unless
   // set. OpenTelemetry tracing is deliberately not a field here - it's
   // bootstrapped from the standard OTEL_EXPORTER_OTLP_ENDPOINT env var
@@ -440,6 +451,7 @@ export function loadServiceConfig(argv: string[] = process.argv.slice(2)): Servi
       cacheTo: cli["build-cache-to"] ?? process.env.BUILD_CACHE_TO ?? settings.build?.cacheTo,
       mode: loadBuildkitMode(cli["buildkit-mode"] ?? process.env.BUILDKIT_MODE ?? settings.build?.mode),
     },
+    fallbackImage: (cli["fallback-image"] ?? process.env.FALLBACK_IMAGE ?? settings.build?.fallbackImage) || undefined,
     insecureRegistries:
       parseCommaList(cli["insecure-registries"]) ??
       parseCommaList(process.env.INSECURE_REGISTRIES) ??

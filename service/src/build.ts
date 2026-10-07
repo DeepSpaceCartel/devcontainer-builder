@@ -10,6 +10,10 @@ import { openCommandLog, closeCommandLog, type CommandLogKind } from "./command-
 import { CONFIG_LABEL, METADATA_LABEL, configLabelValue, parsePasswdEntry, remoteUserFor } from "./devcontainer-metadata.js";
 import { readImageConfig } from "./registry-client.js";
 
+export function fallbackConfig(image: string): string {
+  return JSON.stringify({ image }, null, 2) + "\n";
+}
+
 async function readFirstExisting(paths: string[]): Promise<string | undefined> {
   for (const path of paths) {
     try {
@@ -406,10 +410,20 @@ export async function buildDevcontainer(req: BuildRequest): Promise<BuildRespons
     // pushed image rather than `devcontainer build --label`: the CLI only
     // forwards --label on its image+Features path, never for a
     // build.dockerfile config (checked in 0.89.0).
-    const configText = await readFirstExisting([
+    let configText = await readFirstExisting([
       join(repoDir, ".devcontainer", "devcontainer.json"),
       join(repoDir, ".devcontainer.json"),
     ]);
+    // No devcontainer.json at all: build the configured fallback image
+    // instead of failing (ADR-0013), from a config written into this
+    // scratch clone only - the repository never sees it, so a workspace
+    // can tell the image came from the fallback and offer to add one.
+    if (configText === undefined && serviceConfig.fallbackImage) {
+      configText = fallbackConfig(serviceConfig.fallbackImage);
+      await mkdir(join(repoDir, ".devcontainer"), { recursive: true });
+      await writeFile(join(repoDir, ".devcontainer", "devcontainer.json"), configText);
+      logger.info({ event: "build.config.fallback", "git.repository.url": req.repository, "container.image.name": serviceConfig.fallbackImage });
+    }
     const configLabel = configText !== undefined ? configLabelValue(configText) : undefined;
 
     // The remote user's uid/gid/home, read from the pushed image's own

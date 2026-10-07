@@ -96,6 +96,11 @@ build:
   cacheFrom: ""
   cacheTo: ""
   mode: auto # auto | never - passed to `devcontainer build --buildkit`
+  # The image a repository without any devcontainer.json is built from,
+  # as if it had {"image": "<fallbackImage>"} - so a workspace can start
+  # on it and offer to add a configuration (ADR-0013). Empty: such builds
+  # fail, as with the Dev Containers CLI.
+  fallbackImage: mcr.microsoft.com/devcontainers/base:ubuntu
 
 registryAuth:
   # Name of an existing kubernetes.io/dockerconfigjson-shaped Secret. If
