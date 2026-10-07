@@ -246,6 +246,12 @@ Feature: Dev Container metadata of a built image
     # runtime: users, runArgs, ports, mounts, resources.
     Given the value at "runtime.remoteUser" from the last response is known as "<RemoteUser>"
     Then the value known as "<RemoteUser>" equals "dev"
+    # Probed from the image's /etc/passwd at build time (the Dockerfile
+    # creates dev with uid 1001).
+    Given the value at "runtime.remoteUserUid" from the last response is known as "<RemoteUserUid>"
+    Then the value known as "<RemoteUserUid>" equals "1001"
+    Given the value at "runtime.remoteUserHome" from the last response is known as "<RemoteUserHome>"
+    Then the value known as "<RemoteUserHome>" equals "/home/dev"
     Given the value at "contains(runtime.capAdd, 'SYS_PTRACE')" from the last response is known as "<HasPtrace>"
     Then the value known as "<HasPtrace>" equals "true"
     Given the value at "runtime.init" from the last response is known as "<Init>"
