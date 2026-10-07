@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- The VS Code extension is on the **VS Code Marketplace** as `deepspacecartel.devcontainer-builder`
+  ("Dev Containers for Coder in K8S"), published by the release workflow. It was previously
+  `deepspacecartel.devcontainer-builder-rebuild`, a VSIX only; the release still attaches it, as
+  `devcontainer-builder.vsix`.
 - **Coder: Clone Repository in Workspace…** in the VS Code extension (now
   `extensionKind: ["workspace", "ui"]`, so it also runs in a local window). It works like
   Dev Containers' *Clone Repository in Container Volume…*:
@@ -30,6 +34,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   - In the workspace, the extension shows **Add Dev Container config**, which runs Dev
     Containers' own *Add Dev Container Configuration Files…*.
   - You commit and push it, and the rebuild prompt moves the workspace onto it.
+
+### Changed
+
+- Template: `rebuild_extension_url` is now `vscode_extension`, a Marketplace ID by default
+  (`deepspacecartel.devcontainer-builder`) or a VSIX URL. The extension is kept up to date on
+  every start, and the old `deepspacecartel.devcontainer-builder-rebuild` is uninstalled.
 
 ## [0.4.0] - 2026-10-07
 

@@ -30,8 +30,8 @@ Settings:
 - `devcontainerBuilder.coderUrl` picks the deployment;
 - `devcontainerBuilder.template` picks the template when several ask for a repository.
 
-Install the release's `devcontainer-builder-rebuild.vsix` locally with **Extensions: Install
-from VSIX…**. Inside workspaces, the template installs it for you.
+Install it locally from the Extensions view (**Dev Containers for Coder in K8S**). Inside
+workspaces, the template installs it for you.
 
 ## Rebuild available (in a workspace)
 

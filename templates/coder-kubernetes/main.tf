@@ -97,10 +97,10 @@ variable "max_forwarded_ports" {
   default     = 10
 }
 
-variable "rebuild_extension_url" {
+variable "vscode_extension" {
   type        = string
-  description = "VSIX of devcontainer-builder's rebuild prompt, installed into every workspace's VS Code: when the branch's Dev Container configuration changes on origin, it offers to rebuild the workspace. Empty to not install it."
-  default     = "https://github.com/DeepSpaceCartel/devcontainer-builder/releases/latest/download/devcontainer-builder-rebuild.vsix"
+  description = "devcontainer-builder's VS Code extension (\"Dev Containers for Coder in K8S\"), installed into every workspace's VS Code: it offers to rebuild the workspace when the branch's Dev Container configuration changes on origin, and to add one where there's none. A Marketplace ID, or the http(s):// URL of a VSIX (e.g. an unreleased build). Empty to not install it."
+  default     = "deepspacecartel.devcontainer-builder"
 }
 
 variable "git_credentials_username" {
@@ -629,9 +629,9 @@ resource "coder_script" "devcontainer_vscode" {
     set -u
     extensions='${join(" ", local.vscode_extensions)}'
     settings_b64='${base64encode(local.vscode_settings)}'
-    rebuild_extension_url='${var.rebuild_extension_url}'
+    own_extension='${var.vscode_extension}'
     data_dir="$HOME/.vscode-server"
-    if [ -z "$extensions" ] && [ "$settings_b64" = "${base64encode("{}")}" ] && [ -z "$rebuild_extension_url" ]; then
+    if [ -z "$extensions" ] && [ "$settings_b64" = "${base64encode("{}")}" ] && [ -z "$own_extension" ]; then
       exit 0
     fi
 
@@ -655,18 +655,31 @@ resource "coder_script" "devcontainer_vscode" {
       fi
     fi
 
-    # The rebuild prompt (vscode-extension/ in devcontainer-builder), from
-    # a VSIX rather than the Marketplace. Reinstalling the same version is
-    # a no-op; a newer one upgrades it.
-    if [ -n "$rebuild_extension_url" ]; then
-      vsix="$HOME/.cache/devcontainer-builder-rebuild.vsix"
-      if command -v curl >/dev/null 2>&1; then download="curl -fsSL -o"; else download="wget -qO"; fi
-      if $download "$vsix.tmp" "$rebuild_extension_url" && mv "$vsix.tmp" "$vsix"; then
-        extensions="$extensions $vsix"
-      else
-        rm -f "$vsix.tmp"
-        echo "devcontainer: could not download $rebuild_extension_url, skipping the rebuild prompt" >&2
-      fi
+    # devcontainer-builder's own extension (vscode-extension/), always the
+    # latest (--force updates it). It was
+    # deepspacecartel.devcontainer-builder-rebuild before 0.5.0 - removed,
+    # or both would run.
+    "$server/bin/code-server" --extensions-dir "$data_dir/extensions" --uninstall-extension deepspacecartel.devcontainer-builder-rebuild >/dev/null 2>&1 || true
+    case "$own_extension" in
+      "") ;;
+      http://* | https://*)
+        vsix="$HOME/.cache/devcontainer-builder.vsix"
+        if command -v curl >/dev/null 2>&1; then download="curl -fsSL -o"; else download="wget -qO"; fi
+        if $download "$vsix.tmp" "$own_extension" && mv "$vsix.tmp" "$vsix"; then
+          own_extension="$vsix"
+        else
+          rm -f "$vsix.tmp"
+          echo "devcontainer: could not download $own_extension" >&2
+          own_extension=""
+        fi
+        ;;
+    esac
+    if [ -n "$own_extension" ]; then
+      out=$("$server/bin/code-server" --extensions-dir "$data_dir/extensions" --install-extension "$own_extension" --force 2>&1)
+      case "$out" in
+        *"Failed Installing"* | *"not found"*) echo "devcontainer: could not install $own_extension: $out" >&2 ;;
+        *) echo "devcontainer: $own_extension ready" ;;
+      esac
     fi
 
     for extension in $extensions; do

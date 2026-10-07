@@ -106,7 +106,7 @@ coder templates push devcontainer-kubernetes \
 
 `namespace` and `devcontainer_builder_endpoint` are **template-level**
 variables — set once here, not per-workspace. `image_pull_secret_name`,
-`git_credentials_username`/`git_credentials_token`, `rebuild_extension_url`
+`git_credentials_username`/`git_credentials_token`, `vscode_extension`
 and the others below are optional template
 variables too (see the template's own `variable` blocks for what each
 does); leave them unset to start.
@@ -132,8 +132,9 @@ platform infrastructure from step 1), then boots
 
 The same extension that runs the [rebuild prompt](#the-repository-clone)
 inside workspaces also works in a **local** VS Code window. Install the
-release's `devcontainer-builder-rebuild.vsix` once on your machine
-(**Extensions: Install from VSIX…**). Then **Coder: Clone Repository in
+extension once on your machine: search the Extensions view for **Dev
+Containers for Coder in K8S** (`deepspacecartel.devcontainer-builder`).
+Then **Coder: Clone Repository in
 Workspace…** works like Dev Containers' *Clone Repository in
 Container Volume…*:
 
@@ -242,7 +243,8 @@ The working copy is left as it is.
 
 **The rebuild prompt.** You don't have to remember when to bump Rebuild.
 The template installs a small VS Code extension (`vscode-extension/` in
-this repo, the VSIX from `var.rebuild_extension_url`) into VS Code Desktop
+this repo, `deepspacecartel.devcontainer-builder` from the Marketplace, or
+a VSIX URL, per `var.vscode_extension`) into VS Code Desktop
 and VS Code in the browser. It compares the image's commit with
 `origin/<branch>` over the files that go into the image:
 
