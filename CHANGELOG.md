@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **Template: VS Code in the browser and the forwarded-port apps on deployments without a wildcard
+  access URL.** They were always subdomain apps, which Coder can't serve without
+  `CODER_WILDCARD_ACCESS_URL`. The new template variable `subdomain_apps` (default `true`) serves
+  them on paths of the main Coder URL when set to `false`.
+- **Template: workspace parameters in a sensible order.** Git repository and Branch come first,
+  then CPU, Memory, Disk size, Dev Container variables and Rebuild, instead of alphabetical.
+
 ### Deprecated
 
 - The Terraform module `terraform/devcontainer-build`. It's removed in 2.0. Use the
