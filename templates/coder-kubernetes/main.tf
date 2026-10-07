@@ -243,17 +243,19 @@ locals {
   dc = one(data.devcontainerbuilder_devcontainer.workspace[*])
 
   # The user tools, IDEs and hooks run as (remoteUser, else containerUser,
-  # else the image's USER, else root - resolved by devcontainer-builder).
-  # Its home is persisted; the container itself starts as root and drops
-  # to this user (see the dev container's command).
+  # else the image's USER, else root - resolved by devcontainer-builder)
+  # and its uid/gid/home, recorded by the build: the pod runs as that user
+  # from the start, and that home is persisted.
   remote_user = try(coalesce(local.dc.remote_user, local.dc.container_user), "root")
-  home_dir    = local.remote_user == "root" ? "/root" : "/home/${local.remote_user}"
+  runtime     = try(local.dc.runtime, null)
+  uid         = try(local.runtime.remote_user_uid, null)
+  gid         = try(local.runtime.remote_user_gid, null)
+  home_dir    = try(coalesce(local.runtime.remote_user_home), local.remote_user == "root" ? "/root" : "/home/${local.remote_user}")
 
   lifecycle_scripts = try(local.dc.lifecycle_scripts, {})
   env_scripts       = try(local.dc.env_scripts, {})
   vscode_extensions = try(local.dc.extensions, [])
   vscode_settings   = try(local.dc.settings_json, "{}")
-  runtime           = try(local.dc.runtime, null)
   host_requirements = try(local.dc.host_requirements, null)
   warnings          = try(local.dc.warnings, [])
   variables         = try(local.dc.variables, [])
@@ -722,6 +724,13 @@ resource "kubernetes_deployment_v1" "main" {
   depends_on = [
     kubernetes_persistent_volume_claim_v1.data
   ]
+
+  lifecycle {
+    precondition {
+      condition     = local.uid != null && local.gid != null
+      error_message = "The image doesn't record its remote user's uid/gid (it was built by devcontainer-builder older than 0.3.0, or has no shell to look it up with). Bump the Rebuild parameter to rebuild it."
+    }
+  }
   wait_for_rollout = false
   metadata {
     name      = "coder-${data.coder_workspace.me.id}"
@@ -773,11 +782,14 @@ resource "kubernetes_deployment_v1" "main" {
         }
       }
       spec {
-        # The containers start as root (Dev Containers' default
-        # containerUser); "dev" drops to the remote user before starting the
-        # agent, whatever its uid.
+        # Everything runs as the remote user; fsGroup makes the PVC
+        # writable for it (OnRootMismatch: only re-owned when the volume
+        # root doesn't match, not on every start).
         security_context {
-          run_as_user = 0
+          run_as_user            = local.uid
+          run_as_group           = local.gid
+          fs_group               = local.gid
+          fs_group_change_policy = "OnRootMismatch"
         }
 
         # devcontainer.json's `init` / --init: the pause container becomes
@@ -800,51 +812,28 @@ resource "kubernetes_deployment_v1" "main" {
           }
         }
 
-        # Runs before "dev", as root, with the same image: there, the image's
+        # Runs before "dev", with the same image and user: there, the image's
         # own home is still visible (nothing is mounted over it), and the PVC
         # is at /mnt/data. On first start only (marker file), it copies that
         # home into the PVC's home/ - so the subPath mount below doesn't hide
         # the image's dotfiles - and from then on the user's own changes win.
-        # It pre-creates every subPath dir and gives them to the remote user
-        # (kubelet would create them root-owned).
+        # It pre-creates every subPath dir (kubelet would create them
+        # root-owned).
         init_container {
           name              = "seed-home"
           image             = devcontainerbuilder_build.workspace.image
           image_pull_policy = "IfNotPresent"
           command = ["sh", "-c", <<-EOT
             set -eu
-            entry=$(getent passwd "$REMOTE_USER" || true)
-            if [ -z "$entry" ]; then
-              echo "seed-home: user '$REMOTE_USER' (the image's remoteUser) does not exist in this image" >&2
-              exit 1
-            fi
-            uid=$(echo "$entry" | cut -d: -f3)
-            gid=$(echo "$entry" | cut -d: -f4)
-            home=$(echo "$entry" | cut -d: -f6)
-            if [ "$home" != "$HOME_DIR" ]; then
-              echo "seed-home: '$REMOTE_USER' has home $home in this image, but the template mounts $HOME_DIR" >&2
-              exit 1
-            fi
             mkdir -p /mnt/data/home /mnt/data/workspaces /mnt/data/workspace-folder
+            for dir in $VOLUME_DIRS; do mkdir -p "/mnt/data/$dir"; done
             if [ ! -e /mnt/data/home/.devcontainer-home-seeded ]; then
-              cp -R --preserve=mode,ownership,timestamps,links --no-clobber "$HOME_DIR"/. /mnt/data/home/
-              chown -R "$uid:$gid" /mnt/data/home
+              cp -R --preserve=mode,timestamps,links --no-clobber "$HOME_DIR"/. /mnt/data/home/
               touch /mnt/data/home/.devcontainer-home-seeded
               echo "seed-home: seeded /mnt/data/home from $HOME_DIR"
             fi
-            chown "$uid:$gid" /mnt/data/home /mnt/data/workspaces /mnt/data/workspace-folder
-            for dir in $VOLUME_DIRS; do
-              mkdir -p "/mnt/data/$dir" && chown "$uid:$gid" "/mnt/data/$dir"
-            done
           EOT
           ]
-          security_context {
-            run_as_user = "0"
-          }
-          env {
-            name  = "REMOTE_USER"
-            value = local.remote_user
-          }
           env {
             name  = "HOME_DIR"
             value = local.home_dir
@@ -877,12 +866,11 @@ resource "kubernetes_deployment_v1" "main" {
           # resource just built.
           image             = devcontainerbuilder_build.workspace.image
           image_pull_policy = "IfNotPresent"
-          # Starts as root: sets the Dev Container environment (workspace
-          # variables, the user's Dev Container variables, then
-          # containerEnv and remoteEnv - so `$${PATH}:/x` expands against the
-          # image's real PATH), then runs the agent as the remote user.
-          # Everything the agent starts - terminals, IDEs, the lifecycle
-          # scripts - inherits that environment.
+          # Sets the Dev Container environment (workspace variables, the
+          # user's Dev Container variables, then containerEnv and remoteEnv -
+          # so `$${PATH}:/x` expands against the image's real PATH), then
+          # runs the agent. Everything the agent starts - terminals, IDEs,
+          # the lifecycle scripts - inherits that environment.
           command = ["sh", "-c", <<-EOT
             set -eu
             export DEVCONTAINER_WORKSPACE_FOLDER="$DC_WORKSPACE_FOLDER"
@@ -902,28 +890,14 @@ resource "kubernetes_deployment_v1" "main" {
               . /tmp/devcontainer-env.sh
             done
             rm -f /tmp/devcontainer-env.sh
-            user="$DC_REMOTE_USER"
+            export HOME="$DC_HOME" USER="$DC_REMOTE_USER" LOGNAME="$DC_REMOTE_USER"
             init="$DC_INIT_SCRIPT"
-            unset DC_WORKSPACE_FOLDER DC_ID DC_VARIABLES DC_CONTAINER_ENV DC_REMOTE_ENV DC_REMOTE_USER DC_INIT_SCRIPT
-            if [ "$user" = root ] || [ "$(id -u)" != 0 ]; then
-              exec sh -c "$init"
-            fi
-            entry=$(getent passwd "$user") || { echo "workspace: remote user '$user' does not exist in this image" >&2; exit 1; }
-            uid=$(echo "$entry" | cut -d: -f3)
-            gid=$(echo "$entry" | cut -d: -f4)
-            export HOME="$(echo "$entry" | cut -d: -f6)" USER="$user" LOGNAME="$user"
-            if command -v setpriv >/dev/null 2>&1; then
-              exec setpriv --reuid="$uid" --regid="$gid" --init-groups sh -c "$init"
-            elif command -v runuser >/dev/null 2>&1; then
-              exec runuser -u "$user" -- sh -c "$init"
-            else
-              exec su -s /bin/sh -c "$init" "$user"
-            fi
+            unset DC_WORKSPACE_FOLDER DC_ID DC_VARIABLES DC_CONTAINER_ENV DC_REMOTE_ENV DC_REMOTE_USER DC_INIT_SCRIPT DC_HOME
+            exec sh -c "$init"
           EOT
           ]
           security_context {
-            run_as_user = "0"
-            privileged  = var.allow_privileged && try(local.runtime.privileged, false)
+            privileged = var.allow_privileged && try(local.runtime.privileged, false)
             capabilities {
               add = try(local.runtime.cap_add, [])
             }
@@ -945,6 +919,10 @@ resource "kubernetes_deployment_v1" "main" {
           env {
             name  = "DC_REMOTE_USER"
             value = local.remote_user
+          }
+          env {
+            name  = "DC_HOME"
+            value = local.home_dir
           }
           env {
             name  = "DC_WORKSPACE_FOLDER"
