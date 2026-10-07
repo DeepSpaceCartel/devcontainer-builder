@@ -32,9 +32,10 @@ The usual causes, roughly in order:
 
 ### The workspace stays Pending
 
-The repository's `hostRequirements` reserve CPU and memory, and no node has
-that much free. The dashboard's **Resources** item shows what was
-requested. Lower `hostRequirements` or ask your platform admin for room;
+The repository's `hostRequirements` or `customizations.kubernetes` reserve
+CPU, memory or GPUs, and no node has that much free, or its `nodeSelector`
+matches no node. The dashboard's **Resources** item shows what was
+requested. Lower the requirements or ask your platform admin for room;
 see [Resources](coder-workspace-template.md#resources).
 
 ### A `devcontainer.json` setting seems ignored

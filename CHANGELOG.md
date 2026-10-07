@@ -12,6 +12,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - Docs: **Repositories and registries** tutorials, each verified end to end: public repositories
   and GHCR; private repositories with each user's GitHub account (Coder external auth); private
   repositories over SSH with a read-only deploy key and a pinned host key.
+- **Template: `customizations.kubernetes` in `devcontainer.json`** sets the workspace pod's
+  resources in Kubernetes terms:
+  - `resources.requests`/`limits` for `cpu`, `memory`, `ephemeral-storage`, `nvidia.com/gpu` and
+    other extended resources. When set, they take the place of `hostRequirements.cpus`/`.memory`.
+    CPU and memory requests are still capped by `max_cpu`/`max_memory`.
+  - `storage` sets the volume's minimum size.
+  - `nodeSelector` and `tolerations` apply only with the new template variable
+    `allow_node_placement` (default `false`).
+
+  Entries from the base image, Features and `devcontainer.json` merge in that order. Invalid
+  values are dropped with a build-log warning. The **Resources** item shows where the values came
+  from. Template-only: no service or provider change
+  ([ADR-0015](docs/decisions/0015-kubernetes-customizations.md)).
 - Chart values for the service's new settings: `build.cloneTimeoutSeconds`, `build.timeoutSeconds`,
   `build.maxConcurrent` and `git.allowInsecureProtocols` (they were only reachable through
   `extraEnv`).

@@ -23,8 +23,9 @@ per template.
 | `image_pull_secret_name` | `""` | A `kubernetes.io/dockerconfigjson` Secret in `namespace`, for pulling the built images from a private registry. |
 | `external_auth_id` | `""` | A Coder external auth provider (e.g. `github`). Creating a workspace then requires the user to link it, and both the image build and the workspace's clone use their token. See [Private repositories](../guides/coder-workspace-template.md#private-repositories). |
 | `git_credentials_username`, `git_credentials_token` | `""` | Template-wide HTTPS git credentials for the image build. They take precedence over `external_auth_id`. |
-| `max_cpu` | `8` | Most CPU cores a repository's `hostRequirements.cpus` can reserve. |
-| `max_memory` | `32` | Most memory (GiB) a repository's `hostRequirements.memory` can reserve. |
+| `max_cpu` | `8` | Most CPU cores a repository can reserve, through `hostRequirements.cpus` or `customizations.kubernetes.resources.requests.cpu`. |
+| `max_memory` | `32` | Most memory (GiB) a repository can reserve, through `hostRequirements.memory` or `customizations.kubernetes.resources.requests.memory`. |
+| `allow_node_placement` | `false` | Honor a repository's `customizations.kubernetes` `nodeSelector` and `tolerations`, e.g. for GPU or other tainted nodes. The template's own `kubernetes.io/arch` selector always wins. Off: they're ignored, with a warning. |
 | `allow_privileged` | `false` | Honor `privileged`, `seccomp=unconfined` and capabilities beyond Pod Security *baseline*. The namespace's Pod Security level must allow them. |
 | `max_forwarded_ports` | `10` | How many `forwardPorts` get a dashboard app. Coder needs a fixed number of app slots. |
 | `accept_vscode_license` | `true` | Accept [Microsoft's VS Code Server license](https://aka.ms/vscode-server-license) for VS Code in the browser (`vscode-web`). `false` removes the browser IDE; VS Code Desktop is unaffected. |
@@ -41,9 +42,9 @@ later in the workspace's settings and apply on the next start.
 |---|---|---|---|
 | **Git repository** (`repository`) | *(required)* | no | `https://`, `ssh://` or `git@host:path`. Without a `devcontainer.json`, the workspace gets devcontainer-builder's fallback image. |
 | **Branch** (`branch`) | `main` | no | The branch to build and clone. |
-| **CPU** (`cpu`) | `2` | yes | Cores: 2, 4, 6 or 8. The limit; `hostRequirements.cpus` can raise it. |
-| **Memory** (`memory`) | `2` | yes | GiB: 2, 4, 6 or 8. The limit; `hostRequirements.memory` can raise it. |
-| **Disk size** (`disk_size`) | `10` | no | GiB for the persistent volume (home + `/workspaces`), set when the workspace is created. `hostRequirements.storage` can raise it, also only at creation. |
+| **CPU** (`cpu`) | `2` | yes | Cores: 2, 4, 6 or 8. The limit; `hostRequirements.cpus` or a CPU request can raise it, and `customizations.kubernetes.resources.limits.cpu` replaces it. |
+| **Memory** (`memory`) | `2` | yes | GiB: 2, 4, 6 or 8. The limit; `hostRequirements.memory` or a memory request can raise it, and `customizations.kubernetes.resources.limits.memory` replaces it. |
+| **Disk size** (`disk_size`) | `10` | no | GiB for the persistent volume (home + `/workspaces`), set when the workspace is created. `hostRequirements.storage` or `customizations.kubernetes.storage` can raise it, also only at creation. |
 | **Dev Container variables** (`devcontainer_variables`) | `""` | yes | `NAME=value` lines for `${localEnv:NAME}`. |
 | **Rebuild** (`rebuild`) | `0` | yes | Increase to rebuild the image from the branch's latest commit. The [extension](vscode-extension.md)'s Rebuild does this for you. |
 
@@ -57,7 +58,7 @@ later in the workspace's settings and apply on the next start.
 | Item | Shows |
 |---|---|
 | Dev Container variables | Variables the repository uses without a value, if any. |
-| Resources (reserved / limit) | CPU, memory and disk the workspace got, and whether `hostRequirements` set them. |
+| Resources (reserved / limit) | CPU, memory, disk and any other resources the workspace got, and where they came from: `customizations.kubernetes`, `hostRequirements`, or the parameters. |
 | Dev Container warnings | How many `devcontainer.json` settings the workspace can't honor (listed in the build log). |
 | CPU / RAM usage, data disk, host load | Usage, as in Coder's `kubernetes` template. |
 
@@ -77,9 +78,9 @@ aren't set yet).
 | `DEVCONTAINER_WORKSPACE_FOLDER`, `DEVCONTAINER_WORKSPACE_FOLDER_BASENAME`, `DEVCONTAINER_ID` | `${containerWorkspaceFolder}`, `${containerWorkspaceFolderBasename}`, `${devcontainerId}`. |
 | `GIT_AUTHOR_*`, `GIT_COMMITTER_*` | The workspace owner's name and email. |
 
-**Resources:** without `hostRequirements`, requests are 250m CPU / 512Mi and
-the limits are the CPU/Memory parameters. With them, see [devcontainer.json
-support](devcontainer-json.md).
+**Resources:** without `hostRequirements` or `customizations.kubernetes`,
+requests are 250m CPU / 512Mi and the limits are the CPU/Memory parameters.
+With them, see [devcontainer.json support](devcontainer-json.md).
 
 **Storage:** one PVC per workspace, `coder-<workspace-id>-data`; see
 [Operating the template](../guides/coder-workspace-template.md#persistence).
@@ -93,7 +94,7 @@ deleted. Workspaces never share an image tag.
 
 - Coder v2 with Kubernetes access to `namespace`, and `linux/amd64` nodes
   (the pod has a `kubernetes.io/arch: amd64` node selector, matching the
-  agent).
+  agent, which a repository's `nodeSelector` can't override).
 - devcontainer-builder ≥ 0.3.0 (service and chart), reachable at
   `devcontainer_builder_endpoint`. Repositories without a configuration
   need ≥ 0.5.0 (`fallbackImage`).

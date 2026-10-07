@@ -33,3 +33,4 @@ change, never rewritten in place).
 | [0012](0012-dev-container-to-kubernetes-runtime-mapping.md) | Dev Container → Kubernetes runtime mapping | accepted (`hostRequirements` part superseded by [0014](0014-host-requirements-are-minimums.md)) |
 | [0013](0013-fallback-config-for-repos-without-one.md) | A fallback image for repositories without a devcontainer.json | accepted |
 | [0014](0014-host-requirements-are-minimums.md) | `hostRequirements` are minimums | accepted |
+| [0015](0015-kubernetes-customizations.md) | `customizations.kubernetes` for pod resources and node placement | accepted |

@@ -85,6 +85,64 @@ Each of `forwardPorts` becomes an app on the workspace page, labeled from
 `portsAttributes` (http or https), through Coder's proxy. VS Code's own port
 forwarding works as usual too.
 
+## Size the workspace in Kubernetes terms
+
+`hostRequirements` only sets minimums: CPU and memory are reserved, and the
+limits follow. To set requests and limits separately, ask for GPUs or
+`ephemeral-storage`, or land on dedicated nodes, add
+`customizations.kubernetes` to `devcontainer.json`:
+
+```jsonc
+{
+  "image": "mcr.microsoft.com/devcontainers/python:3.12",
+  "customizations": {
+    "kubernetes": {
+      "resources": {
+        // Reserve 2 cores and 4 GiB; burst to 6 cores; hard memory limit 8 GiB.
+        "requests": { "cpu": "2", "memory": "4Gi", "ephemeral-storage": "5Gi" },
+        "limits": { "cpu": "6", "memory": "8Gi", "nvidia.com/gpu": "1" }
+      },
+      // The workspace volume's minimum size, when the workspace is created.
+      "storage": "50Gi",
+      // Only honored if the template admin set allow_node_placement.
+      "nodeSelector": { "nvidia.com/gpu.present": "true" },
+      "tolerations": [
+        { "key": "nvidia.com/gpu", "operator": "Exists", "effect": "NoSchedule" }
+      ]
+    }
+  }
+}
+```
+
+Commit, push, and rebuild. The dashboard's **Resources (reserved / limit)**
+item then reads `CPU 2 / 6 · memory 4Gi / 8Gi · disk 50Gi · ephemeral-storage
+5Gi / none · nvidia.com/gpu 1 / 1 · from customizations.kubernetes`. Anything the
+template changed or ignored is listed in the build log.
+
+- **Values are Kubernetes quantities:** `"500m"`, `"2"` or `"1.5"` for CPU;
+  `"512Mi"`, `"4Gi"` or `"1G"` for memory and storage.
+- **`resources` replaces `hostRequirements.cpus`/`.memory`** as soon as it sets
+  any request or limit. Leave `hostRequirements` in for VS Code Dev Containers
+  and Codespaces, which don't read this customization.
+- **Without a CPU or memory limit,** the limit is the larger of the request and
+  the workspace's CPU/Memory setting. A limit below its request is raised to
+  the request.
+- **CPU and memory requests are capped** by the template's `max_cpu` and
+  `max_memory` (default 8 cores, 32 GiB).
+- **GPUs and other extended resources** can't be overcommitted, so they're
+  set as limits only (Kubernetes uses the same value as the request).
+- **A Feature can set defaults.** Entries merge in order (base image, Features,
+  then `devcontainer.json`), so the repository's own values win per key, and
+  tolerations from all entries are combined.
+- **`nodeSelector` and `tolerations` need the template's
+  `allow_node_placement`.** It's off by default, because taints keep
+  workloads off nodes on purpose. Ask your platform admin. Without it, the
+  build log says they were ignored.
+
+The full rules are in [devcontainer.json
+support](../reference/devcontainer-json.md) and
+[ADR-0015](../decisions/0015-kubernetes-customizations.md).
+
 ## What persists
 
 | Kept across restarts and rebuilds | Fresh from the image on every start |
@@ -127,6 +185,6 @@ window that connects before that's done picks up the rest after
   trusted (Restricted Mode), and checking runs git in it, so the extension
   waits. Click it, or **Workspaces: Manage Workspace Trust**, to trust the
   folder; checks start straight away.
-- **The workspace stays Pending.** The repository's `hostRequirements` reserve
-  CPU and memory, and no node has that much free. The dashboard's
+- **The workspace stays Pending.** The repository's `hostRequirements` or
+  `customizations.kubernetes` reserve CPU, memory or GPUs, and no node has that much free. The dashboard's
   **Resources** item shows what was requested; ask your platform admin.
