@@ -55,13 +55,13 @@ the pinned reference everyone else (and CI) installs. `npm install` in
 is the one place this suite's Cucumber setup lives — it wires in
 Thomas's step definitions from `node_modules/thomas/` alongside this
 project's own `features/support/`/`features/step_definitions/`, targets
-every `features/**/*.feature` file, and sets `parallel: 2` (see
+every `features/**/*.feature` file, and sets `parallel: 3` (see
 [below](#running-scenarios-in-parallel)). `npm test` with no arguments
 runs the entire real suite this way.
 
 !!! warning "Running `cucumber-js` directly needs `NODE_OPTIONS='--import tsx'`"
     `npm test` is `NODE_OPTIONS='--import tsx' cucumber-js`, not a plain
-    `npx cucumber-js` — `parallel: 2` in `cucumber.mjs` means every run
+    `npx cucumber-js` — `parallel: 3` in `cucumber.mjs` means every run
     (even a targeted single-file one below) loads support code inside
     separate worker subprocesses, and cucumber.mjs's own top-level
     `register()` call only registers tsx's ESM loader for whichever
@@ -92,7 +92,7 @@ NODE_OPTIONS='--import tsx' npx cucumber-js features/health.feature
     export default {
       import: ['node_modules/thomas/features/support/**/*.ts', 'node_modules/thomas/features/step_definitions/**/*.ts', 'features/support/**/*.ts', 'features/step_definitions/**/*.ts'],
       paths: [],
-      parallel: 2,
+      parallel: 3,
     };
     ```
     ```bash
@@ -123,8 +123,8 @@ kubectl get pods,secrets,configmaps -n "devcontainer-builder-${USER}-w0"
 
 ## Running scenarios in parallel
 
-`cucumber.mjs` sets `parallel: 2` — every `npm test` run already runs
-scenarios concurrently across 2 worker subprocesses,
+`cucumber.mjs` sets `parallel: 3` — every `npm test` run already runs
+scenarios concurrently across 3 worker subprocesses,
 each with a real `CUCUMBER_WORKER_ID` env var set (see
 [cucumber-js's own docs](https://github.com/cucumber/cucumber-js/blob/main/docs/parallel.md)).
 Every file's Background captures that into `<WorkerId>` (`"0"` if
@@ -134,10 +134,18 @@ suite creates: the Kubernetes namespace
 name (e.g. `devcontainer-builder-health-w<WorkerId>`), and every
 generated fixture path (e.g.
 `.cache/fixtures/git-source-resolution-w<WorkerId>/...`) — so concurrent
-workers never collide on any of them. Two distinct namespaces/builder
+workers never collide on any of them. Several distinct namespaces/builder
 names/fixture directories genuinely appear on the cluster/local
 filesystem while a run is in flight — that's expected, not a leak, as
 long as they're all gone again once it finishes.
+
+Every worker deploys its own full fixture set (the service, two
+registries, BuildKit, a git server), so the worker count is bounded by
+the cluster's schedulable memory, not the machine running cucumber: at
+`--parallel 10`, the dev cluster's two 4 GB worker nodes ran out of
+memory requests, pods sat `Pending`, and most scenarios failed on Helm
+`--wait` timeouts rather than on anything they test. Raise it only on a
+cluster with room (or a working autoscaler) to match.
 
 Override the worker count with `--parallel N` (`--parallel 1` for fully
 sequential, useful while debugging one scenario):
