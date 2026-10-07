@@ -136,6 +136,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- VS Code extension: the clone command's template picker also matches a template's name and
+  description, not only its display name.
 - Chart: `helm upgrade --reuse-values` from an older chart failed with `nil pointer evaluating
   ...automountServiceAccountToken`. `--reuse-values` keeps only the previous release's values, so
   values added since then were missing. Templates now fill in missing values from the chart's
