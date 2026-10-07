@@ -27,7 +27,8 @@
         "openai.chatgpt",
         "Google.geminicodeassist",
         "sst-dev.opencode",
-        "Anthropic.claude-code"
+        "Anthropic.claude-code",
+        "coder.coder-remote"
       ]
     }
   }
