@@ -1,0 +1,266 @@
+{
+  "$schema": "https://json-schema.org/draft-07/schema#",
+  "title": "devcontainer-builder chart values",
+  "type": "object",
+  "additionalProperties": false,
+  "definitions": {
+    "stringList": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "quantity": {
+      "type": ["string", "integer"]
+    },
+    "freeObject": {
+      "type": "object"
+    }
+  },
+  "properties": {
+    "global": {
+      "type": "object",
+      "description": "Helm's global values, passed to subcharts."
+    },
+    "replicaCount": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 1,
+      "description": "0 or 1. Captured build output (GET /logs/{id}) lives on the pod's own /tmp emptyDir, so a second replica would 404 on log ids returned by the other."
+    },
+    "updateStrategy": {
+      "$ref": "#/definitions/freeObject",
+      "description": "Deployment strategy; empty means Kubernetes' default (RollingUpdate)."
+    },
+    "terminationGracePeriodSeconds": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Time an in-flight build gets to finish after SIGTERM."
+    },
+    "podSecurityContext": {
+      "$ref": "#/definitions/freeObject",
+      "description": "Pod-level securityContext. runAsUser/runAsGroup/fsGroup must match the image's builder user (2000)."
+    },
+    "securityContext": {
+      "$ref": "#/definitions/freeObject",
+      "description": "Container-level securityContext."
+    },
+    "serviceAccount": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "automountServiceAccountToken": {
+          "type": "boolean",
+          "description": "The service never calls the Kubernetes API; false by default."
+        }
+      }
+    },
+    "imagePullSecrets": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name"],
+        "properties": { "name": { "type": "string", "minLength": 1 } }
+      }
+    },
+    "podAnnotations": {
+      "type": "object",
+      "additionalProperties": { "type": "string" }
+    },
+    "nodeSelector": {
+      "type": "object",
+      "additionalProperties": { "type": "string" }
+    },
+    "tolerations": {
+      "type": "array",
+      "items": { "type": "object" }
+    },
+    "affinity": { "$ref": "#/definitions/freeObject" },
+    "image": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repository"],
+      "properties": {
+        "repository": { "type": "string", "minLength": 1 },
+        "tag": {
+          "type": "string",
+          "description": "Empty means the chart's appVersion."
+        },
+        "pullPolicy": {
+          "type": "string",
+          "enum": ["Always", "IfNotPresent", "Never"]
+        }
+      }
+    },
+    "service": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "port": { "type": "integer", "minimum": 1, "maximum": 65535 }
+      }
+    },
+    "environment": {
+      "type": "string",
+      "description": "DEPLOYMENT_ENVIRONMENT; empty means unset."
+    },
+    "buildkit": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "endpoint": {
+          "type": "string",
+          "description": "e.g. tcp://buildkit.buildkit.svc.cluster.local:1234. Ignored when deploy.enabled is true."
+        },
+        "deploy": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": { "type": "boolean" }
+          }
+        },
+        "manageNamespace": {
+          "type": "boolean",
+          "description": "Render the release Namespace (labeled privileged, resource-policy keep) when deploy.enabled. Off by default."
+        }
+      }
+    },
+    "buildkitBundled": {
+      "type": "object",
+      "description": "Values passed to the bundled buildkit-service dependency (alias buildkitBundled); only the keys this chart relies on are constrained.",
+      "properties": {
+        "fullnameOverride": { "type": "string", "minLength": 1 },
+        "service": {
+          "type": "object",
+          "properties": {
+            "type": { "type": "string" },
+            "port": { "type": "integer", "minimum": 1, "maximum": 65535 }
+          }
+        }
+      }
+    },
+    "build": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "platforms": { "$ref": "#/definitions/stringList" },
+        "noCache": { "type": "boolean" },
+        "cacheFrom": { "type": "string" },
+        "cacheTo": { "type": "string" },
+        "mode": { "type": "string", "enum": ["auto", "never"] },
+        "fallbackImage": {
+          "type": "string",
+          "description": "Image a repository without a devcontainer.json is built from; empty means such builds fail."
+        }
+      }
+    },
+    "registryAuth": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "existingSecret": { "type": "string" },
+        "registries": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["registry", "username", "password"],
+            "properties": {
+              "registry": { "type": "string", "minLength": 1 },
+              "username": { "type": "string", "minLength": 1 },
+              "password": { "type": "string", "minLength": 1 }
+            }
+          }
+        }
+      }
+    },
+    "gitCredentials": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "existingSecret": { "type": "string" },
+        "entries": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["host", "kind"],
+            "properties": {
+              "host": { "type": "string", "minLength": 1 },
+              "kind": { "type": "string", "enum": ["https", "ssh"] },
+              "username": { "type": "string" },
+              "token": { "type": "string" },
+              "privateKey": { "type": "string" },
+              "pinnedHostKey": { "type": "string" }
+            }
+          }
+        }
+      }
+    },
+    "sshHostKeyPolicy": {
+      "type": "string",
+      "enum": ["tofu", "pinned"]
+    },
+    "insecureRegistries": { "$ref": "#/definitions/stringList" },
+    "registryMapping": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "existingConfigMap": { "type": "string" },
+        "rules": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["registry"],
+            "properties": {
+              "hostMatch": { "type": "string", "minLength": 1 },
+              "pathPrefix": { "type": "string" },
+              "registry": { "type": "string", "minLength": 1 }
+            }
+          }
+        }
+      }
+    },
+    "extraArgs": { "$ref": "#/definitions/stringList" },
+    "extraEnv": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name"],
+        "properties": { "name": { "type": "string", "minLength": 1 } }
+      }
+    },
+    "extraVolumes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name"],
+        "properties": { "name": { "type": "string", "minLength": 1 } }
+      }
+    },
+    "extraVolumeMounts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "mountPath"],
+        "properties": {
+          "name": { "type": "string", "minLength": 1 },
+          "mountPath": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "resources": { "$ref": "#/definitions/freeObject" },
+    "scratchVolume": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "sizeLimit": { "$ref": "#/definitions/quantity" }
+      }
+    },
+    "dockerConfigVolume": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "sizeLimit": { "$ref": "#/definitions/quantity" }
+      }
+    }
+  }
+}

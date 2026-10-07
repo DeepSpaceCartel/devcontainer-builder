@@ -35,14 +35,41 @@ spec:
         checksum/git-credentials: {{ .Values.gitCredentials.entries | toJson | sha256sum }}
         {{- end }}
         checksum/settings: {{ include "devcontainer-builder.settingsJson" . | sha256sum }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
     spec:
       serviceAccountName: {{ include "devcontainer-builder.fullname" . }}
+      automountServiceAccountToken: {{ .Values.serviceAccount.automountServiceAccountToken }}
+      terminationGracePeriodSeconds: {{ .Values.terminationGracePeriodSeconds }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.podSecurityContext }}
       securityContext:
-        fsGroup: {{ .Values.podSecurityContext.fsGroup }}
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       containers:
         - name: devcontainer-builder
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
+          {{- with .Values.securityContext }}
+          securityContext:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
           ports:
             - name: http
               containerPort: 8080
@@ -80,6 +107,11 @@ spec:
             {{- toYaml .Values.extraEnv | nindent 12 }}
             {{- end }}
           volumeMounts:
+            # Writable DOCKER_CONFIG (buildx's builder state under buildx/)
+            # with a read-only root filesystem; config.json is mounted into
+            # it below.
+            - name: docker-config
+              mountPath: /home/builder/.docker
             # Mounted at the specific file, not the whole DOCKER_CONFIG
             # directory - `docker buildx create` needs to write its own
             # builder state under DOCKER_CONFIG/buildx/, which a read-only
@@ -162,6 +194,9 @@ spec:
         - name: scratch
           emptyDir:
             sizeLimit: {{ .Values.scratchVolume.sizeLimit }}
+        - name: docker-config
+          emptyDir:
+            sizeLimit: {{ .Values.dockerConfigVolume.sizeLimit }}
         {{- if .Values.extraVolumes }}
         {{- toYaml .Values.extraVolumes | nindent 8 }}
         {{- end }}
