@@ -56,6 +56,8 @@ export interface ImageDeleteResponse {
   reason?: string;
 }
 
+export type { DevcontainerMetadata } from "./devcontainer-metadata.js";
+
 export interface ErrorResponse {
   error: string;
   logId?: string;

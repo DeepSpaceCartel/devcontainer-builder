@@ -40,6 +40,18 @@ Each feature below lists its changes per layer: **Service** (`service/src`), **P
 
 ---
 
+> **Update, 2026-10-07:** `GET /devcontainer` ([ADR-0011](../../decisions/0011-devcontainer-metadata-endpoint.md))
+> reads the built image's `devcontainer.metadata` label from the registry
+> and returns the CLI's own `mergedConfiguration` plus rendered
+> `lifecycleScripts` and merged `vscode` extensions/settings. It covers
+> the service side of F4 and F6, and of F7–F9 as data (`remoteEnv`,
+> `forwardPorts`, `mounts`, ... are in `configuration`). It replaces F0's
+> `POST /configuration` for everything known only after the build — the
+> spike is no longer needed. F0 still applies to anything needed at **plan**
+> time before an image exists (e.g. `for_each` over `forwardPorts` on the
+> first create). The provider data source and the template wiring for this
+> endpoint are the next steps.
+
 ## Feature 0: plan-time devcontainer configuration (foundation for 1-7)
 
 Every feature that changes the pod spec or creates `coder_app`s needs the merged

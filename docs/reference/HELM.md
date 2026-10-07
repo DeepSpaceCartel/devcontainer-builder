@@ -122,6 +122,12 @@ for how they're used.
 |---|---|---|
 | `sshHostKeyPolicy` | `tofu` | `tofu` or `pinned` — see [Configuration](CONFIGURATION.md#ssh_host_key_policy). |
 
+## `insecureRegistries`
+
+| Key | Default | Notes |
+|---|---|---|
+| `insecureRegistries` | `[]` | Registry hosts the service's own registry calls reach over plain HTTP — see [Configuration](CONFIGURATION.md#insecure_registries). Rendered into the settings file only when non-empty. |
+
 ## `registryMapping`
 
 Server-side repo → registry routing rules, used to resolve
@@ -139,7 +145,7 @@ Server-side repo → registry routing rules, used to resolve
 no `settingsFile.*` value to set. The chart renders `settings.json` from
 values that already exist elsewhere in this page: `buildkit.endpoint`,
 `build.*` (only the sub-fields that differ from their zero-value default),
-`sshHostKeyPolicy`, and `registryMapping.rules` (only when
+`sshHostKeyPolicy`, `insecureRegistries` (only when non-empty), and `registryMapping.rules` (only when
 `registryMapping.existingConfigMap` is unset). `gitCredentials` is
 deliberately never included — `GIT_CREDENTIALS_CONFIG_PATH` always takes
 precedence over a settings-file copy of the same field (see

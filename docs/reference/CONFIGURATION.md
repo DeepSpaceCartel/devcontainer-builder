@@ -21,6 +21,7 @@ concern documented in
 | HTTP port | `--port` | `PORT` | `service.port` | `8080` |
 | Buildx builder name | `--buildx-builder-name` | `BUILDX_BUILDER_NAME` | *(none)* | `devcontainer-builder-remote` |
 | SSH host key policy | `--ssh-host-key-policy` | `SSH_HOST_KEY_POLICY` | `sshHostKeyPolicy` | `tofu` |
+| Plain-HTTP registries | `--insecure-registries` (comma-separated) | `INSECURE_REGISTRIES` (comma-separated) | `insecureRegistries` | `[]` (HTTPS everywhere) |
 | Git credentials file path | `--git-credentials-config-path` | `GIT_CREDENTIALS_CONFIG_PATH` | *(none — see below)* | *(unset — empty list)* |
 | Registry mapping file path | `--registry-mapping-config-path` | `REGISTRY_MAPPING_CONFIG_PATH` | *(none — see below)* | *(unset — empty list)* |
 | Default platforms | `--build-platforms` (comma-separated) | `BUILD_PLATFORMS` (comma-separated) | `build.platforms` | `[]` (no `--platform` passed) |
@@ -164,6 +165,16 @@ set is a universal fallback. See
     entry shouldn't take down every other configured host, but a
     genuinely broken config file should never be silently treated as
     "no config."
+
+## `INSECURE_REGISTRIES`
+
+Registry hosts (`host` or `host:port`, without any namespace path) that the
+service's *own* registry calls — `GET`/`DELETE /image` and
+`GET /devcontainer` — reach over `http://` instead of `https://`, e.g. an
+in-cluster `registry:2` without TLS. Builds aren't affected: whether
+BuildKit pushes to a plain-HTTP registry is BuildKit's own config
+(`buildkitd.toml`). There is deliberately no automatic HTTPS-to-HTTP
+fallback — see [0011](../decisions/0011-devcontainer-metadata-endpoint.md).
 
 ## `SSH_HOST_KEY_POLICY`
 

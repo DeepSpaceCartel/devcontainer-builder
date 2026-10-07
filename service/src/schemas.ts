@@ -197,7 +197,128 @@ export const ImageDeleteResponseSchema = Type.Object({
   ),
 });
 
-// Shared by GET/DELETE /image's 502.
+export const DevcontainerQuerySchema = Type.Object({
+  registry: Type.String({
+    minLength: 1,
+    description: "Non-empty. As `POST /build` returns it - a namespaced registry (`ghcr.io/deepspacecartel`) is fine.",
+  }),
+  name: Type.String({ minLength: 1, description: "Non-empty." }),
+  tag: Type.String({ minLength: 1, description: "Non-empty." }),
+  platform: Type.Optional(
+    Type.String({
+      pattern: "^[^/]+/[^/]+(/[^/]+)?$",
+      description: "`os/arch[/variant]` to read from a multi-platform image. Defaults to `linux/amd64`; ignored for a single-platform image.",
+    }),
+  ),
+});
+export type DevcontainerQuery = Static<typeof DevcontainerQuerySchema>;
+
+const LifecycleScriptSchema = Type.Union([Type.String(), Type.Null()]);
+
+export const DevcontainerResponseSchema = Type.Object(
+  {
+    image: Type.String({ description: "`<registry>/<name>:<tag>`." }),
+    digest: Type.Optional(Type.String({ description: "Digest of the (platform) manifest the label was read from." })),
+    configuration: Type.Object(
+      {
+        remoteUser: Type.Optional(Type.String()),
+        containerUser: Type.Optional(Type.String()),
+        onCreateCommands: Type.Array(Type.Unknown()),
+        updateContentCommands: Type.Array(Type.Unknown()),
+        postCreateCommands: Type.Array(Type.Unknown()),
+        postStartCommands: Type.Array(Type.Unknown()),
+        postAttachCommands: Type.Array(Type.Unknown()),
+        customizations: Type.Optional(Type.Record(Type.String(), Type.Array(Type.Unknown()))),
+      },
+      {
+        additionalProperties: true,
+        description:
+          "The image's `devcontainer.metadata` label merged exactly as `@devcontainers/cli` merges it - the same shape as `mergedConfiguration` from `devcontainer read-configuration --include-merged-configuration`: devcontainer.json property names, with each lifecycle hook as a plural list (`postCreateCommands`) of every entry's command in run order, and `customizations` as a per-tool list of every entry's value, unmerged. Variables like `${containerWorkspaceFolder}` are not substituted. `workspaceFolder` is never part of the label.",
+      },
+    ),
+    lifecycleScripts: Type.Object(
+      {
+        onCreateCommand: LifecycleScriptSchema,
+        updateContentCommand: LifecycleScriptSchema,
+        postCreateCommand: LifecycleScriptSchema,
+        postStartCommand: LifecycleScriptSchema,
+        postAttachCommand: LifecycleScriptSchema,
+      },
+      {
+        description:
+          "Each hook's commands rendered as one POSIX `sh` script (`null` if no entry sets it), with the Dev Containers CLI's semantics: entries run in order (base image, Features, devcontainer.json), a string runs via `/bin/sh -c`, an array as argv without a shell, an object's named commands in parallel; the first failure stops the script with that exit code. The caller chooses cwd (the workspace folder), user, and when to run each hook.",
+      },
+    ),
+    vscode: Type.Object(
+      {
+        extensions: Type.Array(Type.String(), {
+          description:
+            "Every entry's `customizations.vscode.extensions`, in order, de-duplicated case-insensitively; `-publisher.name` removes one added by an earlier entry.",
+        }),
+        settings: Type.Record(Type.String(), Type.Unknown(), {
+          description: "Every entry's `customizations.vscode.settings`, merged per key - the last entry wins.",
+        }),
+      },
+      { description: "`customizations.vscode` merged the way VS Code's Dev Containers support does - the CLI itself leaves this to the tool." },
+    ),
+    warnings: Type.Array(Type.String(), { description: "Things in the label this response could not represent faithfully." }),
+    metadata: Type.Array(Type.Record(Type.String(), Type.Unknown()), {
+      description: "The raw `devcontainer.metadata` label entries, verbatim.",
+    }),
+  },
+  {
+    description: "The image's Dev Container metadata, read from its registry.",
+    examples: [
+      {
+        image: "ghcr.io/deepspacecartel/devcontainer-builder-examples:sha-a1b2c3d",
+        digest: "sha256:3f1c…",
+        configuration: {
+          init: false,
+          privileged: false,
+          remoteUser: "node",
+          onCreateCommands: [],
+          updateContentCommands: [],
+          postCreateCommands: ["/usr/local/share/pull-git-lfs-artifacts.sh", "bash .devcontainer/postCreateCommand.sh"],
+          postStartCommands: [],
+          postAttachCommands: [],
+          customizations: { vscode: [{ extensions: ["dbaeumer.vscode-eslint"] }, { extensions: ["hashicorp.terraform"] }] },
+          remoteEnv: {},
+          containerEnv: {},
+          portsAttributes: {},
+        },
+        lifecycleScripts: {
+          onCreateCommand: null,
+          updateContentCommand: null,
+          postCreateCommand:
+            "#!/bin/sh\necho 'devcontainer: postCreateCommand from ghcr.io/devcontainers/features/git-lfs:1'\n/bin/sh -c '/usr/local/share/pull-git-lfs-artifacts.sh' || { dc_rc=$?; echo 'devcontainer: postCreateCommand from ghcr.io/devcontainers/features/git-lfs:1 failed with exit code '\"$dc_rc\" >&2; exit \"$dc_rc\"; }\n…",
+          postStartCommand: null,
+          postAttachCommand: null,
+        },
+        vscode: { extensions: ["dbaeumer.vscode-eslint", "hashicorp.terraform"], settings: {} },
+        warnings: [],
+        metadata: [
+          { id: "ghcr.io/devcontainers/features/git-lfs:1", postCreateCommand: "/usr/local/share/pull-git-lfs-artifacts.sh" },
+          { remoteUser: "node", postCreateCommand: "bash .devcontainer/postCreateCommand.sh" },
+        ],
+      },
+    ],
+  },
+);
+
+export const DevcontainerNotFoundResponseSchema = Type.Object(
+  { error: Type.String() },
+  { description: "The registry has no manifest for this `<name>:<tag>`." },
+);
+
+export const DevcontainerUnprocessableResponseSchema = Type.Object(
+  { error: Type.String() },
+  {
+    description:
+      "The image exists, but carries no usable `devcontainer.metadata` label (it wasn't built by the Dev Containers CLI, or the label is malformed), or it is a multi-platform image with no manifest for the requested `platform`.",
+  },
+);
+
+// Shared by GET/DELETE /image's and GET /devcontainer's 502.
 export const RegistryUpstreamErrorResponseSchema = Type.Object(
   { error: Type.String() },
   {
@@ -281,6 +402,9 @@ export const ConfigResponseSchema = Type.Object(
       description: "Never the credential material itself - just enough to answer \"which hosts does this instance already know about\".",
     }),
     registryMappingRules: Type.Array(ConfigRegistryMappingRuleSchema),
+    insecureRegistries: Type.Array(Type.String(), {
+      description: "Registry hosts this service's own registry calls (`/image`, `/devcontainer`) reach over plain HTTP instead of HTTPS.",
+    }),
     registryAuth: Type.Array(ConfigRegistryAuthEntrySchema, {
       description:
         "Registries this instance has ambient push credentials for (from the mounted Docker config, e.g. the chart's registryAuth.registries) - hostnames only, never the credential material. Empty when relying entirely on per-request registryCredentials instead.",
@@ -298,6 +422,7 @@ export const ConfigResponseSchema = Type.Object(
         defaultBuildOptions: { noCache: false, mode: "auto" },
         gitCredentials: [{ host: "github.com", kind: "https" }],
         registryMappingRules: [{ registry: "ghcr.io/deepspacecartel" }],
+        insecureRegistries: [],
         registryAuth: [{ registry: "ghcr.io" }],
       },
     ],

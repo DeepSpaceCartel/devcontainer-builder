@@ -7,14 +7,32 @@ import { TypeBoxTypeProvider } from "@fastify/type-provider-typebox";
 import * as Sentry from "@sentry/node";
 import { buildDevcontainer, isReady, BuildRequestError } from "./build.js";
 import { serviceConfig } from "./config.js";
-import { manifestExists, deleteManifest, type RegistryAuthOverride } from "./registry-client.js";
+import {
+  manifestExists,
+  deleteManifest,
+  readImageConfig,
+  PlatformNotFoundError,
+  type RegistryAuthOverride,
+} from "./registry-client.js";
+import { buildDevcontainerMetadata, InvalidMetadataLabelError, METADATA_LABEL } from "./devcontainer-metadata.js";
 import { readCommandLog, deleteCommandLog } from "./command-log.js";
-import { registry as metricsRegistry, buildsTotal, buildDurationSeconds, imageChecksTotal, imageDeletesTotal } from "./metrics.js";
+import {
+  registry as metricsRegistry,
+  buildsTotal,
+  buildDurationSeconds,
+  devcontainerLookupsTotal,
+  imageChecksTotal,
+  imageDeletesTotal,
+} from "./metrics.js";
 import { logger } from "./logger.js";
 import {
   BuildRequestSchema,
   BuildResponseSchema,
   ConfigResponseSchema,
+  DevcontainerNotFoundResponseSchema,
+  DevcontainerQuerySchema,
+  DevcontainerResponseSchema,
+  DevcontainerUnprocessableResponseSchema,
   ErrorResponseSchema,
   HealthLiveResponseSchema,
   HealthReadyResponseSchema,
@@ -26,6 +44,7 @@ import {
   RegistryAuthHeadersSchema,
   RegistryUpstreamErrorResponseSchema,
   type BuildRequestBody,
+  type DevcontainerQuery,
   type ImageQuery,
   type LogIdParam,
 } from "./schemas.js";
@@ -51,11 +70,17 @@ const BUILD_REQUEST_SHAPE_ERROR =
 
 const IMAGE_QUERY_SHAPE_ERROR = "missing or invalid query parameters: registry, name, tag (all required)";
 
+const DEVCONTAINER_QUERY_SHAPE_ERROR =
+  "missing or invalid query parameters: registry, name, tag (all required); platform (optional, os/arch[/variant])";
+
+const DEFAULT_DEVCONTAINER_PLATFORM = "linux/amd64";
+
 const LOG_ID_SHAPE_ERROR = "id must look like a log id returned by POST /build (git-<uuid> or docker-<uuid>)";
 
 const TAGS = {
   build: "Dev Containers",
   images: "Images",
+  devcontainer: "Dev Container metadata",
   health: "Health",
   config: "Configuration",
   logs: "Logs",
@@ -169,6 +194,10 @@ export async function buildApp(): Promise<FastifyInstance> {
       tags: [
         { name: TAGS.build, description: "Turn a git repository into a real, pushed image." },
         { name: TAGS.images, description: "Check or best-effort delete a previously-built image." },
+        {
+          name: TAGS.devcontainer,
+          description: "Read a built image's merged Dev Container configuration (lifecycle commands, VS Code customizations, ...) from its registry.",
+        },
         { name: TAGS.health, description: "Kubernetes-style startup/liveness/readiness probes." },
         { name: TAGS.config, description: "Non-sensitive view of the service's own loaded configuration." },
         { name: TAGS.logs, description: "Captured git clone / devcontainer build --push output, keyed by the id POST /build returns." },
@@ -271,6 +300,7 @@ export async function buildApp(): Promise<FastifyInstance> {
       // already know about", the whole point of this endpoint.
       gitCredentials: serviceConfig.gitCredentials.map((entry) => ({ host: entry.host, kind: entry.kind })),
       registryMappingRules: serviceConfig.registryMappingRules,
+      insecureRegistries: serviceConfig.insecureRegistries,
       registryAuth: serviceConfig.registryAuthRegistries.map((registry) => ({ registry })),
     };
   });
@@ -288,6 +318,7 @@ export async function buildApp(): Promise<FastifyInstance> {
           "- **`devcontainer_builder_build_duration_seconds`** (histogram, label `status`) - real build wall-clock time, bucketed toward minutes (not the sub-second defaults), since a build is a clone + image build + push.",
           "- **`devcontainer_builder_image_checks_total`** (counter, label `result`: `exists`|`absent`|`error`) - every `GET /image` call.",
           "- **`devcontainer_builder_image_deletes_total`** (counter, label `result`: `deleted`|`unsupported`|`error`) - every `DELETE /image` call.",
+          "- **`devcontainer_builder_devcontainer_lookups_total`** (counter, label `result`: `found`|`absent`|`no_metadata`|`error`) - every `GET /devcontainer` call.",
         ].join("\n"),
       },
     },
@@ -453,6 +484,83 @@ export async function buildApp(): Promise<FastifyInstance> {
           "image.tag": tag,
           ...errorFields(err),
         });
+        captureIfEnabled(err);
+        reply.code(502);
+        return { error: err instanceof Error ? err.message : "registry request failed" };
+      }
+    },
+  );
+
+  app.get<{ Querystring: DevcontainerQuery }>(
+    "/devcontainer",
+    {
+      schema: {
+        tags: [TAGS.devcontainer],
+        description:
+          "Reads a built image's `devcontainer.metadata` label straight from its registry (no pull, no Docker daemon) and returns it merged the way the Dev Containers CLI merges it, plus ready-to-run lifecycle scripts and merged VS Code customizations - what a Coder template needs to run `postCreateCommand` & co. and pre-install extensions. Pass `registry`/`name`/`tag` exactly as `POST /build` returned them. See [0011](https://github.com/DeepSpaceCartel/devcontainer-builder/blob/main/docs/decisions/0011-devcontainer-metadata-endpoint.md).",
+        querystring: DevcontainerQuerySchema,
+        headers: RegistryAuthHeadersSchema,
+        response: {
+          200: DevcontainerResponseSchema,
+          400: ErrorResponseSchema,
+          404: DevcontainerNotFoundResponseSchema,
+          422: DevcontainerUnprocessableResponseSchema,
+          502: RegistryUpstreamErrorResponseSchema,
+        },
+      },
+      attachValidation: true,
+    },
+    async (request, reply) => {
+      if (request.validationError) {
+        reply.code(400);
+        return { error: DEVCONTAINER_QUERY_SHAPE_ERROR };
+      }
+
+      const { registry, name, tag } = request.query;
+      const platform = request.query.platform ?? DEFAULT_DEVCONTAINER_PLATFORM;
+      const auth = readRegistryAuthHeaders(request.headers);
+      const image = `${registry}/${name}:${tag}`;
+      const imageFields = { "image.registry": registry, "image.name": name, "image.tag": tag, "image.platform": platform };
+
+      request.log.info({ event: "devcontainer.lookup.started", ...imageFields });
+
+      try {
+        const lookup = await readImageConfig(registry, name, tag, platform, auth);
+        if (!lookup.found) {
+          devcontainerLookupsTotal.inc({ result: "absent" });
+          request.log.info({ event: "devcontainer.lookup.completed", ...imageFields, result: "absent" });
+          reply.code(404);
+          return { error: `no image ${image} in the registry` };
+        }
+
+        const label = lookup.labels[METADATA_LABEL];
+        if (label === undefined) {
+          devcontainerLookupsTotal.inc({ result: "no_metadata" });
+          request.log.info({ event: "devcontainer.lookup.completed", ...imageFields, result: "no_metadata" });
+          reply.code(422);
+          return { error: `${image} has no ${METADATA_LABEL} label - it wasn't built by the Dev Containers CLI` };
+        }
+
+        const metadata = buildDevcontainerMetadata(label);
+        devcontainerLookupsTotal.inc({ result: "found" });
+        request.log.info({
+          event: "devcontainer.lookup.completed",
+          ...imageFields,
+          result: "found",
+          "image.digest": lookup.digest,
+          "devcontainer.entries": metadata.metadata.length,
+          "devcontainer.warnings": metadata.warnings.length,
+        });
+        return { image, digest: lookup.digest, ...metadata };
+      } catch (err) {
+        if (err instanceof PlatformNotFoundError || err instanceof InvalidMetadataLabelError) {
+          devcontainerLookupsTotal.inc({ result: "no_metadata" });
+          request.log.info({ event: "devcontainer.lookup.completed", ...imageFields, result: "no_metadata", "error.message": err.message });
+          reply.code(422);
+          return { error: err.message };
+        }
+        devcontainerLookupsTotal.inc({ result: "error" });
+        request.log.error({ event: "devcontainer.lookup.failed", ...imageFields, ...errorFields(err) });
         captureIfEnabled(err);
         reply.code(502);
         return { error: err instanceof Error ? err.message : "registry request failed" };

@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- `GET /devcontainer?registry=&name=&tag=[&platform=]` — reads a built
+  image's `devcontainer.metadata` label straight from its registry and
+  returns `configuration` (exactly the Dev Containers CLI's
+  `mergedConfiguration` shape), `lifecycleScripts` (each hook rendered as one
+  POSIX `sh` script with the CLI's ordering/parallel/stop-on-failure
+  semantics), `vscode` (extensions and settings merged the way VS Code does),
+  `warnings`, and the raw `metadata`. `404` for a missing tag, `422` for an
+  image without the label or the requested platform. See
+  [ADR-0011](docs/decisions/0011-devcontainer-metadata-endpoint.md).
+- `insecureRegistries` setting (`--insecure-registries`,
+  `INSECURE_REGISTRIES`, settings file, chart value) — registry hosts the
+  service's own registry calls (`/image`, `/devcontainer`) reach over plain
+  HTTP. Empty by default; reported by `GET /config`.
+- New metric `devcontainer_builder_devcontainer_lookups_total{result}`.
+
+### Fixed
+
+- `GET`/`DELETE /image` with a namespaced `registry` (e.g.
+  `ghcr.io/deepspacecartel`, as `POST /build` returns it) built an invalid
+  registry URL. The namespace is now part of the repository path, and
+  ambient credentials stored for the bare host (`ghcr.io`) are found.
+- `GET`/`DELETE /image` never sent credentials to registries that use Basic
+  (htpasswd) auth instead of a Bearer token exchange.
+
 ### Changed
 
 - **Breaking:** `templates/coder-kubernetes` now persists the workspace's
