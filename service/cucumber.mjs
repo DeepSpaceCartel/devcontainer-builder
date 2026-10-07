@@ -27,6 +27,10 @@ export default {
   // Builder name/fixture paths by a real CUCUMBER_WORKER_ID (see
   // docs/project/testing.md) specifically so this is safe by default -
   // override with `--parallel N` (N=1 to force fully sequential) rather
-  // than editing this file for a one-off run.
-  parallel: 10,
+  // than editing this file for a one-off run. 3, not more: every
+  // scenario deploys a full fixture set (service, two registries,
+  // BuildKit, git server), and 10 workers' worth starved the dev
+  // cluster's two worker nodes of schedulable memory - see
+  // docs/project/testing.md.
+  parallel: 3,
 };

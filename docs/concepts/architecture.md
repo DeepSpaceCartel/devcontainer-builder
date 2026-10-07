@@ -99,7 +99,7 @@ flowchart TD
   heuristic recognizes this exact field name) without a level-number
   lookup table. Every business-logic log call carries an explicit
   `event` name (`image.lookup.started`/`.completed`/`.failed`,
-  `image.delete.*`, `build.*`) plus domain fields (`image.registry`,
+  `image.delete.*`, `devcontainer.lookup.*`, `build.*`) plus domain fields (`image.registry`,
   `image.name`, `image.tag`, ...) rather than a free-text sentence, and
   every request gets exactly one `http.request.completed` access-log-style
   event (an `onResponse` hook in `server.ts`, replacing Fastify's own
@@ -114,8 +114,8 @@ flowchart TD
   own `package.json` version.
 - **`GET /metrics`** — Prometheus text-format metrics
   ([`prom-client`](https://github.com/siimon/prom-client)), Node.js
-  process/runtime defaults plus real build/image-check/image-delete
-  counters and a build-duration histogram — see
+  process/runtime defaults plus real build/image-check/image-delete/
+  devcontainer-lookup counters and a build-duration histogram — see
   [API reference](../api-reference.html){:target="_blank" rel="noopener"}.
 - **Error tracking** — optional
   [Sentry](https://docs.sentry.io/platforms/javascript/guides/fastify/)
@@ -147,6 +147,11 @@ flowchart TD
   child logger's own binding) — `reqId` identifies *this service's* one
   HTTP request; `trace.id`/`span.id` identify the *distributed* operation
   a request might be one leg of, present only while tracing is enabled.
+- **`GET /devcontainer`** — a built image's `devcontainer.metadata` label,
+  read straight from the registry and merged the way the Dev Containers
+  CLI merges it, plus ready-to-run lifecycle scripts and merged VS Code
+  customizations — see
+  [0011](../decisions/0011-devcontainer-metadata-endpoint.md).
 - **`GET /config`** — read-only, non-sensitive view of the service's own
   loaded configuration, credential material always redacted — see
   [API reference](../api-reference.html){:target="_blank" rel="noopener"}.

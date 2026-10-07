@@ -125,6 +125,9 @@ reason - REGISTRY_MAPPING_CONFIG_PATH wins entirely whenever it's set.
 {{- $settings = set $settings "build" $build -}}
 {{- end -}}
 {{- $settings = set $settings "sshHostKeyPolicy" .Values.sshHostKeyPolicy -}}
+{{- if .Values.insecureRegistries -}}
+{{- $settings = set $settings "insecureRegistries" .Values.insecureRegistries -}}
+{{- end -}}
 {{- if and .Values.registryMapping.enabled (not .Values.registryMapping.existingConfigMap) -}}
 {{- $settings = set $settings "registryMapping" (dict "rules" .Values.registryMapping.rules) -}}
 {{- end -}}

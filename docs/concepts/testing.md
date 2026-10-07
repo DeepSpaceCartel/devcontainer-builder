@@ -56,6 +56,7 @@ and per-domain reference pages.
 | `git_source_resolution.feature` | URL parsing, credential precedence, and HTTPS/SSH protocol conversion |
 | `service_settings_file.feature` | The unified `SERVICE_CONFIG_PATH` JSON/YAML settings file |
 | `service_startup_configuration.feature` | Every other startup config source, including real crash-loop detection for misconfiguration |
+| `devcontainer_metadata.feature` | `GET /devcontainer` on real built images: Feature + devcontainer.json merging, rendered lifecycle scripts, VS Code customizations, authed registries, and unusable images |
 | `end_to_end_build.feature` | A handful of full round trips combining several resolution axes at once (`@smoke`) |
 
 ## Fixture cost is real and accepted

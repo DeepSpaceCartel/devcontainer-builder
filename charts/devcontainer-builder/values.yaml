@@ -143,6 +143,13 @@ gitCredentials:
 # missing for a host using SSH creds under this policy).
 sshHostKeyPolicy: tofu
 
+# Registry hosts (e.g. "registry.registry.svc.cluster.local:5000") the
+# service's own registry calls - GET/DELETE /image and GET /devcontainer -
+# reach over plain HTTP instead of HTTPS. Builds aren't affected: pushing
+# to a plain-HTTP registry is BuildKit's own config (buildkitd.toml).
+# Explicit only - there's no automatic HTTPS-to-HTTP fallback.
+insecureRegistries: []
+
 registryMapping:
   # Set to false to omit REGISTRY_MAPPING_CONFIG_PATH and its volume
   # entirely (rather than pointing it at a file with an empty rules list).

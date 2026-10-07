@@ -96,7 +96,7 @@ Feature: The chart-rendered settings file
       """
       { this is not valid JSON
       """
-    When I create ConfigMap known as "<BadSettingsConfigMap>" named "bad-settings-json-w<WorkerId>" in "<Namespace>" from file "settings.json" at ".cache/fixtures/service-settings-file-w<WorkerId>/settings-bad-json.json"
+    When I create ConfigMap known as "<BadSettingsConfigMap>" named "bad-settings-json" in "<Namespace>" from file "settings.json" at ".cache/fixtures/service-settings-file-w<WorkerId>/settings-bad-json.json"
     Then the command exited with 0
     Given Helm Release known as "<Release>":
       | PROPERTY  | VALUE                |
@@ -109,7 +109,7 @@ Feature: The chart-rendered settings file
       | --set      | image.repository=ghcr.io/deepspacecartel/devcontainer-builder-test                                                          |
       | --set      | image.tag=test                                                                                                              |
       | --set      | image.pullPolicy=Always                                                                                                    |
-      | --set-json | extraVolumes=[{"name":"bad-settings","configMap":{"name":"bad-settings-json-w<WorkerId>"}}]                                |
+      | --set-json | extraVolumes=[{"name":"bad-settings","configMap":{"name":"bad-settings-json"}}]                                |
       | --set-json | extraVolumeMounts=[{"name":"bad-settings","mountPath":"/home/builder/.config/bad-settings.json","subPath":"settings.json"}] |
       | --set-json | extraEnv=[{"name":"SERVICE_CONFIG_PATH","value":"/home/builder/.config/bad-settings.json"}]                                |
     Then the command exited with 0
@@ -136,7 +136,7 @@ Feature: The chart-rendered settings file
       """
       buildkit: [ unterminated
       """
-    When I create ConfigMap known as "<BadSettingsConfigMap>" named "bad-settings-yaml-w<WorkerId>" in "<Namespace>" from file "settings.yaml" at ".cache/fixtures/service-settings-file-w<WorkerId>/settings-bad-yaml.yaml"
+    When I create ConfigMap known as "<BadSettingsConfigMap>" named "bad-settings-yaml" in "<Namespace>" from file "settings.yaml" at ".cache/fixtures/service-settings-file-w<WorkerId>/settings-bad-yaml.yaml"
     Then the command exited with 0
     Given Helm Release known as "<Release>":
       | PROPERTY  | VALUE                |
@@ -149,7 +149,7 @@ Feature: The chart-rendered settings file
       | --set      | image.repository=ghcr.io/deepspacecartel/devcontainer-builder-test                                                        |
       | --set      | image.tag=test                                                                                                            |
       | --set      | image.pullPolicy=Always                                                                                                  |
-      | --set-json | extraVolumes=[{"name":"bad-settings","configMap":{"name":"bad-settings-yaml-w<WorkerId>"}}]                              |
+      | --set-json | extraVolumes=[{"name":"bad-settings","configMap":{"name":"bad-settings-yaml"}}]                              |
       | --set-json | extraVolumeMounts=[{"name":"bad-settings","mountPath":"/home/builder/.config/bad-settings.yaml","subPath":"settings.yaml"}] |
       | --set-json | extraEnv=[{"name":"SERVICE_CONFIG_PATH","value":"/home/builder/.config/bad-settings.yaml"}]                              |
     Then the command exited with 0
@@ -176,7 +176,7 @@ Feature: The chart-rendered settings file
       """
       [ "not", "an", "object" ]
       """
-    When I create ConfigMap known as "<BadSettingsConfigMap>" named "bad-settings-not-object-w<WorkerId>" in "<Namespace>" from file "settings.json" at ".cache/fixtures/service-settings-file-w<WorkerId>/settings-not-object.json"
+    When I create ConfigMap known as "<BadSettingsConfigMap>" named "bad-settings-not-object" in "<Namespace>" from file "settings.json" at ".cache/fixtures/service-settings-file-w<WorkerId>/settings-not-object.json"
     Then the command exited with 0
     Given Helm Release known as "<Release>":
       | PROPERTY  | VALUE                |
@@ -189,7 +189,7 @@ Feature: The chart-rendered settings file
       | --set      | image.repository=ghcr.io/deepspacecartel/devcontainer-builder-test                                                          |
       | --set      | image.tag=test                                                                                                              |
       | --set      | image.pullPolicy=Always                                                                                                    |
-      | --set-json | extraVolumes=[{"name":"bad-settings","configMap":{"name":"bad-settings-not-object-w<WorkerId>"}}]                          |
+      | --set-json | extraVolumes=[{"name":"bad-settings","configMap":{"name":"bad-settings-not-object"}}]                          |
       | --set-json | extraVolumeMounts=[{"name":"bad-settings","mountPath":"/home/builder/.config/bad-settings.json","subPath":"settings.json"}] |
       | --set-json | extraEnv=[{"name":"SERVICE_CONFIG_PATH","value":"/home/builder/.config/bad-settings.json"}]                                |
     Then the command exited with 0
@@ -216,7 +216,7 @@ Feature: The chart-rendered settings file
       """
       { "buildkit": { "endpoint": 1234 } }
       """
-    When I create ConfigMap known as "<BadSettingsConfigMap>" named "bad-settings-wrong-type-w<WorkerId>" in "<Namespace>" from file "settings.json" at ".cache/fixtures/service-settings-file-w<WorkerId>/settings-wrong-type.json"
+    When I create ConfigMap known as "<BadSettingsConfigMap>" named "bad-settings-wrong-type" in "<Namespace>" from file "settings.json" at ".cache/fixtures/service-settings-file-w<WorkerId>/settings-wrong-type.json"
     Then the command exited with 0
     Given Helm Release known as "<Release>":
       | PROPERTY  | VALUE                |
@@ -229,7 +229,7 @@ Feature: The chart-rendered settings file
       | --set      | image.repository=ghcr.io/deepspacecartel/devcontainer-builder-test                                                          |
       | --set      | image.tag=test                                                                                                              |
       | --set      | image.pullPolicy=Always                                                                                                    |
-      | --set-json | extraVolumes=[{"name":"bad-settings","configMap":{"name":"bad-settings-wrong-type-w<WorkerId>"}}]                          |
+      | --set-json | extraVolumes=[{"name":"bad-settings","configMap":{"name":"bad-settings-wrong-type"}}]                          |
       | --set-json | extraVolumeMounts=[{"name":"bad-settings","mountPath":"/home/builder/.config/bad-settings.json","subPath":"settings.json"}] |
       | --set-json | extraEnv=[{"name":"SERVICE_CONFIG_PATH","value":"/home/builder/.config/bad-settings.json"}]                                |
     Then the command exited with 0
@@ -273,7 +273,7 @@ Feature: The chart-rendered settings file
         }
       }
       """
-    When I create ConfigMap known as "<BadSettingsConfigMap>" named "bad-settings-entry-w<WorkerId>" in "<Namespace>" from file "settings.json" at ".cache/fixtures/service-settings-file-w<WorkerId>/settings-bad-entry.json"
+    When I create ConfigMap known as "<BadSettingsConfigMap>" named "bad-settings-entry" in "<Namespace>" from file "settings.json" at ".cache/fixtures/service-settings-file-w<WorkerId>/settings-bad-entry.json"
     Then the command exited with 0
     Given Helm Release known as "<Release>":
       | PROPERTY  | VALUE                |
@@ -287,7 +287,7 @@ Feature: The chart-rendered settings file
       | --set      | image.tag=test                                                                                                              |
       | --set      | image.pullPolicy=Always                                                                                                    |
       | --set      | gitCredentials.enabled=false                                                                                                |
-      | --set-json | extraVolumes=[{"name":"bad-settings","configMap":{"name":"bad-settings-entry-w<WorkerId>"}}]                               |
+      | --set-json | extraVolumes=[{"name":"bad-settings","configMap":{"name":"bad-settings-entry"}}]                               |
       | --set-json | extraVolumeMounts=[{"name":"bad-settings","mountPath":"/home/builder/.config/bad-settings.json","subPath":"settings.json"}] |
       | --set-json | extraEnv=[{"name":"SERVICE_CONFIG_PATH","value":"/home/builder/.config/bad-settings.json"}]                                |
       | --wait     | True                                                                                                                        |

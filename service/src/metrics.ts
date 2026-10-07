@@ -31,6 +31,13 @@ export const imageChecksTotal = new Counter({
   registers: [registry],
 });
 
+export const devcontainerLookupsTotal = new Counter({
+  name: "devcontainer_builder_devcontainer_lookups_total",
+  help: "Total GET /devcontainer requests, by outcome (found/absent/no_metadata/error).",
+  labelNames: ["result"] as const,
+  registers: [registry],
+});
+
 export const imageDeletesTotal = new Counter({
   name: "devcontainer_builder_image_deletes_total",
   help: "Total DELETE /image requests, by outcome.",

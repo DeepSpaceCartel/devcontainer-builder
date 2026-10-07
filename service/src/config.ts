@@ -123,6 +123,7 @@ interface RawSettingsFile {
   build?: { platforms?: string[]; noCache?: boolean; cacheFrom?: string; cacheTo?: string; mode?: string };
   service?: { port?: number };
   sshHostKeyPolicy?: string;
+  insecureRegistries?: string[];
   gitCredentials?: { entries?: unknown[] };
   registryMapping?: { rules?: unknown[] };
   sentry?: { dsn?: string };
@@ -207,6 +208,13 @@ function loadSettingsFile(path: string | undefined): RawSettingsFile {
     settings.sshHostKeyPolicy = parsed.sshHostKeyPolicy;
   }
 
+  if (parsed.insecureRegistries !== undefined) {
+    if (!Array.isArray(parsed.insecureRegistries) || !parsed.insecureRegistries.every((r) => typeof r === "string")) {
+      throw new Error(`settings file field "insecureRegistries" must be an array of strings`);
+    }
+    settings.insecureRegistries = parsed.insecureRegistries as string[];
+  }
+
   if (parsed.gitCredentials !== undefined) {
     if (!isPlainObject(parsed.gitCredentials)) throw new Error(`settings file field "gitCredentials" must be an object`);
     if (parsed.gitCredentials.entries !== undefined) {
@@ -288,6 +296,7 @@ function loadCliOptions(argv: string[]) {
       "git-credentials-config-path": { type: "string" },
       "registry-mapping-config-path": { type: "string" },
       "build-platforms": { type: "string" },
+      "insecure-registries": { type: "string" },
       "build-no-cache": { type: "boolean" },
       "build-cache-from": { type: "string" },
       "build-cache-to": { type: "string" },
@@ -327,6 +336,13 @@ export interface ServiceConfig {
   sshHostKeyPolicy: SshHostKeyPolicy;
   defaultPlatforms: string[];
   defaultBuildOptions: DefaultBuildOptions;
+  // Registry hosts (exactly as given in a request's `registry`, minus any
+  // path) this service's own registry HTTP calls (GET/DELETE /image, GET
+  // /devcontainer - not the build itself, which BuildKit's own config
+  // governs) reach over plain http:// instead of https://. Explicit opt-in
+  // only, never an automatic https->http fallback, so credentials can't be
+  // downgraded to cleartext by a network failure.
+  insecureRegistries: string[];
   // Sentry/GlitchTip DSN - error tracking is entirely opt-in, off unless
   // set. OpenTelemetry tracing is deliberately not a field here - it's
   // bootstrapped from the standard OTEL_EXPORTER_OTLP_ENDPOINT env var
@@ -353,7 +369,7 @@ export interface ServiceConfig {
   registryAuthRegistries: string[];
 }
 
-function parsePlatformsList(raw: string | undefined): string[] | undefined {
+function parseCommaList(raw: string | undefined): string[] | undefined {
   if (raw === undefined) return undefined;
   return raw
     .split(",")
@@ -416,7 +432,7 @@ export function loadServiceConfig(argv: string[] = process.argv.slice(2)): Servi
     port: Number(cli.port ?? process.env.PORT ?? settings.service?.port ?? 8080),
     buildxBuilderName: cli["buildx-builder-name"] ?? process.env.BUILDX_BUILDER_NAME ?? "devcontainer-builder-remote",
     defaultPlatforms:
-      parsePlatformsList(cli["build-platforms"]) ?? parsePlatformsList(process.env.BUILD_PLATFORMS) ?? settings.build?.platforms ?? [],
+      parseCommaList(cli["build-platforms"]) ?? parseCommaList(process.env.BUILD_PLATFORMS) ?? settings.build?.platforms ?? [],
     defaultBuildOptions: {
       noCache:
         cli["build-no-cache"] ?? parseBooleanEnv("BUILD_NO_CACHE", process.env.BUILD_NO_CACHE) ?? settings.build?.noCache ?? false,
@@ -424,6 +440,11 @@ export function loadServiceConfig(argv: string[] = process.argv.slice(2)): Servi
       cacheTo: cli["build-cache-to"] ?? process.env.BUILD_CACHE_TO ?? settings.build?.cacheTo,
       mode: loadBuildkitMode(cli["buildkit-mode"] ?? process.env.BUILDKIT_MODE ?? settings.build?.mode),
     },
+    insecureRegistries:
+      parseCommaList(cli["insecure-registries"]) ??
+      parseCommaList(process.env.INSECURE_REGISTRIES) ??
+      settings.insecureRegistries ??
+      [],
     gitCredentials: gitCredentialsPath
       ? loadArrayConfigFile(gitCredentialsPath, isGitCredentialEntry, "git credentials")
       : validateEntries(settings.gitCredentials?.entries ?? [], isGitCredentialEntry, "git credentials"),
