@@ -5,7 +5,7 @@ created: 2026-10-07
 
 # v1.0.0 readiness
 
-## Status (2026-10-07): in progress
+## Status (2026-10-07): fixes merged; release pending
 
 Six reviews ran ahead of 1.0, each read-only, against the code at `main`
 after #44:
@@ -24,12 +24,25 @@ This page tracks every "fix before 1.0" finding and where it was handled.
 
 | Area | PR | Findings it covers |
 |---|---|---|
-| Service | `fix/service-hardening` | userinfo in repository URLs (argv, errors, logs, Sentry, spans); repository URL schemes (SSRF, `git://` only behind an opt-in); image names not lowercased; `exit` vs `close`; timeouts and a concurrency limit; buildx builder race; `http://` registry prefixes bypassing `insecureRegistries`; caller-controlled `cacheTo`/`cacheFrom`; `Object.hasOwn`; undeclared `pino`; OpenAPI for `/logs`; the remote's default branch when `branch` is omitted; OTel service name and shutdown |
-| Image + chart | `fix/image-and-chart` | Node 20 end of life; base image digests; pinned `@devcontainers/cli`; `npm ci`; an init process; a numeric `USER`; OCI labels; pod/container `securityContext`; `automountServiceAccountToken`; termination grace; `values.schema.json` (one replica: logs are per pod); the chart-owned namespace with bundled BuildKit; HELM.md accuracy |
-| Template | `fix/template-robustness` | shared image tags deleted under other workspaces (per-workspace tags); `postAttachCommand` racing the other hooks; interrupted clones never retried; `git init -b` and missing git; shell quoting; provider version bounds; storage growth after creation; parameter texts (GiB, the fallback); `seed-home` failures; mount path collisions; repository settings overwriting user settings; the node arch selector; `subdomain_apps` in the reference |
-| Extension | `fix/extension-hardening` | session tokens sent to a workspace-configured URL; `XDG_CONFIG_HOME`; API timeouts; waits that never end or end on a single error; interval overflow; Restricted Mode declared (`limited`); stale "Check for Rebuild" results; failed/stopping workspaces; credentials typed into repository URLs; unpushed changes alongside Rebuild; git argument hygiene; askpass during background fetches; login fallback; JSONC strings; force-pushed image commits; a Marketplace CHANGELOG and name |
-| Docs + CI | `docs/ga-polish` | quickstart namespace and troubleshooting; the provider page (data source, `commit`, the deprecated module); ADR-0014 (hostRequirements are minimums); security, troubleshooting and uninstall pages; terminology; README; stale doc paths; CHANGELOG order and compare links; CI permissions and concurrency; template validation and a Docker build on PRs; release prerelease handling, `latest` only for the highest version, and `npm ci`; docs deploy permissions; actions pinned to SHAs; Dependabot |
-| Provider | `feat/v1-readiness` (provider repo) | credentials updatable without a rebuild; `branch` resolved by the service instead of defaulting to `main`; tests against a fake service; CHANGELOG; import; goreleaser signing; pinned actions; Dependabot |
+| Service | #51 ✅ (verified on a scratch release) | userinfo in repository URLs (argv, errors, logs, Sentry, spans); repository URL schemes (SSRF, `git://` only behind an opt-in); image names not lowercased; `exit` vs `close`; timeouts and a concurrency limit; buildx builder race; `http://` registry prefixes bypassing `insecureRegistries`; caller-controlled `cacheTo`/`cacheFrom`; `Object.hasOwn`; undeclared `pino`; OpenAPI for `/logs`; the remote's default branch when `branch` is omitted; OTel service name and shutdown |
+| Image + chart | #46 ✅ (verified on a scratch release: uid 2000, read-only root) | Node 20 end of life; base image digests; pinned `@devcontainers/cli`; `npm ci`; an init process; a numeric `USER`; OCI labels; pod/container `securityContext`; `automountServiceAccountToken`; termination grace; `values.schema.json` (one replica: logs are per pod); the chart-owned namespace with bundled BuildKit; HELM.md accuracy |
+| Template | #47 ✅ | shared image tags deleted under other workspaces (per-workspace tags); `postAttachCommand` racing the other hooks; interrupted clones never retried; `git init -b` and missing git; shell quoting; provider version bounds; storage growth after creation; parameter texts (GiB, the fallback); `seed-home` failures; mount path collisions; repository settings overwriting user settings; the node arch selector; `subdomain_apps` in the reference |
+| Extension | #48 ✅ | session tokens sent to a workspace-configured URL; `XDG_CONFIG_HOME`; API timeouts; waits that never end or end on a single error; interval overflow; Restricted Mode declared (`limited`); stale "Check for Rebuild" results; failed/stopping workspaces; credentials typed into repository URLs; unpushed changes alongside Rebuild; git argument hygiene; askpass during background fetches; login fallback; JSONC strings; force-pushed image commits; a Marketplace CHANGELOG and name |
+| Docs + CI | #45 ✅ | quickstart namespace and troubleshooting; the provider page (data source, `commit`, the deprecated module); ADR-0014 (hostRequirements are minimums); security, troubleshooting and uninstall pages; terminology; README; stale doc paths; CHANGELOG order and compare links; CI permissions and concurrency; template validation and a Docker build on PRs; release prerelease handling, `latest` only for the highest version, and `npm ci`; docs deploy permissions; actions pinned to SHAs; Dependabot |
+| Provider | provider #5 ✅ (not released) | credentials updatable without a rebuild; `branch` resolved by the service instead of defaulting to `main`; tests against a fake service; CHANGELOG; import; goreleaser signing; pinned actions; Dependabot |
+
+## Still open before tagging
+
+- **rts:**
+  - template sync of #47 (per-workspace tags, robust scripts);
+  - #37 (Harbor);
+  - #38 (subdomain apps).
+- **Coder Registry copy** (coder/registry#1167) updated to the current template.
+- **Live checks of #47 in a scratch workspace:** an update rebuilding once, two workspaces on one
+  commit, an interrupted clone, the `postAttachCommand` ordering.
+- **CI** still uses Node 20 while the image is on Node 24 (`engines >=22`).
+- **Chart values** for the new service settings (git protocols, timeouts, concurrency). `extraEnv`
+  covers them until then.
 
 ## Decisions for the maintainer
 
