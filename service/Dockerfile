@@ -38,11 +38,23 @@ RUN npm run build
 # ship, from the registry - not this checkout's source - so the published
 # package and the image running it are provably the same artifact. Requires
 # PACKAGE_VERSION to already be live on npm (see .github/workflows/release.yaml,
-# where the `image` job depends on `npm` publishing first).
+# where the `image` job depends on `npm` publishing first). Retried, because
+# "live" isn't instant: right after `npm publish`, a version's metadata can
+# resolve while its tarball still 404s for a few minutes (v0.2.0's first
+# image build failed exactly that way) - and each platform's build may hit a
+# different registry edge.
 FROM runtime-base AS release
 ARG PACKAGE_VERSION
+ARG NPM_INSTALL_ATTEMPTS=20
+ARG NPM_INSTALL_RETRY_SECONDS=15
 RUN test -n "$PACKAGE_VERSION" \
-    && npm install -g @deepspacecartel/devcontainer-builder@${PACKAGE_VERSION}
+    && for attempt in $(seq 1 "$NPM_INSTALL_ATTEMPTS"); do \
+         npm install -g "@deepspacecartel/devcontainer-builder@${PACKAGE_VERSION}" && exit 0; \
+         echo "npm install of ${PACKAGE_VERSION} failed (attempt ${attempt}/${NPM_INSTALL_ATTEMPTS}), retrying in ${NPM_INSTALL_RETRY_SECONDS}s..." >&2; \
+         npm cache clean --force >/dev/null 2>&1 || true; \
+         sleep "$NPM_INSTALL_RETRY_SECONDS"; \
+       done; \
+       echo "npm install of ${PACKAGE_VERSION} still failing after ${NPM_INSTALL_ATTEMPTS} attempts" >&2; exit 1
 USER builder
 WORKDIR /home/builder/app
 
