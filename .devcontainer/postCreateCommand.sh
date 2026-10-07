@@ -22,14 +22,6 @@ fi
 
 arch="$(dpkg --print-architecture)"
 
-# --- Node 26 + npm + git --------------------------------------------------
-# devcontainer.json's `image` is supposed to already provide these
-# (mcr.microsoft.com/devcontainers/typescript-node:26-trixie) - this
-# call is a fast no-op there. It only does real work when the workspace
-# actually booted from something else (e.g. a Coder Workspace Template not
-# overriding its image), which otherwise breaks every npm-based step below.
-bash "$(dirname "${BASH_SOURCE[0]}")/typescript-node.sh"
-
 # --- Timezone -------------------------------------------------------------
 # In the workspace, devcontainer.json's containerEnv already sets TZ.
 tz="America/Los_Angeles"

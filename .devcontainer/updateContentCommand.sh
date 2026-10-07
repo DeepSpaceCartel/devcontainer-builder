@@ -8,8 +8,8 @@
 set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
-# npx fails with ENOENT when npm's global prefix has no lib/ (e.g. the
-# ~/.npm-global prefix typescript-node.sh sets, persisted in $HOME).
+# npx fails with ENOENT when npm's global prefix has no lib/ (e.g. a
+# ~/.npm-global prefix an older setup left in the persisted $HOME).
 mkdir -p "$(npm config get prefix)/lib"
 
 # Only when a pinned skill is missing: the restore downloads every skill
