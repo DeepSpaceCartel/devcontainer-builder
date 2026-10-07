@@ -14,8 +14,8 @@ and the `@devcontainers/cli`, on top of the base
 (Node 26 already included). Versions are deliberately unpinned there,
 matching CI's own unpinned `setup-helm`/`setup-terraform` actions.
 
-Outside a Dev Container, you need real, working installs of: Node 22 or
-newer (the image runs Node 24, the current LTS),
+Outside a Dev Container, you need real, working installs of: Node 26 or
+newer (what the image runs),
 Docker CLI with the `buildx` plugin, `@devcontainers/cli`, and `git` —
 the same set `service/Dockerfile` installs into the deployable image
 itself.
@@ -52,8 +52,8 @@ var/settings-file field is identical either way — see
 
 ### The container image
 
-`service/Dockerfile` has two build targets, sharing one runtime base: Node 24
-(`node:24-bookworm-slim`, pinned by digest), `git`, the Docker CLI +
+`service/Dockerfile` has two build targets, sharing one runtime base: Node 26
+(`node:26-trixie-slim`, pinned by digest), `git`, the Docker CLI +
 `buildx` plugin (no `dockerd`, see
 [0001](../decisions/0001-remote-buildkit-builder.md)), `@devcontainers/cli`
 pinned to the version the service is checked against
