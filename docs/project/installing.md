@@ -14,7 +14,8 @@ and the `@devcontainers/cli`, on top of the base
 (Node 20 already included). Versions are deliberately unpinned there,
 matching CI's own unpinned `setup-helm`/`setup-terraform` actions.
 
-Outside a Dev Container, you need real, working installs of: Node 20,
+Outside a Dev Container, you need real, working installs of: Node 22 or
+newer (the image runs Node 24, the current LTS),
 Docker CLI with the `buildx` plugin, `@devcontainers/cli`, and `git` —
 the same set `service/Dockerfile` installs into the deployable image
 itself.
@@ -51,14 +52,21 @@ var/settings-file field is identical either way — see
 
 ### The container image
 
-`service/Dockerfile` has two build targets, sharing one runtime base (`git`,
-the Docker CLI + `buildx` plugin — no `dockerd`, see
-[0001](../decisions/0001-remote-buildkit-builder.md) — `@devcontainers/cli`,
-a non-root `builder` user):
+`service/Dockerfile` has two build targets, sharing one runtime base: Node 24
+(`node:24-bookworm-slim`, pinned by digest), `git`, the Docker CLI +
+`buildx` plugin (no `dockerd`, see
+[0001](../decisions/0001-remote-buildkit-builder.md)), `@devcontainers/cli`
+pinned to the version the service is checked against
+(`DEVCONTAINERS_CLI_VERSION` build arg), [`tini`](https://github.com/krallin/tini)
+as PID 1 so exited `git`/`ssh`/`buildx` children are reaped, and a non-root
+`builder` user that the image runs as by number (`USER 2000:2000`), so
+Kubernetes' `runAsNonRoot` can verify it. OCI labels
+(`org.opencontainers.image.source`, `.description`, `.licenses`, `.version`)
+link the image to this repository:
 
 ```bash
-# dev: builds from this checkout's source (tsc -> dist/), no network
-# dependency beyond npm's own lockfile install. This is also what a bare
+# dev: builds from this checkout's source (npm ci, then tsc -> dist/), no
+# network dependency beyond npm's own lockfile install. This is also what a bare
 # `docker build service/` produces, with no --target at all - use it for
 # local iteration and testing against a local cluster.
 docker build --target dev -t devcontainer-builder service/

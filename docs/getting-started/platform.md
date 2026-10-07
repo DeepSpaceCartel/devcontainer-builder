@@ -21,13 +21,16 @@ below is real.
 
 ## 1. Install devcontainer-builder and BuildKit
 
-One chart installs both. BuildKit runs in its own namespace, created and
-labeled by the chart, because it needs Pod Security *privileged* there
-([ADR-0001](../decisions/0001-remote-buildkit-builder.md)):
+One chart installs both. Bundled BuildKit runs in the release namespace,
+which has to allow Pod Security *privileged*
+([ADR-0001](../decisions/0001-remote-buildkit-builder.md)), so create and
+label it first:
 
 === "Bundled BuildKit"
 
     ```bash
+    kubectl create namespace devcontainer-builder
+    kubectl label namespace devcontainer-builder pod-security.kubernetes.io/enforce=privileged
     helm install devcontainer-builder oci://ghcr.io/deepspacecartel/charts/devcontainer-builder \
       --namespace devcontainer-builder \
       --set buildkit.deploy.enabled=true \
@@ -38,8 +41,10 @@ labeled by the chart, because it needs Pod Security *privileged* there
       --set 'registryMapping.rules[0].registry=ghcr.io/<your-org>'
     ```
 
-    No `--create-namespace`: the chart creates its namespace itself when it
-    bundles BuildKit.
+    The chart doesn't create or own the namespace, so `helm uninstall`
+    leaves it. Upgrading an install from chart 0.5.0 or earlier, which did
+    own it: see
+    [the namespace for bundled BuildKit](../reference/HELM.md#the-namespace-for-bundled-buildkit).
 
 === "Your own BuildKit"
 

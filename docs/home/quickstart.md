@@ -87,7 +87,7 @@ helm install devcontainer-builder oci://ghcr.io/deepspacecartel/charts/devcontai
 keeps the command copy-pasteable on its own. The privileged level only
 widens what the namespace *allows*; devcontainer-builder's own pod stays
 unprivileged. See [Security model](../concepts/security.md) and the
-[Helm chart reference](../reference/HELM.md#buildkit).
+[Helm chart reference](../reference/HELM.md#the-namespace-for-bundled-buildkit).
 
 Confirm it's actually ready — not just that the Pod is `Running`, but
 that BuildKit was picked up (see

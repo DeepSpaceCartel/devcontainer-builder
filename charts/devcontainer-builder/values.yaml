@@ -1,3 +1,6 @@
+# Single replica only (values.schema.json enforces maximum 1): captured
+# build output behind GET /logs/{id} lives on this pod's own /tmp emptyDir,
+# so a second replica would 404 on log ids the other one returned.
 replicaCount: 1
 
 # Empty means k8s's own default (RollingUpdate). Test scenarios that roll
@@ -6,12 +9,53 @@ replicaCount: 1
 # serving indefinitely instead of being replaced.
 updateStrategy: {}
 
+# How long Kubernetes waits after SIGTERM before killing the pod. The
+# service stops accepting new requests on SIGTERM and lets in-flight ones
+# finish, and a /build request lasts as long as its build - so this is the
+# budget an in-flight build gets to complete during a rollout/drain.
+terminationGracePeriodSeconds: 300
+
 podSecurityContext:
-  # Must match the container image's builder user's gid (see service/Dockerfile's
-  # `useradd --uid 2000 builder`, which gets a matching gid by default) so
-  # group-readable Secret/ConfigMap volume files (e.g. git-credentials.json,
-  # mode 0440) are actually readable by the non-root container process.
+  runAsNonRoot: true
+  # Must match the container image's builder user (service/Dockerfile's
+  # `USER 2000:2000`).
+  runAsUser: 2000
+  runAsGroup: 2000
+  # Same gid, so group-readable Secret/ConfigMap volume files (e.g.
+  # git-credentials.json, mode 0440) and the emptyDirs are actually
+  # readable/writable by the non-root container process.
   fsGroup: 2000
+  seccompProfile:
+    type: RuntimeDefault
+
+# Container-level securityContext. readOnlyRootFilesystem is safe because
+# every path the service writes to is an emptyDir: /tmp (scratch clones,
+# per-request credential dirs, captured /logs output, the devcontainers
+# CLI's own cache) and DOCKER_CONFIG (/home/builder/.docker, buildx's
+# builder state).
+securityContext:
+  runAsNonRoot: true
+  runAsUser: 2000
+  runAsGroup: 2000
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop: ["ALL"]
+  seccompProfile:
+    type: RuntimeDefault
+
+serviceAccount:
+  # The service never calls the Kubernetes API, so the pod doesn't get a
+  # token by default.
+  automountServiceAccountToken: false
+
+# e.g. [{name: my-pull-secret}] - for a private copy of the image.
+imagePullSecrets: []
+# Extra pod annotations, merged with the chart's own checksum/* ones.
+podAnnotations: {}
+nodeSelector: {}
+tolerations: []
+affinity: {}
 
 image:
   repository: ghcr.io/deepspacecartel/devcontainer-builder
@@ -50,21 +94,27 @@ buildkit:
     #
     # Real, non-optional prerequisite this doesn't remove: BuildKit's
     # default mode is genuinely privileged (inherent to how it does OCI
-    # builds, not a chart shortcoming), so enabling this makes the chart
-    # label its own release namespace
-    # `pod-security.kubernetes.io/enforce: privileged`
-    # (templates/buildkit-namespace.yaml, same pattern ADR-0006 and
-    # charts/test-namespace already use) - meaning devcontainer-builder's
-    # own (ordinary, non-privileged) pod runs in that same
-    # relaxed-PodSecurity namespace too, since the bundled dependency has
-    # no support for installing into a namespace of its own. That's fine:
-    # "privileged" is the most permissive PodSecurity tier, so it only
-    # widens what the namespace *allows* - it doesn't force anything on a
-    # pod that doesn't ask for it. Don't pass `--create-namespace` when
-    # enabling this - let the chart create+label its own release namespace
-    # on first install instead (conflicts with Helm's own unlabeled
-    # --create-namespace otherwise).
+    # builds, not a chart shortcoming), and the bundled dependency installs
+    # into the release namespace - so label that namespace once, before
+    # `helm install` (Pod Security admission rejects BuildKit's pod
+    # otherwise):
+    #
+    #   kubectl create namespace <ns>
+    #   kubectl label namespace <ns> pod-security.kubernetes.io/enforce=privileged
+    #
+    # devcontainer-builder's own pod is unaffected: "privileged" only
+    # widens what the namespace *allows*.
     enabled: false
+
+  # Earlier chart versions' behavior: the chart renders the release Namespace
+  # itself, labeled privileged. Off by default - a chart-owned Namespace
+  # can't be installed into an existing namespace, and conflicts with
+  # --create-namespace. Whenever it is rendered it carries
+  # `helm.sh/resource-policy: keep`, so `helm uninstall` never deletes the
+  # namespace. Installs that already own their Namespace (installed with
+  # buildkit.deploy.enabled before this changed) keep rendering it
+  # automatically (detected via lookup), so upgrading never deletes it.
+  manageNamespace: false
 
 # Values passed through to the bundled BuildKit dependency
 # (https://github.com/andrcuns/charts/tree/main/charts/buildkit-service)
@@ -173,7 +223,7 @@ registryMapping:
   #     registry: ghcr.io/org-a
 
 # Extra CLI arguments appended to the container's entrypoint (`node
-# dist/server.js <extraArgs...>`) - e.g. ["--ssh-host-key-policy", "pinned"].
+# dist/index.js <extraArgs...>`) - e.g. ["--ssh-host-key-policy", "pinned"].
 extraArgs: []
 
 # Extra container env vars, e.g. [{name: FOO, value: bar}] - appended after
@@ -195,5 +245,13 @@ resources:
     cpu: "1"
     memory: 1Gi
 
+# emptyDir mounted at /tmp - every scratch clone, per-request credential
+# dir and captured /logs output lives here.
 scratchVolume:
   sizeLimit: 5Gi
+
+# emptyDir mounted at DOCKER_CONFIG (/home/builder/.docker) for buildx's
+# builder state, needed with readOnlyRootFilesystem; the registry-auth
+# config.json is mounted into it.
+dockerConfigVolume:
+  sizeLimit: 64Mi

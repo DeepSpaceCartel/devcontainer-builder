@@ -1,15 +1,35 @@
 {{- /*
-Only rendered when the bundled BuildKit dependency is enabled - labels this
-chart's own release namespace as a privileged-PodSecurity exemption (see
-buildkit.deploy's comment in values.yaml for why). Owning this Namespace
-resource, rather than relying on Helm's own unlabeled --create-namespace,
-mirrors charts/test-namespace's own pattern (ADR-0006).
+The release Namespace, labeled privileged for the bundled BuildKit - only
+rendered on opt-in (buildkit.manageNamespace) or for an install that
+already owns it. New installs instead label a namespace they create
+themselves (see buildkit.deploy's comment in values.yaml): a chart-owned
+Namespace can't be installed into an existing namespace and conflicts
+with --create-namespace.
+
+Earlier chart versions rendered this unconditionally with
+buildkit.deploy.enabled. Helm deletes a resource that disappears from a
+release's manifest on upgrade - here, the namespace and everything in it,
+the release included - so an install whose live Namespace is already
+owned by this release keeps rendering it (lookup returns nothing under
+`helm template`/client dry-runs, which is fine: nothing to preserve
+there). `helm.sh/resource-policy: keep` makes `helm uninstall` (and any
+later removal from the manifest) leave the namespace alone.
 */ -}}
-{{- if .Values.buildkit.deploy.enabled }}
+{{- $existing := lookup "v1" "Namespace" "" .Release.Namespace -}}
+{{- $owned := false -}}
+{{- if $existing -}}
+{{- $annotations := $existing.metadata.annotations | default dict -}}
+{{- if and (eq (get $annotations "meta.helm.sh/release-name") .Release.Name) (eq (get $annotations "meta.helm.sh/release-namespace") .Release.Namespace) -}}
+{{- $owned = true -}}
+{{- end -}}
+{{- end -}}
+{{- if or (and .Values.buildkit.deploy.enabled .Values.buildkit.manageNamespace) $owned }}
 apiVersion: v1
 kind: Namespace
 metadata:
   name: {{ .Release.Namespace }}
   labels:
     pod-security.kubernetes.io/enforce: privileged
+  annotations:
+    helm.sh/resource-policy: keep
 {{- end }}

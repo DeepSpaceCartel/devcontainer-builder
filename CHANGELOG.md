@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- **Chart: `values.schema.json`.** Unknown keys, wrong types, and values outside an enum
+  (`build.mode`: `auto`|`never`, `sshHostKeyPolicy`: `tofu`|`pinned`) fail `helm install` up front.
+  `replicaCount` is capped at 1: captured build output (`GET /logs/{id}`) lives on the pod's own
+  `emptyDir`.
+- **Chart: scheduling and pod values** `imagePullSecrets`, `podAnnotations`, `nodeSelector`,
+  `tolerations`, `affinity`, `terminationGracePeriodSeconds` (default 300, so an in-flight build can
+  finish during a rollout), `serviceAccount.automountServiceAccountToken`, `securityContext`,
+  `dockerConfigVolume.sizeLimit`, and the `app.kubernetes.io/version` label.
+- **Image: OCI labels** (`org.opencontainers.image.source`, `description`, `licenses`, `version`).
 - The VS Code extension is also published to **Open VSX** as `deepspacecartel.devcontainer-builder`,
   for VSCodium, Cursor, code-server and other editors that don't use Microsoft's Marketplace.
 - **Private repositories with the user's own account.** The template's new `external_auth_id`
@@ -24,6 +33,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 ### Changed
 
 - **Breaking:** **Template: `hostRequirements` are minimums**, as in the Dev Container spec, instead of overriding
+- **Image: Node 24 LTS** (was Node 20, end-of-life since April 2026), base image pinned by digest.
+  The npm package's `engines` is now `node >=22`.
+- **Image: `@devcontainers/cli` pinned to 0.89.0** (`DEVCONTAINERS_CLI_VERSION` build arg), the
+  version the service is checked against, instead of whatever was latest at build time.
+- **Image: `tini` is PID 1**, so exited `git`/`ssh`/`buildx` children are reaped and signals reach
+  the server. The image runs as `USER 2000:2000` (numeric, same `builder` user), and the `dev`
+  target installs with `npm ci` from `package-lock.json`.
+- **Chart: hardened pod defaults.** Non-root (uid/gid 2000), `allowPrivilegeEscalation: false`,
+  all capabilities dropped, `RuntimeDefault` seccomp, a read-only root filesystem (`DOCKER_CONFIG`
+  is now an `emptyDir`, next to the `/tmp` one), and no service account token. Overriding
+  `podSecurityContext` or `securityContext` replaces these defaults key by key.
+- **Chart: bundled BuildKit no longer creates the release namespace.** With
+  `buildkit.deploy.enabled`, the chart rendered and owned the release `Namespace` (labeled
+  privileged): installing into an existing namespace failed, and `helm uninstall` deleted the
+  namespace. Now you create and label it yourself before installing
+  (`kubectl label namespace <ns> pod-security.kubernetes.io/enforce=privileged`, see the Helm chart
+  reference); `buildkit.manageNamespace: true` restores the old behavior. **Upgrading an existing
+  bundled install is safe:** the chart detects a namespace the release already owns and keeps
+  rendering it, now with `helm.sh/resource-policy: keep`, so neither the upgrade nor a later
+  `helm uninstall` deletes it. Tools that can't `lookup` (`helm template | kubectl apply`, Argo CD)
+  must set `buildkit.manageNamespace=true` for that upgrade, or annotate the namespace
+  `helm.sh/resource-policy=keep` first.
+- **Template: `hostRequirements` are minimums**, as in the Dev Container spec, instead of overriding
   the CPU/Memory/Disk parameters:
   - `cpus` and `memory` are **reserved** (pod requests), so a workspace lands on a node that has them,
     or stays Pending with a scheduling reason instead of being OOM-killed later;
@@ -48,12 +80,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **Docs: the Helm chart reference's `image.tag` default** is `""` (the chart's `appVersion`), not
+  `"0.1.0"`; it now also lists `build.fallbackImage`, `buildkitBundled.*` and every new value. The
+  `extraArgs` comment in `values.yaml` names the real entrypoint, `dist/index.js`.
 - **Template: VS Code in the browser and the forwarded-port apps on deployments without a wildcard
   access URL.** They were always subdomain apps, which Coder can't serve without
   `CODER_WILDCARD_ACCESS_URL`. The new template variable `subdomain_apps` (default `true`) serves
   them on paths of the main Coder URL when set to `false`.
 - **Template: workspace parameters in a sensible order.** Git repository and Branch come first,
   then CPU, Memory, Disk size, Dev Container variables and Rebuild, instead of alphabetical.
+
+### Security
+
+- The service pod runs under the Pod Security *restricted* profile's requirements by default, with
+  a read-only root filesystem and no Kubernetes API token (see Changed).
+- The image's Node.js moved off end-of-life Node 20, and its base image and `@devcontainers/cli` are
+  pinned, so a rebuild can't silently pick up different code.
 
 ## [0.5.0] - 2026-10-07
 
