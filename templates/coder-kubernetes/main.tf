@@ -97,6 +97,12 @@ variable "max_forwarded_ports" {
   default     = 10
 }
 
+variable "rebuild_extension_url" {
+  type        = string
+  description = "VSIX of devcontainer-builder's rebuild prompt, installed into every workspace's VS Code: when the branch's Dev Container configuration changes on origin, it offers to rebuild the workspace. Empty to not install it."
+  default     = "https://github.com/DeepSpaceCartel/devcontainer-builder/releases/latest/download/devcontainer-builder-rebuild.vsix"
+}
+
 variable "git_credentials_username" {
   type        = string
   description = "Optional HTTPS git username, used for every workspace built from this template. Leave empty for public repositories only - devcontainer-builder's own server-side gitCredentials (configured once on the service itself) is the better place for per-host credentials that should apply regardless of which template/caller is asking."
@@ -623,8 +629,9 @@ resource "coder_script" "devcontainer_vscode" {
     set -u
     extensions='${join(" ", local.vscode_extensions)}'
     settings_b64='${base64encode(local.vscode_settings)}'
+    rebuild_extension_url='${var.rebuild_extension_url}'
     data_dir="$HOME/.vscode-server"
-    if [ -z "$extensions" ] && [ "$settings_b64" = "${base64encode("{}")}" ]; then
+    if [ -z "$extensions" ] && [ "$settings_b64" = "${base64encode("{}")}" ] && [ -z "$rebuild_extension_url" ]; then
       exit 0
     fi
 
@@ -645,6 +652,20 @@ resource "coder_script" "devcontainer_vscode" {
           rm -rf "$server"
           exit 0
         fi
+      fi
+    fi
+
+    # The rebuild prompt (vscode-extension/ in devcontainer-builder), from
+    # a VSIX rather than the Marketplace. Reinstalling the same version is
+    # a no-op; a newer one upgrades it.
+    if [ -n "$rebuild_extension_url" ]; then
+      vsix="$HOME/.cache/devcontainer-builder-rebuild.vsix"
+      if command -v curl >/dev/null 2>&1; then download="curl -fsSL -o"; else download="wget -qO"; fi
+      if $download "$vsix.tmp" "$rebuild_extension_url" && mv "$vsix.tmp" "$vsix"; then
+        extensions="$extensions $vsix"
+      else
+        rm -f "$vsix.tmp"
+        echo "devcontainer: could not download $rebuild_extension_url, skipping the rebuild prompt" >&2
       fi
     fi
 
@@ -704,6 +725,27 @@ resource "coder_app" "forwarded_port" {
   subdomain    = true
   share        = "owner"
   hidden       = count.index >= length(local.ports)
+}
+
+# For the rebuild prompt extension (see devcontainer_vscode): the commit
+# the image was built from, compared with origin/<branch>, and the Rebuild
+# value it increases.
+resource "coder_env" "devcontainer_image_commit" {
+  agent_id = coder_agent.main.id
+  name     = "DEVCONTAINER_IMAGE_COMMIT"
+  value    = devcontainerbuilder_build.workspace.commit != null ? devcontainerbuilder_build.workspace.commit : ""
+}
+
+resource "coder_env" "devcontainer_branch" {
+  agent_id = coder_agent.main.id
+  name     = "DEVCONTAINER_BRANCH"
+  value    = data.coder_parameter.branch.value
+}
+
+resource "coder_env" "devcontainer_rebuild" {
+  agent_id = coder_agent.main.id
+  name     = "DEVCONTAINER_REBUILD"
+  value    = data.coder_parameter.rebuild.value
 }
 
 # Commits made in the workspace are attributed to its owner.

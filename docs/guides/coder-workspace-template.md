@@ -106,7 +106,8 @@ coder templates push devcontainer-kubernetes \
 
 `namespace` and `devcontainer_builder_endpoint` are **template-level**
 variables — set once here, not per-workspace. `image_pull_secret_name`,
-`git_credentials_username`/`git_credentials_token` are optional template
+`git_credentials_username`/`git_credentials_token`, `rebuild_extension_url`
+and the others below are optional template
 variables too (see the template's own `variable` blocks for what each
 does); leave them unset to start.
 
@@ -197,6 +198,35 @@ startup error) and its log says why.
 **Rebuild** parameter (workspace settings) to rebuild it from the branch's
 latest commit on the next start, e.g. after `devcontainer.json` changes.
 The working copy is left as it is.
+
+**The rebuild prompt.** You don't have to remember when to bump Rebuild.
+The template installs a small VS Code extension (`vscode-extension/` in
+this repo, the VSIX from `var.rebuild_extension_url`) into VS Code Desktop
+and VS Code in the browser. It compares the image's commit with
+`origin/<branch>` over the files that go into the image:
+
+- `.devcontainer/` and `.devcontainer.json`;
+- the Dockerfile and build context devcontainer.json points at. If the
+  context is the repo root, every change counts.
+
+The extension fetches every 5 minutes, and also checks when you fetch or
+edit. When something relevant lands on origin, the status bar shows
+**Rebuild available** and a notification offers **Rebuild**, **Later**
+(until the window reloads) or **Ignore This Commit** (until origin moves
+again).
+
+A rebuild only ever builds what's pushed, *Commit Your Code*. So Dev
+Container changes that exist only in the workspace show **Push Dev
+Container changes** instead.
+
+**Rebuild** needs a Coder session in the workspace: run `coder login
+<your Coder URL>` once (the session is kept in the persisted home).
+Without one, it opens the workspace's settings page to bump Rebuild by
+hand.
+
+Behind the button is the Coder API (`POST /api/v2/workspaces/{id}/builds`
+with the new `rebuild` value): `coder restart/start --parameter` keep an
+existing workspace's value (Coder v2.37).
 
 ## devcontainer.json in a Kubernetes workspace
 

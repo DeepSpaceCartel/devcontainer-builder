@@ -64,6 +64,13 @@ TypeScript compiles; ask the user to verify or run it themselves.
   [Installing](docs/project/installing.md#the-container-image). `npm
   publish` runs before the `release` image build in
   `.github/workflows/release.yaml`, not in parallel with it.
+- `vscode-extension/` — the rebuild prompt the Coder template installs into
+  workspaces (`cd vscode-extension && npm install && npm test && npm run
+  package` → `devcontainer-builder-rebuild.vsix`, attached to each GitHub
+  Release). Compares `DEVCONTAINER_IMAGE_COMMIT` with `origin/<branch>`
+  over the Dev Container files and build context; Rebuild goes through the
+  Coder API with the `coder login` session. Only `src/extension.ts` imports
+  `vscode` — everything else is unit-tested with `node:test`.
 - `charts/devcontainer-builder/` — Helm chart deploying the service
   (Deployment, ClusterIP Service, ServiceAccount, Secret for registry push
   creds with `existingSecret` support). No autoscaling/Ingress by design —
