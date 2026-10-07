@@ -16,6 +16,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   own. A refreshed token doesn't trigger a rebuild. **Coder: Clone Repository in Workspace…** opens
   the link page and waits for it, instead of failing on create.
 
+### Changed
+
+- **Template: `hostRequirements` are minimums**, as in the Dev Container spec, instead of overriding
+  the CPU/Memory/Disk parameters:
+  - `cpus` and `memory` are **reserved** (pod requests), so a workspace lands on a node that has them,
+    or stays Pending with a scheduling reason instead of being OOM-killed later;
+  - the limits are the larger of the requirement and the parameter;
+  - `storage` is the larger of it and the Disk parameter, so the volume never shrinks.
+
+  New template variables `max_cpu` (default 8) and `max_memory` (GiB, default 32) cap the
+  reservation, with a build-log warning above them. The workspace page shows **Resources (reserved /
+  limit)**. Without `hostRequirements` nothing changes (requests 250m CPU / 512Mi).
+
 ## [0.5.0] - 2026-10-07
 
 ### Added
