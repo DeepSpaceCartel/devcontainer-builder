@@ -75,19 +75,23 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
       # npm's registry has a real, observed propagation delay after
-      # `npm publish` returns - a build starting immediately after `npm`
-      # succeeds can hit "No matching version found" on a version that
-      # published only seconds earlier. Poll for it instead of assuming
-      # it's already visible.
-      - name: Wait for npm to propagate the published version
+      # `npm publish` returns, and two separate stages of it: the version's
+      # *metadata* (what `npm view` reads) shows up first, its *tarball*
+      # (what `npm install` actually downloads) only once npm finishes
+      # processing the upload. v0.2.0's release passed a metadata-only
+      # check here and then hit a 404 on the tarball in the image build,
+      # minutes before it became downloadable - so poll for the tarball
+      # itself.
+      - name: Wait for npm to serve the published tarball
         run: |
           version="${{ needs.version.outputs.version }}"
-          for i in $(seq 1 30); do
-            if npm view "@deepspacecartel/devcontainer-builder@${version}" version >/dev/null 2>&1; then
-              echo "@deepspacecartel/devcontainer-builder@${version} is live on npm"
+          for i in $(seq 1 60); do
+            tarball="$(npm view "@deepspacecartel/devcontainer-builder@${version}" dist.tarball 2>/dev/null || true)"
+            if [ -n "$tarball" ] && curl -fsSIL -o /dev/null "$tarball"; then
+              echo "@deepspacecartel/devcontainer-builder@${version} is downloadable from npm"
               exit 0
             fi
-            echo "Not yet visible on npm, retrying in 10s... (${i}/30)"
+            echo "Not yet downloadable from npm, retrying in 10s... (${i}/60)"
             sleep 10
           done
           echo "::error::Timed out waiting for @deepspacecartel/devcontainer-builder@${version} to propagate on npm"
