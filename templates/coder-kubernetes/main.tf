@@ -103,6 +103,12 @@ variable "vscode_extension" {
   default     = "deepspacecartel.devcontainer-builder"
 }
 
+variable "external_auth_id" {
+  type        = string
+  description = "ID of a Coder external auth provider for the git host (e.g. \"github\", see https://coder.com/docs/admin/external-auth), for private repositories. When set, creating a workspace asks the user to link that account, the workspace's clone uses it (the agent's GIT_ASKPASS), and so does the image build: the user's own token is sent to devcontainer-builder instead of service-side gitCredentials. Empty: public repositories, or credentials configured on devcontainer-builder or below."
+  default     = ""
+}
+
 variable "git_credentials_username" {
   type        = string
   description = "Optional HTTPS git username, used for every workspace built from this template. Leave empty for public repositories only - devcontainer-builder's own server-side gitCredentials (configured once on the service itself) is the better place for per-host credentials that should apply regardless of which template/caller is asking."
@@ -363,6 +369,13 @@ resource "terraform_data" "rebuild" {
   input = data.coder_parameter.rebuild.value
 }
 
+# The workspace owner's linked git account (var.external_auth_id). With
+# count = 0 Coder doesn't ask for it at all.
+data "coder_external_auth" "git" {
+  count = var.external_auth_id != "" ? 1 : 0
+  id    = var.external_auth_id
+}
+
 resource "devcontainerbuilder_build" "workspace" {
   repository = data.coder_parameter.repository.value
   branch     = data.coder_parameter.branch.value
@@ -370,16 +383,25 @@ resource "devcontainerbuilder_build" "workspace" {
   # A Rebuild bump replaces the build: the old image tag is deleted first
   # and the branch's latest commit built (destroy-then-create is right -
   # an unchanged branch rebuilds to the same tag).
+  # Credentials are only needed for the build itself: a linked account's
+  # token is refreshed over time, and must not replace (rebuild) the image
+  # each time it changes. A Rebuild bump builds with the current one.
   lifecycle {
     replace_triggered_by = [terraform_data.rebuild]
+    ignore_changes       = [git_credentials]
   }
 
+  # Template-wide credentials win; else the owner's linked account
+  # ("oauth2" as the username works for GitHub and GitLab tokens alike).
   # git_credentials is a nested-object attribute (terraform-plugin-framework),
   # not a legacy SDKv2 block - conditionally assign the object itself (or
   # null to omit), not a `dynamic` block.
   git_credentials = var.git_credentials_username != "" ? {
     username = var.git_credentials_username
     token    = var.git_credentials_token
+    } : length(data.coder_external_auth.git) > 0 ? {
+    username = "oauth2"
+    token    = data.coder_external_auth.git[0].access_token
   } : null
 }
 

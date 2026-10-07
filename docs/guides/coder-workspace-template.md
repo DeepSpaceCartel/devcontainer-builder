@@ -106,7 +106,7 @@ coder templates push devcontainer-kubernetes \
 
 `namespace` and `devcontainer_builder_endpoint` are **template-level**
 variables — set once here, not per-workspace. `image_pull_secret_name`,
-`git_credentials_username`/`git_credentials_token`, `vscode_extension`
+`git_credentials_username`/`git_credentials_token`, `external_auth_id`, `vscode_extension`
 and the others below are optional template
 variables too (see the template's own `variable` blocks for what each
 does); leave them unset to start.
@@ -222,16 +222,34 @@ deprecated and would break Coder Desktop file sync). An existing working
 copy is never touched again — local changes and other branches survive
 restarts and rebuilds.
 
-The image build and this clone authenticate separately: devcontainer-builder
-clones with its own server-side credentials, which never reach the
-workspace. For a private repository, the clone inside the workspace needs
-one of:
+**Private repositories.** Two clones need access: devcontainer-builder's,
+for the image build, and the workspace's own. The simplest setup covers both
+with the user's own account:
 
-- **HTTPS:** a GitHub (or GitLab) [external auth provider](https://coder.com/docs/admin/external-auth)
-  configured on Coder, so the agent's `GIT_ASKPASS` can supply a token.
-- **SSH** (`git@…` or `ssh://` URLs): the owner's Coder SSH public key
-  (`coder publickey`) added to their GitHub account. The agent's
-  `coder gitssh` uses it.
+1. Configure an [external auth provider](https://coder.com/docs/admin/external-auth)
+   for the git host on Coder (e.g. a GitHub OAuth or GitHub App, id `github`).
+2. Push the template with `--var external_auth_id=github`.
+
+Creating a workspace then asks the user to link that account (once; the
+VS Code clone command opens the link page for you). After that:
+
+- **The workspace's clone** uses it through the agent's `GIT_ASKPASS`.
+- **The image build** uses it too. The template sends the user's token with
+  the build request (`git_credentials`, username `oauth2`), so
+  devcontainer-builder needs no credentials of its own and users only build
+  what they can read. The token goes into a scratch `.netrc` for the clone and
+  is never logged or put in argv ([Credential handling](../concepts/credential-handling.md)).
+  A refreshed token doesn't trigger a rebuild; the next Rebuild uses the
+  current one.
+
+Without `external_auth_id`:
+- the build uses credentials configured on devcontainer-builder (`gitCredentials`, per host) or the
+  template-wide `git_credentials_username`/`git_credentials_token`;
+- the workspace's clone needs one of:
+  - **HTTPS:** an external auth provider linked by the user anyway, so the agent's `GIT_ASKPASS` can
+    supply a token;
+  - **SSH** (`git@…` or `ssh://` URLs): the owner's Coder SSH public key (`coder publickey`) added to
+    their GitHub account. The agent's `coder gitssh` uses it.
 
 If the clone fails, the lifecycle script fails (the workspace shows a
 startup error) and its log says why.

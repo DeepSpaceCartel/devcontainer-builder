@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- **Private repositories with the user's own account.** The template's new `external_auth_id`
+  variable (e.g. `github`, a Coder external auth provider) makes creating a workspace ask the user
+  to link that account. The workspace's clone uses it, and so does the image build: the user's
+  token is sent with the build request, so devcontainer-builder needs no `gitCredentials` of its
+  own. A refreshed token doesn't trigger a rebuild. **Coder: Clone Repository in Workspace…** opens
+  the link page and waits for it, instead of failing on create.
+
 ## [0.5.0] - 2026-10-07
 
 ### Added
