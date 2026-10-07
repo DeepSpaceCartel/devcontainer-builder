@@ -103,6 +103,10 @@ test("API: templates asking for repository and branch; existing workspaces on th
     ],
     "GET /templateversions/v1/rich-parameters": [{ name: "repository" }, { name: "branch" }, { name: "rebuild" }],
     "GET /templateversions/v2/rich-parameters": [{ name: "cpu" }],
+    "GET /templateversions/v1/external-auth": [
+      { id: "github", display_name: "GitHub", authenticated: false, authenticate_url: "https://c/external-auth/github" },
+      { id: "gitlab", display_name: "GitLab", authenticated: true, authenticate_url: "https://c/external-auth/gitlab" },
+    ],
     "GET /workspacebuilds/b1/parameters": [
       { name: "repository", value: "git@github.com:DeepSpaceCartel/make.git" },
       { name: "branch", value: "master" },
@@ -121,7 +125,9 @@ test("API: templates asking for repository and branch; existing workspaces on th
   }) as typeof fetch;
   const api = new CoderApi({ url: "https://c", token: "t" }, fake);
 
-  assert.deepEqual((await api.repositoryTemplates()).map((t) => t.name), ["devcontainer"]);
+  const [template] = await api.repositoryTemplates();
+  assert.equal(template.name, "devcontainer");
+  assert.deepEqual((await api.unlinkedExternalAuth(template)).map((a) => a.id), ["github"]);
   const mine = [ws(), { ...ws(), id: "w2", name: "make-dev", latest_build: { ...ws().latest_build, id: "b2" } }];
   const found = await findExisting(api, "https://github.com/deepspacecartel/make.git", "master", mine);
   assert.deepEqual(found.map((w) => w.name), ["make-master"]);

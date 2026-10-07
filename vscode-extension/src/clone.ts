@@ -109,6 +109,15 @@ export interface Workspace {
   };
 }
 
+// A git account the template needs linked before a workspace can be
+// created (its `coder_external_auth`, e.g. GitHub for private repositories).
+export interface ExternalAuth {
+  id: string;
+  display_name: string;
+  authenticated: boolean;
+  authenticate_url: string;
+}
+
 export class CoderApiError extends Error {
   constructor(
     message: string,
@@ -153,6 +162,12 @@ export class CoderApi {
       }),
     );
     return usable.filter((t): t is Template => t !== undefined);
+  }
+
+  // The template's required accounts that aren't linked yet.
+  async unlinkedExternalAuth(template: Template): Promise<ExternalAuth[]> {
+    const auths = await this.call<ExternalAuth[]>(`/templateversions/${template.active_version_id}/external-auth`);
+    return auths.filter((a) => !a.authenticated);
   }
 
   async myWorkspaces(): Promise<Workspace[]> {

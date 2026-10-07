@@ -55,6 +55,7 @@ export async function cloneInWorkspace(context: vscode.ExtensionContext, log: vs
   if (!target) {
     const template = await pickTemplate(api);
     if (!template) return;
+    if (!(await linkExternalAuth(api, template, log))) return;
     const name = workspaceName(repo, branch, new Set(workspaces.map((w) => w.name)));
     log.info(`Creating ${name} from ${template.name}: ${repo} (${branch})`);
     target = await api.createWorkspace(template.id, name, [
@@ -197,6 +198,36 @@ async function pickTemplate(api: CoderApi): Promise<Template | undefined> {
       { title: "Coder template" },
     )
   )?.template;
+}
+
+// Coder won't create a workspace while an account the template needs (its
+// coder_external_auth, e.g. GitHub for private repositories) isn't linked:
+// open Coder's link page and wait for it, rather than fail on create.
+async function linkExternalAuth(api: CoderApi, template: Template, log: vscode.LogOutputChannel): Promise<boolean> {
+  let unlinked = await api.unlinkedExternalAuth(template);
+  for (const auth of unlinked) {
+    const choice = await vscode.window.showInformationMessage(
+      `${template.display_name || template.name} needs your ${auth.display_name} account linked in Coder (for the repository's clone and image build).`,
+      { modal: true },
+      `Link ${auth.display_name}`,
+    );
+    if (!choice) return false;
+    await vscode.env.openExternal(vscode.Uri.parse(auth.authenticate_url));
+  }
+  if (unlinked.length === 0) return true;
+  return vscode.window.withProgress(
+    { location: vscode.ProgressLocation.Notification, title: "Waiting for the account link in your browser…", cancellable: true },
+    async (_progress, cancel) => {
+      const deadline = Date.now() + 10 * 60_000;
+      while (unlinked.length > 0) {
+        if (cancel.isCancellationRequested || Date.now() > deadline) return false;
+        await new Promise((r) => setTimeout(r, 3000));
+        unlinked = await api.unlinkedExternalAuth(template);
+      }
+      log.info(`External auth linked for ${template.name}`);
+      return true;
+    },
+  );
 }
 
 async function waitUntilReady(api: CoderApi, w: Workspace, log: vscode.LogOutputChannel): Promise<Workspace | undefined> {
