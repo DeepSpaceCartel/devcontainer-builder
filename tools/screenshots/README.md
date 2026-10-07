@@ -37,13 +37,20 @@ What it does:
    - up to date;
    - a local edit, which shows *Push Dev Container changes*;
    - a pushed change, which shows *Rebuild available* and its notification.
-4. Creates `docs-no-config` and captures *Add Dev Container config*.
-5. Resets the fixture branch and deletes the workspaces it created.
+4. Runs *Coder: Clone Repository in Workspace…* in that window:
+   - the Command Palette;
+   - the login prompts, answered with `CODER_URL` and the token;
+   - the repository picker with the fixture URL typed;
+   - the branch list;
+   - *You already have a workspace*;
+   - *Create Another Workspace* and its progress notification.
+5. Creates `docs-no-config` and captures *Add Dev Container config*.
+6. Resets the fixture branch and deletes every workspace it created, including the one the clone
+   command made.
 
 It writes 1280×800 PNGs. Coder pages use the session user's theme; VS Code
 uses its default light theme. On failure, it saves `_failed-*.png` next to
 the screenshots (gitignored).
 
-VS Code **Desktop**'s *Coder: Clone Repository in Workspace…* runs in a local
-window, which this script can't drive. Those shots are taken by hand:
-see [`DESKTOP-SHOTS.md`](DESKTOP-SHOTS.md).
+Two optional Desktop-only views (the GitHub repository list and the opened
+Desktop window) are taken by hand: see [`DESKTOP-SHOTS.md`](DESKTOP-SHOTS.md).
