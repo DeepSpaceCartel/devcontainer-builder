@@ -66,6 +66,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- **Template: resources keyed by Dev Container instance** (internal refactor, no behavior change;
+  plan 004 Phase A). The agent, its scripts, apps and environment, the PVC and the Deployment are
+  now `for_each` over `local.instances`, for now a list of one, `main`, the image the build
+  produced. `main` keeps its agent name, its Kubernetes object names (`coder-<workspace id>`,
+  `coder-<workspace id>-data`) and its labels and selector. `moved` blocks map every old address
+  to `["main"]`, so updating an existing workspace to this version only renames resources in the
+  state: nothing is replaced, and the pod isn't restarted. `moved` blocks need Terraform >= 1.1;
+  the template already requires >= 1.5, and Coder's bundled Terraform is newer. Forwarded-port
+  apps past slot 10 (a `max_forwarded_ports` above its default) are recreated, not moved.
 - **Service: an image per devcontainer.json in sub-folders** ([ADR-0016](docs/decisions/0016-one-image-per-devcontainer-json.md)).
   Each `.devcontainer/<folder>/devcontainer.json` is built with `--config` as an image of its own,
   `<name>-<folder id>`, after the root config's `main` image. `POST /build` lists them all in a new

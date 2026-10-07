@@ -5,7 +5,37 @@ created: 2026-10-06
 
 # List support: `/build` returns a list of images → one Coder agent per image
 
-## Status (2026-10-07): Phase B step 1 (service) implemented; provider, module and template still open
+## Status (2026-10-07): Phase A and Phase B step 1 (service) implemented; provider, module and template step 4 still open
+
+**Phase A** is on `feat/template-per-instance` (template only). It differs
+from this plan in these ways:
+
+- **The agent stays `coder_agent.main`, not `coder_agent.dev`.** Coder names
+  an agent after its Terraform *resource name*, not a `name` argument or the
+  `for_each` key (`provisioner/terraform/resources.go`, `ConvertState`:
+  `Name: tfResource.Name`, and `duplicate agent name` when two share it). A
+  rename to `dev` would rename every existing workspace's agent to "dev".
+- **Blocker for Phase B step 4:** for the same reason, a `for_each` over
+  `coder_agent` with two or more keys fails in Coder with
+  `duplicate agent name: main`. One agent per image needs another shape:
+  for example a fixed number of statically declared agent blocks, or
+  Coder's sub-agents (`coder_devcontainer`). The per-instance PVC, Deployment,
+  scripts and apps from Phase A still apply to either. App slugs are unique
+  per workspace across agents too: `coder_app.forwarded_port` already
+  prefixes non-`main` slugs with `<id>-`, but the vscode-web and
+  vscode-desktop modules' slugs would collide.
+- **`main`'s Kubernetes labels are unchanged** (a Deployment's selector is
+  immutable, and a pod-template label change would restart the pod). Other
+  instances get `-<id>` in their names *and* in `app.kubernetes.io/instance`,
+  plus `com.deepspacecartel.devcontainer-builder/instance=<id>`: without the
+  former, `main`'s selector would also match their pods.
+- **Forwarded-port apps** are keyed `"<instance>/<slot>"`. `moved` blocks cover
+  slots 0-9, the default `max_forwarded_ports`.
+- **Verified offline** with mock providers: origin/main's template applied,
+  then this one planned against the same state (`terraform test`
+  `state_key`), for a running and a stopped workspace: only moves,
+  `0 to add, 0 to change, 0 to destroy`. Still to check live: updating an
+  existing workspace in Coder.
 
 The service side is on `feat/multi-config-builds`, recorded in
 [ADR-0016](../../decisions/0016-one-image-per-devcontainer-json.md) (0013 was
@@ -32,7 +62,7 @@ already taken). It differs from this plan in these ways:
 
 Next: the provider's `images`/`instances`/dry run in `ModifyPlan` (step 2),
 then the module (step 3), the template (step 4), and the guide and README
-(step 5). Phase A (the template's list-of-one refactor) is still open.
+(step 5). Step 4 first needs a way around the agent-naming blocker above.
 
 ## Context
 
