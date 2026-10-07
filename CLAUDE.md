@@ -68,7 +68,8 @@ TypeScript compiles; ask the user to verify or run it themselves.
   npm install && npm test && npm run package` →
   `devcontainer-builder.vsix`), published on tag as
   `deepspacecartel.devcontainer-builder` ("Dev Containers for Coder in K8S")
-  to the VS Code Marketplace (`VSCE_PAT`) and attached to the GitHub Release.
+  to the VS Code Marketplace (`VSCE_PAT`) and Open VSX (`OVSX_PAT`), and
+  attached to the GitHub Release.
   `extensionKind: ["workspace", "ui"]`, with two modes:
   - **In a Coder workspace** (the template installs it, `DEVCONTAINER_*` env
     set): the rebuild prompt, which compares `DEVCONTAINER_IMAGE_COMMIT` with

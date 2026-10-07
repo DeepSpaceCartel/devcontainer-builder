@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- The VS Code extension is also published to **Open VSX** as `deepspacecartel.devcontainer-builder`,
+  for VSCodium, Cursor, code-server and other editors that don't use Microsoft's Marketplace.
 - **Private repositories with the user's own account.** The template's new `external_auth_id`
   variable (e.g. `github`, a Coder external auth provider) makes creating a workspace ask the user
   to link that account. The workspace's clone uses it, and so does the image build: the user's
