@@ -133,6 +133,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- Chart: `helm upgrade --reuse-values` from an older chart failed with `nil pointer evaluating
+  ...automountServiceAccountToken`. `--reuse-values` keeps only the previous release's values, so
+  values added since then were missing. Templates now fill in missing values from the chart's
+  defaults, and never override a value that is set, including `false`.
 - **Template: VS Code in the browser and the forwarded-port apps on deployments without a wildcard
   access URL.** They were always subdomain apps, which Coder can't serve without
   `CODER_WILDCARD_ACCESS_URL`. The new template variable `subdomain_apps` (default `true`) serves

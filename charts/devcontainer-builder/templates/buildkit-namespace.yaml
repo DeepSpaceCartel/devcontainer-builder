@@ -1,3 +1,4 @@
+{{- include "devcontainer-builder.defaults" . -}}
 {{- /*
 The release Namespace, labeled privileged for the bundled BuildKit - only
 rendered on opt-in (buildkit.manageNamespace) or for an install that
