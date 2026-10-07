@@ -400,7 +400,9 @@ resource "coder_script" "devcontainer_lifecycle" {
 # is no attach event here, so it runs once per start - without blocking
 # login, after the clone.
 resource "coder_script" "devcontainer_post_attach" {
-  count              = lookup(local.lifecycle_scripts, "postAttachCommand", "") != "" ? data.coder_workspace.me.start_count : 0
+  # Always present (count can't depend on the image's metadata, which is
+  # unknown until the first build) - exits at once if no hook is set.
+  count              = data.coder_workspace.me.start_count
   agent_id           = coder_agent.main.id
   display_name       = "Dev Container postAttachCommand"
   icon               = "/icon/docker.svg"
@@ -409,11 +411,13 @@ resource "coder_script" "devcontainer_post_attach" {
   script             = <<-EOT
     #!/bin/sh
     set -u
+    hook='${base64encode(lookup(local.lifecycle_scripts, "postAttachCommand", ""))}'
+    [ -n "$hook" ] || exit 0
     workspace_folder='${local.workspace_folder}'
     until [ -d "$workspace_folder/.git" ]; do sleep 2; done
     script="$HOME/.cache/devcontainer-lifecycle/postAttachCommand.sh"
     mkdir -p "$(dirname "$script")"
-    echo '${base64encode(lookup(local.lifecycle_scripts, "postAttachCommand", ""))}' | base64 -d > "$script"
+    echo "$hook" | base64 -d > "$script"
     cd "$workspace_folder" && sh "$script"
   EOT
 }
@@ -428,7 +432,9 @@ resource "coder_script" "devcontainer_post_attach" {
 # only as an installer, never served. Doesn't block login: a Desktop
 # window that attaches mid-install sees the rest after a reload.
 resource "coder_script" "devcontainer_vscode" {
-  count              = length(local.vscode_extensions) > 0 || local.vscode_settings != "{}" ? data.coder_workspace.me.start_count : 0
+  # Always present, for the same reason - exits at once if there's nothing
+  # to install.
+  count              = data.coder_workspace.me.start_count
   agent_id           = coder_agent.main.id
   display_name       = "Dev Container VS Code extensions"
   icon               = "/icon/code.svg"
@@ -440,6 +446,9 @@ resource "coder_script" "devcontainer_vscode" {
     extensions='${join(" ", local.vscode_extensions)}'
     settings_b64='${base64encode(local.vscode_settings)}'
     data_dir="$HOME/.vscode-server"
+    if [ -z "$extensions" ] && [ "$settings_b64" = "${base64encode("{}")}" ]; then
+      exit 0
+    fi
 
     server=$(ls -td "$data_dir"/cli/servers/Stable-*/server 2>/dev/null | head -n 1)
     if [ -z "$server" ] || [ ! -x "$server/bin/code-server" ]; then
