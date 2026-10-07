@@ -211,9 +211,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - **Service: `pino` is a declared dependency** (it was used without being listed).
 - **Service: the OpenAPI document describes `GET /logs/{id}`'s `text/plain` body and
   `DELETE /logs/{id}`'s `204`.**
-
-### Security
-
 - **Service: credentials in a repository URL are rejected** (`https://user:token@host/...` is a
   `400` pointing at `gitCredentials`). They used to reach git's argv, the error response, the
   `build.started` log, Sentry and trace attributes. URL userinfo is now also redacted wherever a URL
