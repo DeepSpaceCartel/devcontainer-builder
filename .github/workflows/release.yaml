@@ -133,13 +133,41 @@ jobs:
           helm push "/tmp/chart-out/devcontainer-builder-${{ needs.version.outputs.version }}.tgz" \
             oci://ghcr.io/deepspacecartel/charts
 
+  # The rebuild prompt extension the Coder template installs into
+  # workspaces, from this release's assets
+  # (releases/latest/download/devcontainer-builder-rebuild.vsix).
+  vscode-extension:
+    needs: version
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: vscode-extension
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - run: npm install
+      - run: npm version --no-git-tag-version --allow-same-version "${{ needs.version.outputs.version }}"
+      - run: npm run build
+      - run: npm test
+      - run: npm run package
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vscode-extension
+          path: vscode-extension/devcontainer-builder-rebuild.vsix
+
   github-release:
-    needs: [version, image, chart, npm]
+    needs: [version, image, chart, npm, vscode-extension]
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: vscode-extension
       - uses: softprops/action-gh-release@v2
         with:
           generate_release_notes: true
+          files: devcontainer-builder-rebuild.vsix

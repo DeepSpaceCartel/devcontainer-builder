@@ -1,0 +1,63 @@
+{
+  "name": "devcontainer-builder-rebuild",
+  "displayName": "Dev Container Rebuild for Coder",
+  "description": "Prompts to rebuild a Coder workspace when its devcontainer.json (or build context) changes on the branch it was built from.",
+  "version": "0.0.0",
+  "publisher": "deepspacecartel",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/DeepSpaceCartel/devcontainer-builder.git",
+    "directory": "vscode-extension"
+  },
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "extensionKind": [
+    "workspace"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "devcontainerBuilder.check",
+        "title": "Check for Rebuild",
+        "category": "Dev Container"
+      },
+      {
+        "command": "devcontainerBuilder.rebuild",
+        "title": "Rebuild Workspace",
+        "category": "Dev Container"
+      }
+    ],
+    "configuration": {
+      "title": "Dev Container Rebuild",
+      "properties": {
+        "devcontainerBuilder.checkIntervalMinutes": {
+          "type": "number",
+          "default": 5,
+          "minimum": 0,
+          "description": "How often to fetch the workspace's branch and check for Dev Container changes. 0 checks only on start and on demand."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "node --import tsx --test src/*.test.ts",
+    "package": "cp ../LICENSE LICENSE && vsce package --out devcontainer-builder-rebuild.vsix"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "@types/vscode": "~1.90.0",
+    "@vscode/vsce": "^3.2.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0"
+  }
+}

@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- **Rebuild prompt** (`vscode-extension/`, a VSIX on each GitHub Release): a VS Code extension the
+  template installs into workspaces. When `.devcontainer/`, `.devcontainer.json` or the Dockerfile
+  and build context devcontainer.json points at change on `origin/<branch>` after the image was
+  built, it shows **Rebuild available** in the status bar and offers Rebuild / Later / Ignore This
+  Commit. Rebuild bumps the workspace's **Rebuild** parameter through the Coder API (it needs
+  `coder login` in the workspace; without it, it opens the workspace settings). Changes that
+  aren't pushed get a "commit & push first" nudge instead. The template sets
+  `DEVCONTAINER_IMAGE_COMMIT`, `DEVCONTAINER_BRANCH` and `DEVCONTAINER_REBUILD` for it and gains
+  the `rebuild_extension_url` variable (empty to not install it).
+
 ### Changed
 
 - **Breaking for the template's users:** `templates/coder-kubernetes` maps the rest of
