@@ -60,16 +60,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   - `cpus` and `memory` are **reserved** (pod requests), so a workspace lands on a node that has them,
     or stays Pending with a scheduling reason instead of being OOM-killed later;
   - the limits are the larger of the requirement and the parameter;
-  - `storage` is the larger of it and the Disk parameter, so the volume never shrinks.
+  - `storage` is the larger of it and the Disk parameter, so the volume never shrinks. It only
+    applies when the workspace is created: the volume isn't resized afterwards.
 
   New template variables `max_cpu` (default 8) and `max_memory` (GiB, default 32) cap the
   reservation, with a build-log warning above them. The workspace page shows **Resources (reserved /
   limit)**. Without `hostRequirements` nothing changes (requests 250m CPU / 512Mi).
-
-  See [ADR-0014](docs/decisions/0014-host-requirements-are-minimums.md).
-- Release workflow: a pre-release tag (`vX.Y.Z-rc.N`) publishes the npm package under the `next`
-  dist-tag, doesn't move the `latest` image tag, skips the VS Code Marketplace and Open VSX, and
-  creates a GitHub pre-release. A release only moves `latest` when it's the highest version.
+- **Breaking:** **Template: each workspace has its own image tag**, `ws-<workspace-id>-<rebuild>`,
+  instead of `sha-<commit>` (see Fixed). Every existing workspace **rebuilds its image once** on its
+  first start after the update, from its branch's latest commit, and the old `sha-<commit>` tag is
+  deleted: update all workspaces on the same repository together.
+- **Template: provider version bounds.** `deepspacecartel/devcontainer-builder` is
+  `>= 0.3.0, < 2.0.0` (was unbounded), and `coder/coder` (`>= 2.5.0`) and `hashicorp/kubernetes`
+  (`>= 2.16.0`) have minimums: the versions that introduced what the template uses. Terraform
+  `>= 1.5`.
+- **Template: workspace pods only run on `amd64` nodes** (`kubernetes.io/arch` node
+  selector), the architecture of the agent binary the template always installed; on a mixed cluster
+  they could land on an arm64 node and fail to start.
+- **Template: `customizations.vscode.settings` are defaults.** A setting is written to the Machine
+  settings only if it isn't there yet, or still has the value written last time, so a setting the
+  user changed is no longer overwritten on every start, and a repository's change still reaches the
+  ones the user didn't change.
+- Template: the Memory parameter's options say GiB (what they always applied), and the Git repository
+  parameter's description no longer says the repository needs a `devcontainer.json`.
 
 ### Deprecated
 
@@ -77,18 +90,48 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   `deepspacecartel/devcontainer-builder` provider's `devcontainerbuilder_build` resource directly:
   the module only wraps it, and the provider is the Terraform surface 1.x keeps stable. Plans that
   use the module now show a deprecation warning.
+- The template's uid/gid 1000 fallback for images built before 0.3.0. It's kept through 1.x so an
+  upgraded workspace always starts, and removed in 2.0.
 
 ### Fixed
 
-- **Docs: the Helm chart reference's `image.tag` default** is `""` (the chart's `appVersion`), not
-  `"0.1.0"`; it now also lists `build.fallbackImage`, `buildkitBundled.*` and every new value. The
-  `extraArgs` comment in `values.yaml` names the real entrypoint, `dist/index.js`.
 - **Template: VS Code in the browser and the forwarded-port apps on deployments without a wildcard
   access URL.** They were always subdomain apps, which Coder can't serve without
   `CODER_WILDCARD_ACCESS_URL`. The new template variable `subdomain_apps` (default `true`) serves
   them on paths of the main Coder URL when set to `false`.
 - **Template: workspace parameters in a sensible order.** Git repository and Branch come first,
   then CPU, Memory, Disk size, Dev Container variables and Rebuild, instead of alphabetical.
+- **Template: deleting or rebuilding a workspace no longer deletes other workspaces' image.** All
+  workspaces built from the same repository and commit shared the `sha-<commit>` tag, and deleting
+  the image (`DELETE /image`) on a Rebuild or a workspace's deletion removed it from under the others,
+  which then failed to pull it.
+- **Template: `postAttachCommand` runs after the other lifecycle commands**, once they've succeeded,
+  instead of as soon as the clone had an index, concurrently with `postCreateCommand` and the rest.
+  It gives up after 30 minutes.
+- **Template: an interrupted clone is retried.** A workspace stopped mid-clone kept its partial
+  `.git`, and the clone was never attempted again. A finished clone is now marked
+  (`.git/devcontainer-cloned`); an unfinished one (no commit checked out) is removed and redone on
+  the next start. A `.git` with a commit is always kept.
+- **Template: the clone works with git older than 2.28** (no `git init -b`), and an image without
+  `git` fails with a message saying to add the `ghcr.io/devcontainers/features/git:1` Feature.
+- **Template: a workspace folder, repository, branch or extension ID containing `'`** broke the
+  workspace's scripts; they're now quoted for the shell. Dev Container variable names are checked
+  before they're used in a script.
+- **Template: `seed-home` no longer stops the workspace from starting** when a file in the image's
+  home can't be copied (e.g. unreadable by the remote user); it's skipped with a warning. It also
+  uses portable `cp` flags (BusyBox images).
+- **Template: a mount at a path the template already mounts** (`workspaceFolder` exactly
+  `/workspaces` or the home, or a `devcontainer.json` mount at `/workspaces`, the home, the workspace
+  folder, `/dev/shm`, or another mount's target) got the pod rejected. The colliding mount is now
+  dropped, with a warning in the build log.
+
+  See [ADR-0014](docs/decisions/0014-host-requirements-are-minimums.md).
+- Release workflow: a pre-release tag (`vX.Y.Z-rc.N`) publishes the npm package under the `next`
+  dist-tag, doesn't move the `latest` image tag, skips the VS Code Marketplace and Open VSX, and
+  creates a GitHub pre-release. A release only moves `latest` when it's the highest version.
+- **Docs: the Helm chart reference's `image.tag` default** is `""` (the chart's `appVersion`), not
+  `"0.1.0"`; it now also lists `build.fallbackImage`, `buildkitBundled.*` and every new value. The
+  `extraArgs` comment in `values.yaml` names the real entrypoint, `dist/index.js`.
 
 ### Security
 
