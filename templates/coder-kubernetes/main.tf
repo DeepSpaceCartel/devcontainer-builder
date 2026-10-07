@@ -79,6 +79,24 @@ variable "image_pull_secret_name" {
   default     = ""
 }
 
+variable "accept_vscode_license" {
+  type        = bool
+  description = "Accept Microsoft's VS Code Server license (https://aka.ms/vscode-server-license) on behalf of this template's users, enabling VS Code in the browser (vscode-web, extensions from the Microsoft Marketplace). The terms allow use within your own organization; set false if workspaces are offered to others. VS Code Desktop is unaffected."
+  default     = true
+}
+
+variable "allow_privileged" {
+  type        = bool
+  description = "Honor devcontainer.json's `privileged: true` (and `--security-opt seccomp=unconfined`). Off by default: a privileged pod can take over its node, and most namespaces' Pod Security level forbids it anyway."
+  default     = false
+}
+
+variable "max_forwarded_ports" {
+  type        = number
+  description = "How many of devcontainer.json's forwardPorts get a dashboard app. Coder needs a fixed number of app slots; unused ones are hidden."
+  default     = 10
+}
+
 variable "git_credentials_username" {
   type        = string
   description = "Optional HTTPS git username, used for every workspace built from this template. Leave empty for public repositories only - devcontainer-builder's own server-side gitCredentials (configured once on the service itself) is the better place for per-host credentials that should apply regardless of which template/caller is asking."
@@ -179,6 +197,34 @@ data "coder_parameter" "disk_size" {
   }
 }
 
+# ${localEnv:NAME} in devcontainer.json refers to the developer's machine,
+# which a workspace doesn't have - values come from here instead. Coder
+# can't create one parameter per variable (parameters can't depend on the
+# image), so it's one free-form parameter; the "Dev Container variables"
+# metadata item lists what the image uses and what's still unset.
+data "coder_parameter" "devcontainer_variables" {
+  name         = "devcontainer_variables"
+  display_name = "Dev Container variables"
+  description  = "Values for $${localEnv:NAME} in the repository's devcontainer.json: one NAME=value per line. Changes apply on the next restart. Visible to anyone who can see this workspace's settings."
+  type         = "string"
+  form_type    = "textarea"
+  default      = ""
+  mutable      = true
+  icon         = "/icon/docker.svg"
+}
+
+# Bump to rebuild the image from the branch's latest commit on the next
+# start. The working copy in /workspaces is left as it is.
+data "coder_parameter" "rebuild" {
+  name         = "rebuild"
+  display_name = "Rebuild"
+  description  = "Increase to rebuild the image from the branch's latest commit on the next start (e.g. after devcontainer.json changes). Your working copy is not touched."
+  type         = "number"
+  default      = 0
+  mutable      = true
+  icon         = "/icon/docker.svg"
+}
+
 provider "kubernetes" {
   # Authenticate via ~/.kube/config or a Coder-specific ServiceAccount, depending on admin preferences
   config_path = var.use_kubeconfig == true ? "~/.kube/config" : null
@@ -196,21 +242,61 @@ locals {
   # so stopping a workspace never depends on devcontainer-builder being up.
   dc = one(data.devcontainerbuilder_devcontainer.workspace[*])
 
-  # The image's remoteUser (falling back to containerUser): whose home is
-  # persisted. Pods still run as uid 1000 - seed-home fails with a clear
-  # message if this user isn't uid 1000 in the image.
+  # The user tools, IDEs and hooks run as (remoteUser, else containerUser,
+  # else the image's USER, else root - resolved by devcontainer-builder).
+  # Its home is persisted; the container itself starts as root and drops
+  # to this user (see the dev container's command).
   remote_user = try(coalesce(local.dc.remote_user, local.dc.container_user), "root")
   home_dir    = local.remote_user == "root" ? "/root" : "/home/${local.remote_user}"
 
   lifecycle_scripts = try(local.dc.lifecycle_scripts, {})
+  env_scripts       = try(local.dc.env_scripts, {})
   vscode_extensions = try(local.dc.extensions, [])
   vscode_settings   = try(local.dc.settings_json, "{}")
+  runtime           = try(local.dc.runtime, null)
+  host_requirements = try(local.dc.host_requirements, null)
+  warnings          = try(local.dc.warnings, [])
+  variables         = try(local.dc.variables, [])
 
-  # Dev Containers' "Clone Repository in Container Volume" convention:
-  # /workspaces/<repo name>, on the PVC. Passed to git-clone as folder_name
-  # explicitly so this is known even when the module has count = 0.
-  repo_name        = trimsuffix(basename(trimsuffix(data.coder_parameter.repository.value, "/")), ".git")
-  workspace_folder = "/workspaces/${local.repo_name}" # never in the image's metadata label
+  # devcontainer.json's workspaceFolder (default: Dev Containers'
+  # "Clone Repository in Container Volume" convention,
+  # /workspaces/<repo name>), with the workspace placeholders filled in.
+  # The repository is cloned there.
+  repo_name            = trimsuffix(basename(trimsuffix(data.coder_parameter.repository.value, "/")), ".git")
+  raw_workspace_folder = coalesce(try(local.dc.workspace_folder, null), "/workspaces/$${localWorkspaceFolderBasename}")
+  workspace_folder = replace(replace(replace(local.raw_workspace_folder,
+    "$${localWorkspaceFolderBasename}", local.repo_name),
+    "$${containerWorkspaceFolderBasename}", local.repo_name),
+  "$${devcontainerId}", data.coder_workspace.me.id)
+
+  # Mount targets may use the workspace placeholders too.
+  mounts = [for i, m in try(local.dc.mounts, []) : merge(m, {
+    index = i
+    target = replace(replace(replace(replace(m.target,
+      "$${containerWorkspaceFolder}", local.workspace_folder),
+      "$${localWorkspaceFolder}", local.workspace_folder),
+      "$${containerWorkspaceFolderBasename}", basename(local.workspace_folder)),
+    "$${localWorkspaceFolderBasename}", basename(local.workspace_folder))
+  })]
+  volume_mounts = [for m in local.mounts : m if m.kind == "volume"]
+  tmpfs_mounts  = [for m in local.mounts : m if m.kind == "tmpfs"]
+  # PVC directory per named volume (volumes/<source>); anonymous volumes
+  # get one per position.
+  volume_dirs = [for m in local.volume_mounts : "volumes/${coalesce(m.source, "anonymous-${m.index}")}"]
+
+  ports = try(local.dc.forward_ports, [])
+
+  # hostRequirements override the CPU/Memory/Disk parameters when the
+  # image sets them (parameters can't take defaults from the image).
+  cpu_limit    = try(local.host_requirements.cpus, null) != null ? tostring(local.host_requirements.cpus) : data.coder_parameter.cpu.value
+  memory_limit = try(local.host_requirements.memory_bytes, null) != null ? tostring(local.host_requirements.memory_bytes) : "${data.coder_parameter.memory.value}Gi"
+  disk_size    = try(local.host_requirements.storage_bytes, null) != null ? tostring(local.host_requirements.storage_bytes) : "${data.coder_parameter.disk_size.value}Gi"
+  gpu_json     = try(local.host_requirements.gpu_json, null)
+  # gpu: true or {cores, memory} -> one GPU; "optional" or unset -> none.
+  gpu_limit = local.gpu_json != null && local.gpu_json != "\"optional\"" && local.gpu_json != "false" ? { "nvidia.com/gpu" = "1" } : {}
+
+  # localEnv variables without a default that the user must provide.
+  required_variables = [for v in local.variables : v.name if v.kind == "localEnv" && v.default == null]
 }
 
 # --- The actual build ----------------------------------------------------
@@ -223,9 +309,20 @@ locals {
 # git_credentials block below is the one optional exception, for a
 # template-wide default rather than requiring registryMapping-style
 # server config for git.
+resource "terraform_data" "rebuild" {
+  input = data.coder_parameter.rebuild.value
+}
+
 resource "devcontainerbuilder_build" "workspace" {
   repository = data.coder_parameter.repository.value
   branch     = data.coder_parameter.branch.value
+
+  # A Rebuild bump replaces the build: the old image tag is deleted first
+  # and the branch's latest commit built (destroy-then-create is right -
+  # an unchanged branch rebuilds to the same tag).
+  lifecycle {
+    replace_triggered_by = [terraform_data.rebuild]
+  }
 
   # git_credentials is a nested-object attribute (terraform-plugin-framework),
   # not a legacy SDKv2 block - conditionally assign the object itself (or
@@ -257,6 +354,29 @@ resource "coder_agent" "main" {
   # replaces it. Unset display_apps fields keep their defaults.
   display_apps {
     vscode = false
+  }
+
+  metadata {
+    display_name = "Dev Container variables"
+    key          = "7_devcontainer_variables"
+    script       = <<-EOT
+      missing=""
+      for name in ${join(" ", local.required_variables)}; do
+        eval "value=\$${DEVCONTAINER_LOCALENV_$name-}"
+        [ -n "$value" ] || missing="$missing $name"
+      done
+      if [ -n "$missing" ]; then echo "unset:$missing - add NAME=value to the Dev Container variables setting and restart"; else echo "all set (${length(local.variables)} detected)"; fi
+    EOT
+    interval     = 60
+    timeout      = 1
+  }
+
+  metadata {
+    display_name = "Dev Container warnings"
+    key          = "8_devcontainer_warnings"
+    script       = "echo '${base64encode(length(local.warnings) == 0 ? "none" : join(" | ", local.warnings))}' | base64 -d"
+    interval     = 3600
+    timeout      = 1
   }
 
   metadata {
@@ -324,19 +444,23 @@ module "git_clone" {
   agent_id    = coder_agent.main.id
   url         = data.coder_parameter.repository.value
   branch_name = data.coder_parameter.branch.value
-  base_dir    = "/workspaces"
-  folder_name = local.repo_name
+  base_dir    = dirname(local.workspace_folder)
+  folder_name = basename(local.workspace_folder)
 }
 
-# code-server, opened on the cloned repo. Installed under the persisted
-# home, so a restart finds it (and its download cache) already there.
-module "code_server" {
-  count          = data.coder_workspace.me.start_count
-  source         = "registry.coder.com/coder/code-server/coder"
-  version        = "1.6.0"
+# VS Code in the browser - Microsoft's own VS Code Server (vscode-web),
+# not code-server, so extensions come from the Microsoft Marketplace. It
+# shares ~/.vscode-server (and so the extensions/settings installed by
+# devcontainer_vscode below) with VS Code Desktop. Installed under the
+# persisted home.
+module "vscode_web" {
+  count          = var.accept_vscode_license ? data.coder_workspace.me.start_count : 0
+  source         = "registry.coder.com/coder/vscode-web/coder"
+  version        = "1.6.2"
   agent_id       = coder_agent.main.id
   folder         = local.workspace_folder
-  install_prefix = "$HOME/.cache/code-server"
+  accept_license = true
+  install_prefix = "$HOME/.cache/vscode-web"
 }
 
 # VS Code Desktop, opened on the cloned repo (in place of the agent's
@@ -385,12 +509,31 @@ resource "coder_script" "devcontainer_lifecycle" {
       sleep 2
     done
 
+    # A fresh clone (git_clone's only reflog entry is the clone itself) is
+    # moved to the commit the image was built from, so the hooks below run
+    # the scripts that image was built for. Anything else - an existing
+    # working copy, local commits - is never touched.
+    commit='${devcontainerbuilder_build.workspace.commit != null ? devcontainerbuilder_build.workspace.commit : ""}'
+    branch='${data.coder_parameter.branch.value}'
+    marker="$workspace_folder/.git/devcontainer-builder-checkout"
+    if [ -n "$commit" ] && [ ! -e "$marker" ]; then
+      if [ "$(git -C "$workspace_folder" reflog 2>/dev/null | wc -l)" -le 1 ] && [ -z "$(git -C "$workspace_folder" status --porcelain 2>/dev/null)" ]; then
+        if git -C "$workspace_folder" cat-file -e "$commit^{commit}" 2>/dev/null || git -C "$workspace_folder" fetch -q origin "$commit"; then
+          git -C "$workspace_folder" checkout -q -B "$branch" "$commit" && echo "devcontainer: checked out $commit, the commit the image was built from"
+        fi
+      fi
+      touch "$marker"
+    fi
+
     run_hook() {
       [ -n "$2" ] || return 0
       echo "$2" | base64 -d > "$dir/$1.sh" || return 1
       (cd "$workspace_folder" && sh "$dir/$1.sh")
     }
 
+    # initializeCommand runs on the host before the container exists in Dev
+    # Containers; here it's simply the first hook.
+    run_hook initializeCommand '${base64encode(lookup(local.lifecycle_scripts, "initializeCommand", ""))}' || exit $?
     run_hook onCreateCommand '${base64encode(lookup(local.lifecycle_scripts, "onCreateCommand", ""))}' || exit $?
     run_hook updateContentCommand '${base64encode(lookup(local.lifecycle_scripts, "updateContentCommand", ""))}' || exit $?
     run_hook postCreateCommand '${base64encode(lookup(local.lifecycle_scripts, "postCreateCommand", ""))}' || exit $?
@@ -498,6 +641,21 @@ resource "coder_script" "devcontainer_vscode" {
   EOT
 }
 
+# devcontainer.json's forwardPorts as dashboard apps. Coder needs a fixed
+# number of apps at plan time, so there are var.max_forwarded_ports slots;
+# the ones without a port are hidden.
+resource "coder_app" "forwarded_port" {
+  count        = data.coder_workspace.me.start_count * var.max_forwarded_ports
+  agent_id     = coder_agent.main.id
+  slug         = "port-${count.index}"
+  display_name = count.index < length(local.ports) ? coalesce(try(local.ports[count.index].label, null), "Port ${try(local.ports[count.index].port, 0)}") : null
+  url          = "${try(local.ports[count.index].protocol, "") == "https" ? "https" : "http"}://localhost:${try(local.ports[count.index].port, 0)}"
+  icon         = "/icon/widgets.svg"
+  subdomain    = true
+  share        = "owner"
+  hidden       = count.index >= length(local.ports)
+}
+
 # Commits made in the workspace are attributed to its owner.
 resource "coder_env" "git_author_name" {
   agent_id = coder_agent.main.id
@@ -546,9 +704,16 @@ resource "kubernetes_persistent_volume_claim_v1" "data" {
     access_modes = ["ReadWriteOnce"]
     resources {
       requests = {
-        storage = "${data.coder_parameter.disk_size.value}Gi"
+        storage = local.disk_size
       }
     }
+  }
+
+  # The size comes from the image's hostRequirements while the workspace
+  # runs, and from the parameter while it's stopped - never shrink (or
+  # churn) the claim over that.
+  lifecycle {
+    ignore_changes = [spec[0].resources[0].requests]
   }
 }
 
@@ -608,10 +773,24 @@ resource "kubernetes_deployment_v1" "main" {
         }
       }
       spec {
+        # The containers start as root (Dev Containers' default
+        # containerUser); "dev" drops to the remote user before starting the
+        # agent, whatever its uid.
         security_context {
-          run_as_user     = 1000
-          fs_group        = 1000
-          run_as_non_root = true
+          run_as_user = 0
+        }
+
+        # devcontainer.json's `init` / --init: the pause container becomes
+        # PID 1 and reaps zombies, like Docker's tini.
+        share_process_namespace = try(local.runtime.init, false)
+        hostname                = try(local.runtime.hostname, null)
+
+        dynamic "host_aliases" {
+          for_each = try(local.runtime.host_aliases, [])
+          content {
+            ip        = host_aliases.value.ip
+            hostnames = host_aliases.value.hostnames
+          }
         }
 
         dynamic "image_pull_secrets" {
@@ -621,13 +800,13 @@ resource "kubernetes_deployment_v1" "main" {
           }
         }
 
-        # Runs before "dev", with the same image: there, the image's own home
-        # is still visible (nothing is mounted over it), and the PVC is at
-        # /mnt/data. On first start only (marker file), it copies that home
-        # into the PVC's home/ - so the subPath mount below doesn't hide the
-        # image's dotfiles - and from then on the user's own changes win.
-        # It also pre-creates both subPath dirs, since kubelet would create
-        # them root-owned and unwritable for uid 1000.
+        # Runs before "dev", as root, with the same image: there, the image's
+        # own home is still visible (nothing is mounted over it), and the PVC
+        # is at /mnt/data. On first start only (marker file), it copies that
+        # home into the PVC's home/ - so the subPath mount below doesn't hide
+        # the image's dotfiles - and from then on the user's own changes win.
+        # It pre-creates every subPath dir and gives them to the remote user
+        # (kubelet would create them root-owned).
         init_container {
           name              = "seed-home"
           image             = devcontainerbuilder_build.workspace.image
@@ -640,25 +819,27 @@ resource "kubernetes_deployment_v1" "main" {
               exit 1
             fi
             uid=$(echo "$entry" | cut -d: -f3)
+            gid=$(echo "$entry" | cut -d: -f4)
             home=$(echo "$entry" | cut -d: -f6)
             if [ "$home" != "$HOME_DIR" ]; then
               echo "seed-home: '$REMOTE_USER' has home $home in this image, but the template mounts $HOME_DIR" >&2
               exit 1
             fi
-            if [ "$uid" != "1000" ]; then
-              echo "seed-home: '$REMOTE_USER' (the image's remoteUser) has uid $uid in this image, but workspace pods run as uid 1000" >&2
-              exit 1
-            fi
-            mkdir -p /mnt/data/home /mnt/data/workspaces
+            mkdir -p /mnt/data/home /mnt/data/workspaces /mnt/data/workspace-folder
             if [ ! -e /mnt/data/home/.devcontainer-home-seeded ]; then
-              cp -R --preserve=mode,timestamps,links --no-clobber "$HOME_DIR"/. /mnt/data/home/
+              cp -R --preserve=mode,ownership,timestamps,links --no-clobber "$HOME_DIR"/. /mnt/data/home/
+              chown -R "$uid:$gid" /mnt/data/home
               touch /mnt/data/home/.devcontainer-home-seeded
               echo "seed-home: seeded /mnt/data/home from $HOME_DIR"
             fi
+            chown "$uid:$gid" /mnt/data/home /mnt/data/workspaces /mnt/data/workspace-folder
+            for dir in $VOLUME_DIRS; do
+              mkdir -p "/mnt/data/$dir" && chown "$uid:$gid" "/mnt/data/$dir"
+            done
           EOT
           ]
           security_context {
-            run_as_user = "1000"
+            run_as_user = "0"
           }
           env {
             name  = "REMOTE_USER"
@@ -667,6 +848,10 @@ resource "kubernetes_deployment_v1" "main" {
           env {
             name  = "HOME_DIR"
             value = local.home_dir
+          }
+          env {
+            name  = "VOLUME_DIRS"
+            value = join(" ", local.volume_dirs)
           }
           resources {
             requests = {
@@ -692,23 +877,104 @@ resource "kubernetes_deployment_v1" "main" {
           # resource just built.
           image             = devcontainerbuilder_build.workspace.image
           image_pull_policy = "IfNotPresent"
-          command           = ["sh", "-c", coder_agent.main.init_script]
+          # Starts as root: sets the Dev Container environment (workspace
+          # variables, the user's Dev Container variables, then
+          # containerEnv and remoteEnv - so `$${PATH}:/x` expands against the
+          # image's real PATH), then runs the agent as the remote user.
+          # Everything the agent starts - terminals, IDEs, the lifecycle
+          # scripts - inherits that environment.
+          command = ["sh", "-c", <<-EOT
+            set -eu
+            export DEVCONTAINER_WORKSPACE_FOLDER="$DC_WORKSPACE_FOLDER"
+            export DEVCONTAINER_WORKSPACE_FOLDER_BASENAME="$(basename "$DC_WORKSPACE_FOLDER")"
+            export DEVCONTAINER_ID="$DC_ID"
+            while IFS= read -r line || [ -n "$line" ]; do
+              case "$line" in '' | '#'*) continue ;; esac
+              key="$${line%%=*}"
+              case "$key" in '' | *[!A-Za-z0-9_]*) echo "workspace: ignoring Dev Container variable line '$key'" >&2; continue ;; esac
+              export "DEVCONTAINER_LOCALENV_$key=$${line#*=}"
+            done <<EOF_VARIABLES
+            $DC_VARIABLES
+            EOF_VARIABLES
+            for script in "$DC_CONTAINER_ENV" "$DC_REMOTE_ENV"; do
+              [ -n "$script" ] || continue
+              printf '%s' "$script" | base64 -d > /tmp/devcontainer-env.sh
+              . /tmp/devcontainer-env.sh
+            done
+            rm -f /tmp/devcontainer-env.sh
+            user="$DC_REMOTE_USER"
+            init="$DC_INIT_SCRIPT"
+            unset DC_WORKSPACE_FOLDER DC_ID DC_VARIABLES DC_CONTAINER_ENV DC_REMOTE_ENV DC_REMOTE_USER DC_INIT_SCRIPT
+            if [ "$user" = root ] || [ "$(id -u)" != 0 ]; then
+              exec sh -c "$init"
+            fi
+            entry=$(getent passwd "$user") || { echo "workspace: remote user '$user' does not exist in this image" >&2; exit 1; }
+            uid=$(echo "$entry" | cut -d: -f3)
+            gid=$(echo "$entry" | cut -d: -f4)
+            export HOME="$(echo "$entry" | cut -d: -f6)" USER="$user" LOGNAME="$user"
+            if command -v setpriv >/dev/null 2>&1; then
+              exec setpriv --reuid="$uid" --regid="$gid" --init-groups sh -c "$init"
+            elif command -v runuser >/dev/null 2>&1; then
+              exec runuser -u "$user" -- sh -c "$init"
+            else
+              exec su -s /bin/sh -c "$init" "$user"
+            fi
+          EOT
+          ]
           security_context {
-            run_as_user = "1000"
+            run_as_user = "0"
+            privileged  = var.allow_privileged && try(local.runtime.privileged, false)
+            capabilities {
+              add = try(local.runtime.cap_add, [])
+            }
+            dynamic "seccomp_profile" {
+              for_each = var.allow_privileged && try(local.runtime.seccomp_unconfined, false) ? [1] : []
+              content {
+                type = "Unconfined"
+              }
+            }
           }
           env {
             name  = "CODER_AGENT_TOKEN"
             value = coder_agent.main.token
+          }
+          env {
+            name  = "DC_INIT_SCRIPT"
+            value = coder_agent.main.init_script
+          }
+          env {
+            name  = "DC_REMOTE_USER"
+            value = local.remote_user
+          }
+          env {
+            name  = "DC_WORKSPACE_FOLDER"
+            value = local.workspace_folder
+          }
+          env {
+            name  = "DC_ID"
+            value = data.coder_workspace.me.id
+          }
+          env {
+            name  = "DC_VARIABLES"
+            value = data.coder_parameter.devcontainer_variables.value
+          }
+          env {
+            name  = "DC_CONTAINER_ENV"
+            value = base64encode(lookup(local.env_scripts, "containerEnv", ""))
+          }
+          env {
+            name  = "DC_REMOTE_ENV"
+            value = base64encode(lookup(local.env_scripts, "remoteEnv", ""))
           }
           resources {
             requests = {
               "cpu"    = "250m"
               "memory" = "512Mi"
             }
-            limits = {
-              "cpu"    = "${data.coder_parameter.cpu.value}"
-              "memory" = "${data.coder_parameter.memory.value}Gi"
-            }
+            limits = merge({
+              "cpu"    = local.cpu_limit
+              "memory" = local.memory_limit
+            }, local.gpu_limit)
           }
           volume_mount {
             mount_path = local.home_dir
@@ -722,6 +988,35 @@ resource "kubernetes_deployment_v1" "main" {
             sub_path   = "workspaces"
             read_only  = false
           }
+          # A workspaceFolder outside /workspaces gets its own directory on
+          # the PVC; otherwise this mount points at an unused path.
+          volume_mount {
+            mount_path = startswith(local.workspace_folder, "/workspaces/") ? "/mnt/.devcontainer-unused-workspace-folder" : local.workspace_folder
+            name       = "data"
+            sub_path   = "workspace-folder"
+            read_only  = false
+          }
+          # devcontainer.json's volume mounts, persisted on the PVC.
+          dynamic "volume_mount" {
+            for_each = local.volume_mounts
+            content {
+              mount_path = volume_mount.value.target
+              name       = "data"
+              sub_path   = "volumes/${coalesce(volume_mount.value.source, "anonymous-${volume_mount.value.index}")}"
+              read_only  = volume_mount.value.read_only
+            }
+          }
+          dynamic "volume_mount" {
+            for_each = local.tmpfs_mounts
+            content {
+              mount_path = volume_mount.value.target
+              name       = "tmpfs-${volume_mount.value.index}"
+            }
+          }
+          volume_mount {
+            mount_path = "/dev/shm"
+            name       = "dshm"
+          }
         }
 
         volume {
@@ -729,6 +1024,25 @@ resource "kubernetes_deployment_v1" "main" {
           persistent_volume_claim {
             claim_name = kubernetes_persistent_volume_claim_v1.data.metadata.0.name
             read_only  = false
+          }
+        }
+
+        # /dev/shm sized from runArgs --shm-size (Docker's default is 64 MiB).
+        volume {
+          name = "dshm"
+          empty_dir {
+            medium     = "Memory"
+            size_limit = try(local.runtime.shm_size_bytes, null) != null ? tostring(local.runtime.shm_size_bytes) : "64Mi"
+          }
+        }
+
+        dynamic "volume" {
+          for_each = local.tmpfs_mounts
+          content {
+            name = "tmpfs-${volume.value.index}"
+            empty_dir {
+              medium = "Memory"
+            }
           }
         }
 
