@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-10-07
+
 ### Added
 
 - `GET /devcontainer` now returns everything a Kubernetes workspace needs
@@ -273,7 +275,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   by the two fully static generated pages above, which don't depend on a
   script running after navigation at all.
 
-[Unreleased]: https://github.com/DeepSpaceCartel/devcontainer-builder/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/DeepSpaceCartel/devcontainer-builder/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/DeepSpaceCartel/devcontainer-builder/releases/tag/v0.3.0
 [0.2.0]: https://github.com/DeepSpaceCartel/devcontainer-builder/releases/tag/v0.2.0
 [0.1.5]: https://github.com/DeepSpaceCartel/devcontainer-builder/releases/tag/v0.1.5
 [0.1.4]: https://github.com/DeepSpaceCartel/devcontainer-builder/releases/tag/v0.1.4
