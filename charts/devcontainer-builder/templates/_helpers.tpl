@@ -125,8 +125,16 @@ reason - REGISTRY_MAPPING_CONFIG_PATH wins entirely whenever it's set.
 {{- if .Values.build.fallbackImage -}}
 {{- $build = set $build "fallbackImage" .Values.build.fallbackImage -}}
 {{- end -}}
+{{- range $key := list "cloneTimeoutSeconds" "timeoutSeconds" "maxConcurrent" -}}
+{{- if not (kindIs "invalid" (index $.Values.build $key)) -}}
+{{- $build = set $build $key (index $.Values.build $key) -}}
+{{- end -}}
+{{- end -}}
 {{- if $build -}}
 {{- $settings = set $settings "build" $build -}}
+{{- end -}}
+{{- if .Values.git.allowInsecureProtocols -}}
+{{- $settings = set $settings "git" (dict "allowInsecureProtocols" true) -}}
 {{- end -}}
 {{- $settings = set $settings "sshHostKeyPolicy" .Values.sshHostKeyPolicy -}}
 {{- if .Values.insecureRegistries -}}
