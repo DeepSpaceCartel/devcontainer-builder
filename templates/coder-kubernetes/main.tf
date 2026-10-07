@@ -248,9 +248,18 @@ locals {
   # from the start, and that home is persisted.
   remote_user = try(coalesce(local.dc.remote_user, local.dc.container_user), "root")
   runtime     = try(local.dc.runtime, null)
-  uid         = try(local.runtime.remote_user_uid, null)
-  gid         = try(local.runtime.remote_user_gid, null)
-  home_dir    = try(coalesce(local.runtime.remote_user_home), local.remote_user == "root" ? "/root" : "/home/${local.remote_user}")
+  # An image built before devcontainer-builder 0.3.0 has no recorded
+  # account. Fall back to uid/gid 1000 - what this template used before it
+  # recorded them - so a workspace upgraded from an older template version
+  # still starts (with a warning) and can then be rebuilt: Rebuild only
+  # takes effect once a start has succeeded on this template version
+  # (replace_triggered_by doesn't fire when terraform_data.rebuild is
+  # created, only when it changes).
+  recorded_uid = try(local.runtime.remote_user_uid, null)
+  recorded_gid = try(local.runtime.remote_user_gid, null)
+  uid          = local.recorded_uid != null ? local.recorded_uid : 1000
+  gid          = local.recorded_gid != null ? local.recorded_gid : 1000
+  home_dir     = try(coalesce(local.runtime.remote_user_home), local.remote_user == "root" ? "/root" : "/home/${local.remote_user}")
 
   lifecycle_scripts = try(local.dc.lifecycle_scripts, {})
   env_scripts       = try(local.dc.env_scripts, {})
@@ -306,6 +315,8 @@ locals {
   skipped_capabilities   = var.allow_privileged ? [] : [for c in local.requested_capabilities : c if !contains(local.baseline_capabilities, c)]
   all_warnings = concat(local.warnings, length(local.skipped_capabilities) > 0 ? [
     "capAdd ${join(", ", local.skipped_capabilities)} not added - Pod Security baseline forbids it (template variable allow_privileged enables it)"
+    ] : [], local.dc != null && local.recorded_uid == null ? [
+    "the image doesn't record its remote user's uid/gid (built by devcontainer-builder older than 0.3.0) - running as uid/gid 1000; bump the Rebuild parameter to rebuild it"
   ] : [])
 
   # Mount points that live on the PVC (the workspace folder itself, and any
@@ -762,12 +773,6 @@ resource "kubernetes_deployment_v1" "main" {
     kubernetes_persistent_volume_claim_v1.data
   ]
 
-  lifecycle {
-    precondition {
-      condition     = local.uid != null && local.gid != null
-      error_message = "The image doesn't record its remote user's uid/gid (it was built by devcontainer-builder older than 0.3.0, or has no shell to look it up with). Bump the Rebuild parameter to rebuild it."
-    }
-  }
   wait_for_rollout = false
   metadata {
     name      = "coder-${data.coder_workspace.me.id}"
