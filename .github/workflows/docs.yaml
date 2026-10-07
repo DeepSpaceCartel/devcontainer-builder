@@ -18,12 +18,12 @@ on:
 
 permissions:
   contents: read
-  pages: write
-  id-token: write
 
+# Keyed on the ref, so a PR's build can never cancel (or queue behind) a
+# main deploy. Superseded PR builds are cancelled; main runs always finish.
 concurrency:
-  group: pages
-  cancel-in-progress: false
+  group: docs-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   build:
@@ -32,27 +32,28 @@ jobs:
       run:
         working-directory: service
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: "20"
       - run: npm install
       - run: npm run build
       # Generates docs/openapi.json (repo root) and its two rendered
       # static pages (docs/api-reference.html, docs/api-swagger-ui/) for
-      # the Bundled API docs section (docs/reference/API.md) - the exact
+      # the two "HTTP API" nav entries (see
+      # docs/project/installing.md#this-documentation-site) - the exact
       # same document a running instance serves at GET
       # /documentation/json, never hand-authored.
       - run: OPENAPI_OUTPUT_PATH=../docs/openapi.json node scripts/export-openapi.mjs
       - run: npx redocly build-docs ../docs/openapi.json -o ../docs/api-reference.html
       - run: SWAGGER_UI_OUTPUT_DIR=../docs/api-swagger-ui node scripts/export-swagger-ui.mjs
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: "3.12"
       - run: pip install -r ../docs/requirements.txt
       - run: mkdocs build --strict
         working-directory: .
-      - uses: actions/upload-pages-artifact@v3
+      - uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa # v3.0.1
         with:
           path: site
 
@@ -60,9 +61,13 @@ jobs:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     needs: build
     runs-on: ubuntu-latest
+    # Only the deploy job publishes, so only it gets Pages/OIDC access.
+    permissions:
+      pages: write
+      id-token: write
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e # v4.0.5

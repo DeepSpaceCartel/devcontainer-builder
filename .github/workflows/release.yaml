@@ -7,6 +7,12 @@ name: release
 # this same tag built, the CLI documents which config/API shape it speaks)
 # that versioning them separately would just invite "which chart version
 # needs which image version" questions.
+#
+# A pre-release tag (vX.Y.Z-rc.N, anything with a SemVer -suffix) runs the
+# same jobs, but publishes npm under the `next` dist-tag, never moves the
+# `latest` image tag, skips the VS Code Marketplace and Open VSX (the
+# Marketplace rejects SemVer pre-release versions), and marks the GitHub
+# Release as a pre-release.
 on:
   push:
     tags: ["v*.*.*"]
@@ -15,14 +21,61 @@ permissions:
   contents: read
   packages: write
 
+# One release run per tag, never cancelled halfway through a publish.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   version:
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.version.outputs.version }}
+      prerelease: ${{ steps.version.outputs.prerelease }}
+      latest: ${{ steps.version.outputs.latest }}
+      npm-tag: ${{ steps.version.outputs.npm-tag }}
     steps:
+      # Full history with tags, to compare this version with every
+      # existing release tag.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0
       - id: version
-        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          # SemVer 2.0.0 (https://semver.org/#is-there-a-suggested-regular-expression-regex-to-check-a-semver-string),
+          # with the leading "v".
+          semver='^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-((0|[1-9][0-9]*|[0-9]*[a-zA-Z-][0-9a-zA-Z-]*)(\.(0|[1-9][0-9]*|[0-9]*[a-zA-Z-][0-9a-zA-Z-]*))*))?(\+([0-9a-zA-Z-]+(\.[0-9a-zA-Z-]+)*))?$'
+          if ! printf '%s' "$TAG" | grep -Eq "$semver"; then
+            echo "::error::Tag '$TAG' is not a SemVer version (vMAJOR.MINOR.PATCH[-pre][+build])"
+            exit 1
+          fi
+          version="${TAG#v}"
+          core="${version%%+*}"
+          if [[ "$core" == *-* ]]; then prerelease=true; else prerelease=false; fi
+
+          # `latest` (image tag, npm dist-tag) only moves for the highest
+          # final release, so a patch on an older line can't drag it back.
+          highest="$(git tag -l 'v*' --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -n 1)"
+          if [ "$prerelease" = false ] && [ "$TAG" = "$highest" ]; then latest=true; else latest=false; fi
+
+          if [ "$prerelease" = true ]; then
+            npm_tag=next
+          elif [ "$latest" = true ]; then
+            npm_tag=latest
+          else
+            major_minor="$(printf '%s' "$core" | cut -d. -f1,2)"
+            npm_tag="release-${major_minor}"
+          fi
+
+          {
+            echo "version=${version}"
+            echo "prerelease=${prerelease}"
+            echo "latest=${latest}"
+            echo "npm-tag=${npm_tag}"
+          } >> "$GITHUB_OUTPUT"
+          echo "version=${version} prerelease=${prerelease} latest=${latest} (highest release tag: ${highest:-none}) npm-tag=${npm_tag}"
 
   npm:
     needs: version
@@ -34,13 +87,14 @@ jobs:
     # needed at all. Scoped to just this job, not the workflow-level
     # `permissions:` block above, since nothing else here needs it.
     permissions:
+      contents: read
       id-token: write
     defaults:
       run:
         working-directory: service
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: "20"
           registry-url: "https://registry.npmjs.org"
@@ -49,15 +103,16 @@ jobs:
       # future npm major release can't silently change this job's
       # behavior out from under it.
       - run: npm install -g npm@^11.5.1
-      - run: npm install
+      - run: npm ci
       - run: npm run build
       - run: npm version --no-git-tag-version --allow-same-version "${{ needs.version.outputs.version }}"
       # This package's Trusted Publisher (npmjs.com) is granted the full
       # "publish" action (not the stricter "stage" option) - the `image`
       # job below installs this exact version straight from the registry,
       # so publish has to complete unattended, in this same run, with no
-      # manual approval step in between.
-      - run: npm publish --access public
+      # manual approval step in between. --tag: `next` for a pre-release,
+      # `latest` only for the highest release (see the version job).
+      - run: npm publish --access public --tag "${{ needs.version.outputs.npm-tag }}"
 
   image:
     # Depends on npm, not just version - the release target installs this
@@ -66,10 +121,10 @@ jobs:
     needs: [version, npm]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: docker/setup-qemu-action@v3
-      - uses: docker/setup-buildx-action@v3
-      - uses: docker/login-action@v3
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3.7.0
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -83,20 +138,21 @@ jobs:
       # minutes before it became downloadable - so poll for the tarball
       # itself.
       - name: Wait for npm to serve the published tarball
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
         run: |
-          version="${{ needs.version.outputs.version }}"
           for i in $(seq 1 60); do
-            tarball="$(npm view "@deepspacecartel/devcontainer-builder@${version}" dist.tarball 2>/dev/null || true)"
+            tarball="$(npm view "@deepspacecartel/devcontainer-builder@${VERSION}" dist.tarball 2>/dev/null || true)"
             if [ -n "$tarball" ] && curl -fsSIL -o /dev/null "$tarball"; then
-              echo "@deepspacecartel/devcontainer-builder@${version} is downloadable from npm"
+              echo "@deepspacecartel/devcontainer-builder@${VERSION} is downloadable from npm"
               exit 0
             fi
             echo "Not yet downloadable from npm, retrying in 10s... (${i}/60)"
             sleep 10
           done
-          echo "::error::Timed out waiting for @deepspacecartel/devcontainer-builder@${version} to propagate on npm"
+          echo "::error::Timed out waiting for @deepspacecartel/devcontainer-builder@${VERSION} to propagate on npm"
           exit 1
-      - uses: docker/build-push-action@v6
+      - uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
         with:
           context: service
           target: release
@@ -104,9 +160,12 @@ jobs:
             PACKAGE_VERSION=${{ needs.version.outputs.version }}
           platforms: linux/amd64,linux/arm64
           push: true
+          # `latest` only for the highest final release - never for a
+          # pre-release, never for a patch on an older line. (An empty
+          # line here is ignored.)
           tags: |
             ghcr.io/deepspacecartel/devcontainer-builder:${{ needs.version.outputs.version }}
-            ghcr.io/deepspacecartel/devcontainer-builder:latest
+            ${{ needs.version.outputs.latest == 'true' && 'ghcr.io/deepspacecartel/devcontainer-builder:latest' || '' }}
           # runtime-base (apt installs, non-root user) never actually
           # changes release to release - only the release stage's npm
           # install of the just-published version does. GitHub's own
@@ -120,17 +179,20 @@ jobs:
     needs: [version, image]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: azure/setup-helm@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: azure/setup-helm@1a275c3b69536ee54be43f2070a358922e12c8d4 # v4.3.1
       - run: helm lint charts/devcontainer-builder
       - run: helm dependency update charts/devcontainer-builder
-      - run: |
-          helm registry login ghcr.io -u "${{ github.actor }}" --password-stdin <<< "${{ secrets.GITHUB_TOKEN }}"
+      - env:
+          VERSION: ${{ needs.version.outputs.version }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          helm registry login ghcr.io -u "${{ github.actor }}" --password-stdin <<< "$GHCR_TOKEN"
           helm package charts/devcontainer-builder \
-            --version "${{ needs.version.outputs.version }}" \
-            --app-version "${{ needs.version.outputs.version }}" \
+            --version "$VERSION" \
+            --app-version "$VERSION" \
             --destination /tmp/chart-out
-          helm push "/tmp/chart-out/devcontainer-builder-${{ needs.version.outputs.version }}.tgz" \
+          helm push "/tmp/chart-out/devcontainer-builder-${VERSION}.tgz" \
             oci://ghcr.io/deepspacecartel/charts
 
   # The VS Code extension (vscode-extension/), packaged once: attached to
@@ -143,16 +205,16 @@ jobs:
       run:
         working-directory: vscode-extension
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: "20"
-      - run: npm install
+      - run: npm ci
       - run: npm version --no-git-tag-version --allow-same-version "${{ needs.version.outputs.version }}"
       - run: npm run build
       - run: npm test
       - run: npm run package
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: vscode-extension
           path: vscode-extension/devcontainer-builder.vsix
@@ -161,15 +223,17 @@ jobs:
   # the Coder template installs by ID. Its own job, not a step of the one
   # above: a Marketplace outage or an expired VSCE_PAT (an Azure DevOps PAT
   # with Marketplace > Manage, for a member of the publisher) mustn't hold
-  # back the GitHub Release.
+  # back the GitHub Release. Skipped for pre-releases: the Marketplace
+  # rejects SemVer pre-release versions.
   vscode-marketplace:
-    needs: vscode-extension
+    needs: [version, vscode-extension]
+    if: needs.version.outputs.prerelease == 'false'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: "20"
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: vscode-extension
       - run: npx --yes @vscode/vsce@3 publish --packagePath devcontainer-builder.vsix
@@ -179,16 +243,17 @@ jobs:
   # The same VSIX on Open VSX (open-vsx.org/extension/deepspacecartel/devcontainer-builder),
   # for VSCodium, Cursor, code-server and other editors that don't use
   # Microsoft's Marketplace. Independent of vscode-marketplace for the same
-  # reason. OVSX_PAT: an Open VSX access token of a member of the
-  # deepspacecartel namespace.
+  # reason, and skipped for pre-releases like it. OVSX_PAT: an Open VSX
+  # access token of a member of the deepspacecartel namespace.
   vscode-openvsx:
-    needs: vscode-extension
+    needs: [version, vscode-extension]
+    if: needs.version.outputs.prerelease == 'false'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: "20"
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: vscode-extension
       - run: npx --yes ovsx@0 publish devcontainer-builder.vsix
@@ -201,11 +266,15 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: vscode-extension
-      - uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
         with:
           generate_release_notes: true
+          prerelease: ${{ needs.version.outputs.prerelease == 'true' }}
+          # GitHub's "Latest release" badge follows the same rule as the
+          # `latest` image tag.
+          make_latest: ${{ needs.version.outputs.latest }}
           files: devcontainer-builder.vsix
