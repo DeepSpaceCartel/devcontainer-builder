@@ -1,9 +1,18 @@
 {
-  "name": "devcontainer-builder-rebuild",
-  "displayName": "Dev Containers for Coder",
+  "name": "devcontainer-builder",
+  "displayName": "Dev Containers for Coder in K8S",
   "description": "Clone a repository into a new Coder workspace built from its devcontainer.json, and rebuild the workspace when that configuration changes on its branch.",
   "version": "0.0.0",
   "publisher": "deepspacecartel",
+  "icon": "images/icon.png",
+  "galleryBanner": {
+    "color": "#ffffff",
+    "theme": "light"
+  },
+  "homepage": "https://github.com/DeepSpaceCartel/devcontainer-builder/tree/main/vscode-extension",
+  "bugs": {
+    "url": "https://github.com/DeepSpaceCartel/devcontainer-builder/issues"
+  },
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -79,7 +88,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "test": "node --import tsx --test src/*.test.ts",
-    "package": "cp ../LICENSE LICENSE && vsce package --out devcontainer-builder-rebuild.vsix"
+    "package": "cp ../LICENSE LICENSE && vsce package --out devcontainer-builder.vsix"
   },
   "devDependencies": {
     "@types/node": "^20.14.0",
@@ -87,5 +96,16 @@
     "@vscode/vsce": "^3.2.0",
     "tsx": "^4.19.0",
     "typescript": "^5.6.0"
-  }
+  },
+  "keywords": [
+    "coder",
+    "dev containers",
+    "devcontainer",
+    "devcontainer.json",
+    "kubernetes",
+    "k8s",
+    "remote development",
+    "workspace",
+    "rebuild"
+  ]
 }

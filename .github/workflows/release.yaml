@@ -133,9 +133,9 @@ jobs:
           helm push "/tmp/chart-out/devcontainer-builder-${{ needs.version.outputs.version }}.tgz" \
             oci://ghcr.io/deepspacecartel/charts
 
-  # The rebuild prompt extension the Coder template installs into
-  # workspaces, from this release's assets
-  # (releases/latest/download/devcontainer-builder-rebuild.vsix).
+  # The VS Code extension (vscode-extension/), packaged once: attached to
+  # the GitHub Release below and published to the VS Code Marketplace by
+  # vscode-marketplace.
   vscode-extension:
     needs: version
     runs-on: ubuntu-latest
@@ -155,7 +155,27 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: vscode-extension
-          path: vscode-extension/devcontainer-builder-rebuild.vsix
+          path: vscode-extension/devcontainer-builder.vsix
+
+  # deepspacecartel.devcontainer-builder on the VS Code Marketplace, which
+  # the Coder template installs by ID. Its own job, not a step of the one
+  # above: a Marketplace outage or an expired VSCE_PAT (an Azure DevOps PAT
+  # with Marketplace > Manage, for a member of the publisher) mustn't hold
+  # back the GitHub Release. Open VSX would be a second step here
+  # (`npx ovsx publish` with an OVSX_PAT).
+  vscode-marketplace:
+    needs: vscode-extension
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - uses: actions/download-artifact@v4
+        with:
+          name: vscode-extension
+      - run: npx --yes @vscode/vsce@3 publish --packagePath devcontainer-builder.vsix
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
 
   github-release:
     needs: [version, image, chart, npm, vscode-extension]
@@ -170,4 +190,4 @@ jobs:
       - uses: softprops/action-gh-release@v2
         with:
           generate_release_notes: true
-          files: devcontainer-builder-rebuild.vsix
+          files: devcontainer-builder.vsix
