@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- **Breaking for the template's users:** `templates/coder-kubernetes` maps the rest of
+  `devcontainer.json` onto the workspace (service and provider `>= 0.3.0`, see the guide's
+  support table):
+  - the pod runs as the image's remote user from the start (uid/gid recorded at build time);
+    nothing starts as root, and the uid no longer has to be 1000;
+  - the repo is cloned into `workspaceFolder` at the commit the image was built from, by the
+    lifecycle script itself (the `git-clone` module is gone), and `initializeCommand` runs first;
+  - `containerEnv`/`remoteEnv`, `${localEnv:…}` from a new **Dev Container variables** parameter,
+    forwarded ports as apps, volume/tmpfs mounts, capabilities (beyond Pod Security baseline
+    only with `allow_privileged`), `init`, `/dev/shm`, host aliases, and `hostRequirements`
+    overriding CPU/Memory/Disk;
+  - a **Rebuild** parameter rebuilds the image from the branch tip;
+  - VS Code in the browser is Microsoft's VS Code Server (`vscode-web`, behind
+    `accept_vscode_license`) instead of code-server;
+  - what can't be honored is a Terraform warning in the build log.
+
+  Images built by devcontainer-builder older than 0.3.0 must be rebuilt (bump **Rebuild**).
+
 ## [0.3.0] - 2026-10-07
 
 ### Added
