@@ -141,6 +141,7 @@ export async function buildApp(): Promise<FastifyInstance> {
   if (serviceConfig.sentryDsn) {
     Sentry.init({
       dsn: serviceConfig.sentryDsn,
+      // Captures Fastify errors itself (Sentry 11: no setupFastifyErrorHandler).
       integrations: [Sentry.fastifyIntegration()],
       // GlitchTip (Sentry-protocol-compatible) doesn't speak every modern
       // Sentry-SDK feature - tracesSampleRate/profiling are deliberately
@@ -177,10 +178,6 @@ export async function buildApp(): Promise<FastifyInstance> {
     logController: new LogController({ disableRequestLogging: true }),
     ajv: { customOptions: { coerceTypes: false } },
   }).withTypeProvider<TypeBoxTypeProvider>();
-
-  if (serviceConfig.sentryDsn) {
-    Sentry.setupFastifyErrorHandler(app);
-  }
 
   app.addHook("onResponse", async (request, reply) => {
     request.log.info({

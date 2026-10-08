@@ -44,7 +44,7 @@
     "@opentelemetry/resources": "^2.11.0",
     "@opentelemetry/sdk-node": "^0.222.0",
     "@opentelemetry/semantic-conventions": "^1.43.0",
-    "@sentry/node": "^10.74.0",
+    "@sentry/node": "^11.4.0",
     "@sinclair/typebox": "^0.34.52",
     "fastify": "^5.12.4",
     "jsonc-parser": "^3.3.1",
@@ -53,11 +53,11 @@
     "yaml": "^2.9.0"
   },
   "devDependencies": {
-    "@cucumber/cucumber": "^12.2.0",
+    "@cucumber/cucumber": "^13.2.1",
     "@redocly/cli": "^2.53.2",
     "@types/node": "^26.6.4",
-    "thomas": "github:DeepSpaceCartel/thomas#bc54f0cd85be7bf6f54bddd102bd6a784c0a7bc1",
+    "thomas": "github:DeepSpaceCartel/thomas#0bebc39a570764cb461cfab8ace4ff0087e28bdc",
     "tsx": "^4.19.0",
-    "typescript": "^5.6.0"
+    "typescript": "^7.0.2"
   }
 }
