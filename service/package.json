@@ -56,8 +56,8 @@
     "@cucumber/cucumber": "^13.2.1",
     "@redocly/cli": "^2.53.2",
     "@types/node": "^26.6.4",
-    "thomas": "github:DeepSpaceCartel/thomas#0bebc39a570764cb461cfab8ace4ff0087e28bdc",
-    "tsx": "^4.19.0",
+    "thomas": "github:DeepSpaceCartel/thomas#1c5f12cd2e3430a62a1df36a9f924741864c12e2",
+    "tsx": "^4.23.15",
     "typescript": "^7.0.2"
   }
 }
