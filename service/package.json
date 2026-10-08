@@ -44,7 +44,7 @@
     "@opentelemetry/resources": "^2.11.0",
     "@opentelemetry/sdk-node": "^0.222.0",
     "@opentelemetry/semantic-conventions": "^1.43.0",
-    "@sentry/node": "^10.74.0",
+    "@sentry/node": "^11.4.0",
     "@sinclair/typebox": "^0.34.52",
     "fastify": "^5.12.4",
     "jsonc-parser": "^3.3.1",
@@ -58,6 +58,6 @@
     "@types/node": "^26.6.4",
     "thomas": "github:DeepSpaceCartel/thomas#1c5f12cd2e3430a62a1df36a9f924741864c12e2",
     "tsx": "^4.23.15",
-    "typescript": "^5.6.0"
+    "typescript": "^7.0.2"
   }
 }
