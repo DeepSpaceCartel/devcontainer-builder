@@ -53,11 +53,11 @@
     "yaml": "^2.9.0"
   },
   "devDependencies": {
-    "@cucumber/cucumber": "^12.2.0",
+    "@cucumber/cucumber": "^13.2.1",
     "@redocly/cli": "^2.53.2",
     "@types/node": "^26.6.4",
-    "thomas": "github:DeepSpaceCartel/thomas#bc54f0cd85be7bf6f54bddd102bd6a784c0a7bc1",
-    "tsx": "^4.19.0",
+    "thomas": "github:DeepSpaceCartel/thomas#1c5f12cd2e3430a62a1df36a9f924741864c12e2",
+    "tsx": "^4.23.15",
     "typescript": "^5.6.0"
   }
 }
